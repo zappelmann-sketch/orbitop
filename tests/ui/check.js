@@ -229,7 +229,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const full = (r, extra) => ({ ...r, cmdline: r.name + " --x", ppid: 1000, parent: "eltern", threads: 3, vctx: 0,
     nvctx: 2, kernel: false, started: Math.floor(Date.now() / 1000) - 120, history: [1, 2, 3], ...extra });
   const ptick = (procs, detail) => tick([], { procs, detail: detail || null });
-  const rows = () => [...$$(".ptable tbody tr")];
+  const rows = () => [...$$(".ptable tbody tr:not(.pad)")]; // ohne Abstandszeilen der Virtualisierung
   const names = () => rows().map((tr) => tr.querySelector(".name b").textContent).join(",");
   const heads = $$(".ptable th button"), filters = $$(".filters button");
   const terms = () => posted.filter((m) => JSON.parse(m).type === "terminate");
@@ -514,6 +514,46 @@ document.addEventListener("DOMContentLoaded", () => {
      hostile[3] + "|true", "Rückfrage: Name isoliert, PID lesbar");
   cancel.click();
   eq(terms().length, 4, "nur bestätigte Aufträge gesendet");
+
+  // ---- Viele Zeilen: nur die sichtbaren plus Puffer im DOM, Abstandszeilen halten Höhe und Positionen ----
+  const many = Array.from({ length: 300 }, (_, i) => row(1000 + i, { name: "v" + String(i).padStart(3, "0"), cpu: 300 - i }));
+  const vname = (tr) => tr.querySelector(".name b").textContent;
+  const scroller = $(".procs .scroll"), headH = $(".ptable thead").getBoundingClientRect().height;
+  const fd = full(many[0]); // ein Objekt: started hängt an Date.now()
+  only(many[0]);
+  receive(ptick(many, fd));
+  eq(rows().length < 80 && vname(rows()[0]) === "v000", true, `nur sichtbare Zeilen im DOM (${rows().length})`);
+  const pitch = rows()[1].getBoundingClientRect().top - rows()[0].getBoundingClientRect().top;
+  eq(Math.abs(scroller.scrollHeight - (headH + 300 * pitch)) < 1, true, "volle Höhe wie ohne Virtualisierung");
+  eq($(".ptable").getAttribute("aria-rowcount") + "/" + rows()[1].getAttribute("aria-rowindex"), "301/3",
+     "Zeilenzahl und -index für Hilfstechnik");
+  const rowTop = (tr) => tr.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - headH;
+  const placed = (name) => { // Zeile an derselben Stelle, an der sie ohne Virtualisierung stünde
+    const tr = rows().find((t) => vname(t) === name);
+    return !!tr && Math.abs(rowTop(tr) - Number(name.slice(1)) * pitch) < 0.5;
+  };
+  scroller.scrollTop = 150 * pitch;
+  scroller.dispatchEvent(new Event("scroll"));
+  eq(placed("v150") && placed("v160") && !rows().some((t) => vname(t) === "v001"), true, "nach dem Rollen: Zeilen an ihrem Platz");
+  eq(placed("v000"), true, "gewählte Zeile (Tab-Halt) bleibt an ihrem Platz im DOM");
+  const edge = rows().at(-1), after = "v" + String(Number(vname(edge).slice(1)) + 1).padStart(3, "0");
+  edge.focus();
+  edge.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+  scroller.dispatchEvent(new Event("scroll")); // focus() rollt; das Ereignis käme sonst erst nach dieser Prüfung
+  eq(vname(document.activeElement) + "/" + placed(after), after + "/true", "Pfeil runter über den gezeichneten Bereich hinaus");
+  const focused = document.activeElement;
+  const sunk = many.map((p) => (vname(focused) === p.name ? { ...p, cpu: -1 } : p));
+  receive(ptick(sunk, fd));
+  eq(document.activeElement === focused && Math.abs(rowTop(focused) - 299 * pitch) < 0.5, true,
+     "fokussierte Zeile bleibt im DOM, an ihrem neuen Platz am Ende");
+  setText(rows().find((t) => t !== focused).firstChild.firstChild, "X");
+  receive(ptick(sunk, fd));
+  eq(rows().some((t) => vname(t) === "X"), true, "Takt ohne neue Prozessdaten zeichnet die Tabelle nicht neu");
+  receive(ptick(many, fd));
+  eq(rows().some((t) => vname(t) === "X"), false, "neue Prozessdaten: neu gezeichnet");
+  eq(find("v29") + "/" + $$(".ptable tr.pad").length, "v290,v291,v292,v293,v294,v295,v296,v297,v298,v299/0",
+     "Suche über alle Zeilen, wenige Treffer ohne Abstandszeilen");
+  find("");
 
   // ---- Info-Dialog ----
   const info = $(".info"), about = $("dialog.about");

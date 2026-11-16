@@ -27,11 +27,12 @@ function byteStep(big) {
 const state = {
   lang: "en", texts: {}, version: "", tab: "overview", last: null, n: 0, briefs: [], collator: new Intl.Collator(),
   sel: null, cursor: null, sort: { col: "cpu", desc: true }, filter: "all", query: "", autoPick: false,
+  rows: [], scrollTop: 0, viewH: 0, pitch: 0, block: null, // Prozessliste: sortiert, Rollstand, gemessene Größen
   target: null, opener: null, pending: null, lastTerm: null, alert: null, // Rückfrage, laufendes Beenden, Nachsehen
 };
 const ui = { labels: [] };
 const tiles = new Map(); // Kachel-id -> Elemente
-const procRows = new Map(); // "pid:start" -> Zeilenelemente, nur angezeigte Zeilen
+const procRows = new Map(); // "pid:start" -> Zeilenelemente, nur gezeichnete Zeilen
 const formats = new Map();
 
 // ---- Texte und Zahlen ----
@@ -357,6 +358,7 @@ function renderOverview(msg) {
 
 // ---- Prozesse ----
 const PROC_POINTS = 150, PROC_GRID = 15, SPARK_POINTS = 30; // 2 s je Punkt: Detail 5 min, Linie alle 30 s; Zeile 60 s
+const BUFFER_ROWS = 12, GUESS_PITCH = 31; // Zeilen über und unter dem Sichtbereich; Zeilenabstand, bis er gemessen ist
 const SVG_NS = "http://www.w3.org/2000/svg";
 const KIND = { working: "ok", waiting: "idle", busy_noio: "warn", busy_iounknown: "warn", kernel_hang: "bad",
                stopped: "stop", zombie: "dead" }; // Farbe und Symbol je Zustand, wie im Entwurf
@@ -453,15 +455,30 @@ function buildProcs() {
     pressFilters();
     refresh();
   }), "filter." + f));
-  const table = label(el("table", "ptable", el("div", "scroll", list)), "tab.procs", "aria-label");
-  const head = el("tr", "", el("thead", "", table));
+  ui.scroll = el("div", "scroll", list);
+  ui.table = label(el("table", "ptable", ui.scroll), "tab.procs", "aria-label");
+  const head = el("tr", "", el("thead", "", ui.table));
   ui.ths = COLS.map((c) => {
     const th = el("th", c.cls || "", head);
     th.scope = "col";
     label(button("", th, () => sortBy(c)), c.key);
     return th;
   });
-  ui.tbody = el("tbody", "", table);
+  ui.tbody = el("tbody", "", ui.table);
+  ui.pads = []; // Abstandszeilen anstelle der nicht gezeichneten Zeilen
+  ui.scroll.addEventListener("scroll", () => {
+    state.scrollTop = ui.scroll.scrollTop;
+    renderRows();
+  }, { passive: true });
+  // Nach dem Layout gemessen, erzwingt also kein Layout: Höhe des Rollbereichs, Rollstand, Zeilenabstand (Schrift)
+  const sizes = new ResizeObserver(() => {
+    const viewH = ui.scroll.clientHeight, top = ui.scroll.scrollTop, pitch = rowPitch();
+    if (!viewH || (viewH === state.viewH && top === state.scrollTop && !(pitch > 0 && pitch !== state.pitch))) return;
+    Object.assign(state, { viewH, scrollTop: top }, pitch > 0 ? { pitch } : {});
+    renderRows();
+  });
+  sizes.observe(ui.scroll);
+  sizes.observe(ui.table);
   ui.tbody.addEventListener("click", (e) => pickRow(e.target.closest("tr")));
   ui.tbody.addEventListener("keydown", rowKey);
   ui.tbody.addEventListener("focusin", (e) => {
@@ -527,10 +544,13 @@ function rowKey(e) {
     e.preventDefault();
     pickRow(tr);
   } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-    const next = e.key === "ArrowDown" ? tr.nextElementSibling : tr.previousElementSibling;
+    const i = state.rows.findIndex((p) => keyOf(p) === tr.dataset.key);
+    const next = i < 0 ? null : state.rows[i + (e.key === "ArrowDown" ? 1 : -1)];
     if (next) {
       e.preventDefault();
-      next.focus();
+      const key = (state.cursor = keyOf(next)); // lokal: renderRows gibt den Fokus zurück, focusin setzt cursor
+      renderRows(); // die Zeile kommt in den DOM, falls sie fehlte
+      procRows.get(key).tr.focus(); // und rollt ins Bild
     }
   }
 }
@@ -589,6 +609,14 @@ function updateRow(v, p) {
   }
 }
 
+/** Tiefer Vergleich zweier Teile des Schnappschusses (JSON-Werte). */
+function equal(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => equal(a[k], b[k]));
+}
+
 function compare(a, b) {
   return typeof a === "string" ? state.collator.compare(a, b) : a - b;
 }
@@ -610,29 +638,77 @@ function renderProcs(msg) {
     state.autoPick = false;
     return select("procs", list[0].pid, list[0].start);
   }
-  const views = list.map((p) => {
-    const v = procRows.get(keyOf(p)) || makeRow(keyOf(p));
+  state.rows = list;
+  renderRows();
+  renderDetail(msg);
+}
+
+/** Gezeichnet werden nur die Zeilen im Sichtbereich plus Puffer und die Zeile mit dem Tab-Halt (sie behält so auch
+ * den Fokus); Abstandszeilen mit der Höhe der übrigen halten jede Zeile an ihrem Platz. */
+function renderRows() {
+  if (!state.viewH) state.viewH = ui.scroll.clientHeight; // nur beim ersten Mal direkt, danach vom ResizeObserver
+  const list = state.rows, n = list.length, pitch = state.pitch || GUESS_PITCH, viewH = state.viewH || innerHeight;
+  const top = Math.min(state.scrollTop, Math.max(0, n * pitch - viewH)); // nach dem Kürzen der Liste rollt der Browser hoch
+  const a = Math.min(n, Math.max(0, Math.floor(top / pitch) - BUFFER_ROWS));
+  const b = Math.min(n, Math.ceil((top + viewH) / pitch) + BUFFER_ROWS);
+  let c = list.findIndex((p) => keyOf(p) === state.cursor);
+  if (c < 0) { // Tab-Halt: die gewählte, sonst die erste Zeile
+    const sk = state.sel && keyOf(state.sel);
+    c = Math.max(0, list.findIndex((p) => keyOf(p) === sk));
+    state.cursor = n ? keyOf(list[c]) : null;
+  }
+  const idx = Array.from({ length: b - a }, (_, i) => a + i);
+  if (n && c < a) idx.unshift(c);
+  if (c >= b && c < n) idx.push(c);
+  const kids = [], keep = new Set();
+  let next = 0, pads = 0;
+  const pad = (rowsLeft) => {
+    const tr = ui.pads[pads++] || (ui.pads[pads - 1] = makePad());
+    const h = rowsLeft * pitch - 1 + "px"; // ohne die untere Linie, die die Zelle selbst zeichnet
+    if (tr.firstChild.style.height !== h) tr.firstChild.style.height = h;
+    kids.push(tr);
+  };
+  for (const i of idx) {
+    if (i > next) pad(i - next);
+    const p = list[i], key = keyOf(p), v = procRows.get(key) || makeRow(key);
     updateRow(v, p);
-    return v;
-  });
-  const shown = new Set(views);
+    if (v.index !== i) v.tr.setAttribute("aria-rowindex", String((v.index = i) + 2)); // Kopfzeile ist 1
+    keep.add(key);
+    kids.push(v.tr);
+    next = i + 1;
+  }
+  if (n > next) pad(n - next);
   for (const [k, v] of procRows) {
-    if (!shown.has(v)) {
+    if (!keep.has(k)) {
       v.tr.remove();
       procRows.delete(k);
     }
   }
-  if (views.some((v, i) => ui.tbody.children[i] !== v.tr)) {
+  if (kids.length !== ui.tbody.childElementCount || kids.some((tr, i) => ui.tbody.children[i] !== tr)) {
     const focused = document.activeElement; // Umhängen nimmt der Zeile den Fokus
-    ui.tbody.replaceChildren(...views.map((v) => v.tr));
+    ui.tbody.replaceChildren(...kids);
     if (focused && focused !== document.activeElement && focused.isConnected) focused.focus({ preventScroll: true });
   }
-  if (!procRows.has(state.cursor)) {
-    const sk = state.sel && keyOf(state.sel);
-    state.cursor = procRows.has(sk) ? sk : views.length ? views[0].key : null;
-  }
+  if (ui.table.getAttribute("aria-rowcount") !== String(n + 1)) ui.table.setAttribute("aria-rowcount", String(n + 1));
+  state.block = b - a > 1 ? [procRows.get(keyOf(list[a])).tr, procRows.get(keyOf(list[b - 1])).tr, b - a] : null;
   rove();
-  renderDetail(msg);
+  if (!state.pitch && rowPitch() > 0) { // einmalig: Zeilenabstand noch unbekannt, jetzt messen und richtig setzen
+    state.pitch = rowPitch();
+    renderRows();
+  }
+}
+
+/** Abstand zweier Zeilen aus dem zusammenhängend gezeichneten Block, 0 wenn unbekannt oder ausgeblendet. */
+function rowPitch() {
+  const b = state.block;
+  return b ? (b[1].getBoundingClientRect().top - b[0].getBoundingClientRect().top) / (b[2] - 1) : 0;
+}
+
+function makePad() {
+  const tr = el("tr", "pad");
+  tr.setAttribute("aria-hidden", "true");
+  el("td", "", tr).colSpan = COLS.length;
+  return tr;
 }
 
 function ioText(d) {
@@ -793,10 +869,13 @@ window.orbitop = {
       setText(ui.version, fill("about.version", { version: state.version }));
       hdrInfo();
     } else if (msg.type === "tick") {
+      const prev = state.last;
       state.last = msg;
       state.n++;
       renderFooter(msg.missing, msg.hints);
       if (state.tab === "overview") renderOverview(msg); // ausgeblendete Kacheln nicht zeichnen
+      // Prozesse kommen alle 2 s: dazwischen bleiben Tabelle und Detail, nur das Alter im Detail läuft weiter
+      else if (Array.isArray(msg.procs) && prev && equal(msg.procs, prev.procs) && equal(msg.detail, prev.detail)) renderDetail(msg);
       else renderProcs(msg);
     } else if (msg.type === "terminate_result") {
       const t = state.pending;
