@@ -3,10 +3,31 @@
 # Copyright © 2026 zappelmann-sketch
 # Copies a fixed list of /proc and /sys files of the running machine into <target>.
 # <target> must not exist or be empty: capture into a fresh directory, then swap it in.
-# Never copies serials, MAC addresses (address), host or user names; interfaces named
-# enx*/wlx* (MAC in the name) and network/loop/home mounts are dropped.
+# Never copies serials, MAC addresses (address), host or user names. Dropped on purpose:
+#   - cpuinfo lines starting with "Serial"
+#   - interfaces named enx*/wlx* and power supplies named hid-* (MAC in the name)
+#   - mounts of type nfs, nfs4, cifs, smb3, smbfs or fuse.sshfs (host/user in the source),
+#     /dev/loop* sources, and mount points under /home, /media, /run/media, /run/user,
+#     /mnt, /snap and /run/snapd
 set -euo pipefail
 
+# Reads /proc/mounts on stdin, writes the lines that are safe to keep.
+filter_mounts() {
+    awk '$3 !~ /^(nfs|nfs4|cifs|smb3|smbfs|fuse\.sshfs)$/ && $1 !~ /^\/dev\/loop/ &&
+        $2 !~ /^\/(home|media|run\/media|run\/user|mnt|snap|run\/snapd)(\/|$)/'
+}
+if [ "${1:-}" = --filter-mounts ]; then
+    filter_mounts
+    exit
+fi
+
+# Names that embed a MAC address.
+private_name() {
+    case $1 in enx*|wlx*|hid-*) return 0 ;; esac
+    return 1
+}
+
+self=$(realpath -- "$0")
 [ $# -eq 1 ] || { echo "usage: $0 <target-dir>" >&2; exit 2; }
 target=$(realpath -m -- "$1")
 if [ -e "$target" ] && [ -n "$(ls -A -- "$target")" ]; then
@@ -31,6 +52,7 @@ copy_glob() {
     local dir=$1 f d p
     shift
     for d in $dir; do
+        ! private_name "${d##*/}" || continue
         for f in "$@"; do
             for p in "$d"/$f; do copy_file "$p"; done
         done
@@ -43,7 +65,7 @@ filter_file() {
     shift
     [ -r "$src" ] || return 0
     mkdir -p -- "${dst%/*}"
-    timeout 1 "$@" < "$src" > "$dst" 2>/dev/null || true
+    timeout 1 "$@" < "$src" > "$dst" 2>/dev/null || rm -f -- "$dst"
 }
 
 copy_file proc/stat
@@ -51,7 +73,7 @@ copy_file proc/meminfo
 copy_file proc/diskstats
 filter_file proc/cpuinfo grep -vi '^serial'
 filter_file proc/net/dev grep -Ev '^ *(enx|wlx)'
-filter_file proc/mounts grep -Ev '^/dev/loop|^(nfs|nfs4|cifs|smb3|smbfs|//)| /(home|media|run/media|run/user|mnt|snap|run/snapd)(/| )'
+filter_file proc/mounts bash "$self" --filter-mounts
 
 copy_glob "sys/devices/system/cpu/cpu[0-9]*/cpufreq" scaling_cur_freq cpuinfo_max_freq
 copy_glob "sys/class/hwmon/hwmon*" name 'temp*_input' 'temp*_label' 'temp*_crit' \
@@ -66,7 +88,7 @@ copy_glob "sys/class/devfreq/*" cur_freq max_freq
 copy_glob "sys/block/*" size stat
 copy_glob "sys/block/*/device" model
 copy_glob "sys/block/*/*" partition
-copy_glob "sys/class/net/[!ew]* sys/class/net/e[!n]* sys/class/net/en[!x]* sys/class/net/w[!l]* sys/class/net/wl[!x]*" operstate type
+copy_glob "sys/class/net/*" operstate type
 
 # Driver symlinks stay symlinks, but only their relative target is recorded.
 for l in sys/class/drm/card[0-9]/device/driver; do
@@ -78,7 +100,7 @@ done
 # "device" entries mark physical NICs and disks: record an empty directory (.keep, git drops empty dirs).
 for d in sys/class/net/*/device sys/block/*/device; do
     [ -e "$d" ] || continue
-    case "$d" in sys/class/net/enx*|sys/class/net/wlx*) continue ;; esac
+    ! private_name "$(basename -- "${d%/device}")" || continue
     mkdir -p -- "$target/$d"
     : > "$target/$d/.keep"
 done

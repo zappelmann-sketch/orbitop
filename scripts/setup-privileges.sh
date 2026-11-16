@@ -5,7 +5,7 @@
 # Usage: sudo bash setup-privileges.sh [--dry-run] [--allow-rapl]
 # With --dry-run, detection reads from ${ORBITOP_SYSROOT:-/} so it can be tested against fake trees.
 set -euo pipefail
-PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 
 usage() { echo "usage: $0 [--dry-run] [--allow-rapl]" >&2; exit 2; }
 
@@ -64,10 +64,7 @@ if [ "$has_intel_gfx" -eq 1 ]; then
     fi
     run setcap cap_perfmon=ep "$igt"
     echo "Note: upgrading intel-gpu-tools removes this capability; run this script again afterwards."
-fi
-
-if [ "$has_rapl" -eq 1 ] && [ "$allow_rapl" -eq 0 ]; then
-    echo "Note: power readings need --allow-rapl (see the warning it prints)."
+    echo "Undo: sudo setcap -r $igt"
 fi
 
 if [ "$has_rapl" -eq 1 ] && [ "$allow_rapl" -eq 1 ]; then
