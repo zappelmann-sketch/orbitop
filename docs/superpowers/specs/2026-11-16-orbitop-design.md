@@ -32,6 +32,7 @@ Geprüfte Lizenzen der Abhängigkeiten: PyGObject LGPL-2.1+, GTK 4 LGPL-2.1+, We
    - GitHub-Release mit `.deb`-Datei zum Herunterladen.
    - Eingebaute Update-Prüfung: orbitop fragt bei GitHub nach einem neueren Release, zeigt „Update verfügbar“, lädt das Paket nach Klick herunter und installiert es nach Passworteingabe.
    - Offen für Stufe 2: Signatur und Prüfsumme der Downloads, Bauen in GitHub Actions, eigene APT-Quelle ja oder nein, Mindestversion von Ubuntu und Debian, Wartungsablauf bei neuen Ubuntu-Versionen.
+   - **Pflicht für Stufe 2 aus dem Security-Audit von Task 10 (2026-11-16):** Der Root-Helfer `killhelper` muss root-eigen an einem festen Pfad installiert werden (z. B. `/usr/lib/orbitop/killhelper`). In Stufe 1 liegt er im Repository des Users und ist für ihn beschreibbar. Das ist dort vertretbar, weil User und Admin dieselbe Person sind. Auf Mehrbenutzer-Rechnern wäre es aber eine echte Rechtegrenze. Dazu gehört eine eigene polkit-Action mit `auth_admin` (nie `auth_admin_keep` oder `yes`, sonst wird die argv-Prüfung zur alleinigen Grenze) und eine passenden `exec.path`-Annotation.
 
 Stufe 1 muss nur so gebaut sein, dass Stufe 2 nichts umbauen muss (siehe „Für Stufe 2 vorbereitet“).
 
