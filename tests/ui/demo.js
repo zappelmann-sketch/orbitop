@@ -2,6 +2,7 @@
 // Copyright © 2026 zappelmann-sketch
 // Spielt die Demodaten in die Oberfläche ein, wie es die App über window.orbitop.receive tut.
 // ?threads=16 vervielfacht die CPU-Threads (Balkenreihe), ?long=120 setzt überall unumbrechbare Namen dieser Länge.
+// #procs öffnet den Reiter „Prozesse“ und wählt den obersten Prozess (app.js).
 "use strict";
 (() => {
   const { init, tick } = window.ORBITOP_DEMO;
@@ -23,6 +24,8 @@
       for (const r of t.devices ? t.devices.rows : []) r.name = name;
     }
     for (const b of tick.top.cpu) b.name = name;
+    for (const r of [...(tick.procs || []), tick.detail].filter(Boolean)) Object.assign(r, { name, args: name, user: name });
+    if (tick.detail) Object.assign(tick.detail, { cmdline: name, parent: name });
   }
   window.orbitop.receive(init);
   window.orbitop.receive(tick);

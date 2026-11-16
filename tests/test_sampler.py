@@ -623,7 +623,7 @@ def test_dump_view_procs_fills_detail(intel_copy):
     out = subprocess.run([sys.executable, SCRIPT, "--root", intel_copy, "--ticks", "2", "--interval", "0.05",
                           "--view", "procs"], capture_output=True, text=True, check=True).stdout
     tick = json.loads(out)
-    assert tick["procs"] and tick["detail"]["pid"] == tick["procs"][0]["pid"]
+    assert tick["procs"] and tick["detail"]["pid"] == max(tick["procs"], key=lambda r: r["cpu"])["pid"]
     assert json.loads(dump().stdout)["procs"] is None
 
 

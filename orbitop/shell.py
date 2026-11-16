@@ -108,7 +108,8 @@ class Shell:
         self._win.connect("close-request", self._on_close)
         self._win.connect("notify::visible", self._on_visible)
         self._win.connect("notify::suspended", self._on_visible)
-        self._view.load_uri(INDEX_URI)
+        # Sichtprüfung (mit ORBITOP_SNAPSHOT): ORBITOP_TAB=procs öffnet den Reiter „Prozesse“
+        self._view.load_uri(INDEX_URI + ("#procs" if os.environ.get("ORBITOP_TAB") == "procs" else ""))
 
     def _command_line(self, _app, cmdline) -> int:
         if "--hidden" not in cmdline.get_arguments():  # verborgene Starts (Autostart) zeigen nie das Fenster

@@ -7,7 +7,8 @@ const GRID_COLOR = "rgba(120,200,255,.09)";
 
 /**
  * series: [{fill, max, values}], neueste Werte rechts, null ist eine Lücke.
- * opts: {color, color2, color3, gridSeconds, points}; Kurve i bekommt die i-te Farbe (ab der zweiten ersatzweise color2).
+ * opts: {color, color2, color3, gridEvery, points}; Kurve i bekommt die i-te Farbe (ab der zweiten ersatzweise color2).
+ * gridEvery: Abstand der senkrechten Gitterlinien in Punkten (30 s sind 30 Punkte bei 1 s, 15 bei 2 s).
  * Farben als #rrggbb, damit sich die Deckkraft für den Verlauf anhängen lässt.
  */
 function drawArea(canvas, series, opts) {
@@ -24,7 +25,7 @@ function drawArea(canvas, series, opts) {
   ctx.clearRect(0, 0, w, h);
   const small = h < 40, step = w / (opts.points - 1);
 
-  // Gitter: 4 waagerechte Linien, senkrecht alle gridSeconds (ein Punkt = 1 s), vom neuesten Wert aus gezählt
+  // Gitter: 4 waagerechte Linien, senkrecht alle gridEvery Punkte, vom neuesten Wert aus gezählt
   ctx.strokeStyle = GRID_COLOR;
   ctx.lineWidth = 1;
   ctx.beginPath();
@@ -33,7 +34,7 @@ function drawArea(canvas, series, opts) {
     ctx.moveTo(0, y);
     ctx.lineTo(w, y);
   }
-  for (let s = opts.gridSeconds; s < opts.points - 1; s += opts.gridSeconds) {
+  for (let s = opts.gridEvery; s < opts.points - 1; s += opts.gridEvery) {
     const x = Math.round(w - s * step) + 0.5;
     ctx.moveTo(x, 0);
     ctx.lineTo(x, h);

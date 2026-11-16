@@ -47,7 +47,7 @@ def main(argv=None) -> None:
     ap.add_argument("--ticks", type=int, default=5)
     ap.add_argument("--interval", type=_interval, default=1.0, help="Sekunden zwischen den Takten")
     ap.add_argument("--view", choices=("overview", "procs"), default="overview",
-                    help="procs füllt auch procs und detail (erste Zeile)")
+                    help="procs füllt auch procs und detail (Prozess mit der höchsten CPU-Last)")
     ap.add_argument("--js", action="store_true", help="window.ORBITOP_DEMO = {init, tick};")
     ap.add_argument("--anonymize", action="store_true", help="Prozessnamen, Befehlszeilen und Benutzer ersetzen")
     a = ap.parse_args(argv)
@@ -58,11 +58,12 @@ def main(argv=None) -> None:
             if i:
                 time.sleep(a.interval)
             sampler.tick_system()
-            sampler.tick_procs()
+            if i % 2 == 0:  # wie der Worker der App: Prozesse jeden zweiten Takt
+                sampler.tick_procs()
         tick = sampler.snapshot({"tab": a.view, "pid": None, "start": None})
         if a.view == "procs" and tick["procs"]:
-            first = tick["procs"][0]
-            tick = sampler.snapshot({"tab": "procs", "pid": first["pid"], "start": first["start"]})
+            top = max(tick["procs"], key=lambda r: r["cpu"])
+            tick = sampler.snapshot({"tab": "procs", "pid": top["pid"], "start": top["start"]})
     finally:
         sampler.close()
     if a.anonymize:
