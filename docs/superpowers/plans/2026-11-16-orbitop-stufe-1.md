@@ -76,8 +76,8 @@ Devices   {"cols":[textkey],"rows":[{"name":str,"values":[Num|null]}]}   (kleine
 ProcBrief {"pid":int,"start":int,"name":str,"cpu":float,"rss":int}
 ProcRow   {"pid","start","name","args","user","own":bool,"cpu":float,"spark":[float],"rss":int,
            "io":float|null,"state":State,"since":int}
-ProcDetail ProcRow + {"cmdline":str,"ppid":int,"parent":str,"threads":int,"vctx":float,"nvctx":float,
-           "started":int,"history":[float]}                                     (history ≤150)
+ProcDetail ProcRow + {"cmdline":str,"ppid":int,"parent":str,"threads":int,"vctx":float,"nvctx":float,"kernel":bool,
+           "started":int,"history":[float]}   (history ≤150; kernel = PID 1 oder Kernel-Thread → nicht beendbar, Regel nur in Python)
 State     working|waiting|busy_noio|busy_iounknown|kernel_hang|stopped|zombie
 Result    sent|gone|mismatch|zombie|kernel|denied|error
 ```
