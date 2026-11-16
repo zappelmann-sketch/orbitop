@@ -379,7 +379,7 @@ def test_fdinfo_dedupes_client_ids(tmp_path): ... assert fdinfo_busy(root, "i915
 **Interfaces:**
 - Produces:
   - `parse_intel(obj: dict) -> dict`, Schlüssel `busy`, `freq_mhz`, `gpu_w`, `pkg_w`. Fehlende Werte sind `None`. `busy` ist das Maximum über `engines.*.busy`.
-  - `split_json_stream(chunks: Iterable[str]) -> Iterator[dict]`: zerlegt den Strom `[ {…}, {…}` über die Klammertiefe.
+  - `split_json_stream(chunks: Iterable[str]) -> Iterator[dict]`: rahmt Objekte über Zeilen in Spalte 0 (genau `{` … genau `}` oder `},`), verwirft den Block `clients` (rohe Prozessnamen) per Einrückung und parst dann. (Geändert nach dem Review vom 2026-11-16: Die Klammertiefe war gegen ungeschützte Prozessnamen nicht robust.)
   - `parse_nvidia_line(line: str) -> dict`, Schlüssel `pci`, `name`, `busy`, `vram_used`, `vram_total`, `temp_c`, `power_w`, `freq_mhz`, `freq_max_mhz`, `fan_pct`. `[N/A]` und `[Not Supported]` werden zu `None`. Die PCI-Adresse wird kleingeschrieben und auf die letzten 12 Zeichen gekürzt (`0000:01:00.0`).
   - `class ToolReader(cmd: list[str], parse)` mit `start()`, `latest() -> dict|None`, `stop()`, `failed: bool`. Ein Daemon-Thread liest die Ausgabe. Beendet sich das Werkzeug, wird es höchstens alle 30 s neu gestartet. Beendet es sich schon beim ersten Start mit einem Fehler, gilt `failed = True`.
   - `class GpuTools(gpus: list[GpuInfo])` mit `intel(card) -> dict|None`, `nvidia(pci) -> dict|None`, `hints() -> list[str]` (`hint.igt_missing`, `hint.igt_noperm`, `hint.nvsmi_missing`) und `stop()`.
