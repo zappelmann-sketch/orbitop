@@ -41,6 +41,13 @@ Jede Task gilt erst als fertig, wenn alle vier Punkte erledigt sind:
 3. **Toter Code:** Ungenutzte Funktionen, Parameter, Importe, Dateien, Schlüssel und auskommentierter Code werden entfernt.
 4. **Gegenprüfung durch den Hauptagenten:** Jeder Befund wird am Code verifiziert, bevor er umgesetzt oder begründet abgelehnt wird. Gefundene Schwachstellen werden sofort behoben, nicht später.
 
+**Pflicht-Skills in jedem Task-Review (Vorgabe des Users):** Der Prüfer lädt sie über das Skill-Werkzeug und nennt sie im Bericht.
+- `security-audit` im Modus für gezielte Prüfungen (guidance mode), auf den Task-Diff
+- `cybersecurity-katalog` mit den 1–3 passenden Katalogeinträgen, sobald ein Spezialthema berührt ist (Root-Skripte, Capabilities, pkexec/polkit, WebView, Subprozesse)
+- `ponytail:ponytail-review` für toten und überflüssigen Code
+
+Für die Schlussprüfung: `security-audit` im vollen Modus über den ganzen Zweig, mit Berichtsordner außerhalb des Repositorys.
+
 Am Ende von Task 18, vor dem Abschluss des Zweigs, folgen ein **Security-Audit des gesamten Zweigs** (Skill `security-audit`) und ein abschließendes Code-Review.
 
 ### Schnappschuss-Vertrag (Python ↔ Oberfläche)
