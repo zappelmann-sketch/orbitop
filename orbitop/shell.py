@@ -101,6 +101,8 @@ class Shell:
         self._view.set_background_color(bg)  # kein weißes Aufblitzen vor dem ersten Zeichnen
         # eigenes Schema statt file://: so deckt 'self' in der CSP nur orbitop/ui/ ab, keine beliebige lokale Datei
         self._view.get_context().register_uri_scheme(SCHEME, self._serve)
+        # Eine Seite ohne Navigation: kleinste Caches (Eigenlast, Speicher); muss vor dem Laden gesetzt sein
+        self._view.get_context().set_cache_model(WebKit.CacheModel.DOCUMENT_VIEWER)
         self._view.connect("decide-policy", self._decide_policy)
         self._view.connect("web-process-terminated", self._on_web_crash)
         self._win = Gtk.ApplicationWindow(application=app, title="orbitop", default_width=1600, default_height=1000,
