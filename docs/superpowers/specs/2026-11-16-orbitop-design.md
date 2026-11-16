@@ -79,7 +79,7 @@ Stufe 1 muss nur so gebaut sein, dass Stufe 2 nichts umbauen muss (siehe „Für
 - **Desktop:** Entwickelt und abgenommen auf GNOME. Auf anderen Desktops mit GTK 4 und WebKitGTK läuft orbitop ebenfalls. Der Autostart nutzt den XDG-Standard und funktioniert damit desktopübergreifend.
 - **Rechte-Einrichtung je Hardware:** Die einmalige Einrichtung macht nur, was die Hardware braucht:
   - `intel-gpu-tools` plus `setcap` nur bei Intel-Grafik.
-  - Die RAPL-Leseregel nur, wenn RAPL vorhanden ist.
+  - **Keine allgemeine RAPL-Freigabe (vom User entschieden, 2026-11-16).** Auf Intel liefert das mit `cap_perfmon` ausgestattete `intel_gpu_top` die Watt für CPU-Paket und Grafik. Nur dieses eine Programm bekommt Zugriff. Die Freigabe von `energy_uj` für alle gibt es nur auf ausdrücklichen Wunsch mit `--allow-rapl` und vorheriger Warnung. Sie ist für Rechner ohne andere Leistungsquelle gedacht, etwa AMD, und erfolgt dauerhaft über eine udev-Regel.
   - AMD- und NVIDIA-Grafik brauchen keine Zusatzrechte.
 - **Tests:** Fremde Hardware steht nicht zur Verfügung. Die Erkennung wird deshalb mit nachgebauten `/sys`- und `/proc`-Verzeichnisbäumen getestet (Intel-Notebook, AMD-Desktop mit amdgpu, ARM-Board mit thermal_zone, Rechner ohne Lüfter und ohne Akku). Abgenommen wird auf dem Referenzrechner.
 
@@ -126,7 +126,7 @@ Stufe 1 muss nur so gebaut sein, dass Stufe 2 nichts umbauen muss (siehe „Für
 8. **Einmalige sudo-Einrichtung** (vom User genehmigt, Umfang je nach Hardware, siehe oben):
    - `gir1.2-webkit-6.0` installieren.
    - Bei Intel-Grafik `intel-gpu-tools` installieren und `intel_gpu_top` mit `setcap cap_perfmon=ep` ausstatten.
-   - Wo RAPL vorhanden ist, `energy_uj` dauerhaft lesbar machen (tmpfiles.d oder udev).
+   - RAPL `energy_uj` **nicht** standardmäßig freigeben. Grund: Laut Security-Audit vom 2026-11-16 wären die Zähler sonst für alle Programme lesbar, auch für Flatpak-Apps (Seitenkanal CVE-2020-8694). Nur mit `--allow-rapl`, nach einer Warnung, die nennt, wer Zugriff erhält und wie man es rückgängig macht. Dauerhaft wird es über eine udev-Regel unter `/etc/udev/rules.d/`, weil tmpfiles beim Booten vor dem RAPL-Treiber laufen kann.
 
 ## Nicht-Ziele
 
@@ -215,7 +215,7 @@ Weg 1, Aufbau „Kachelraster“, Aussehen laut Entwürfen, zweiter Reiter „Pr
 ### Dem Builder überlassen
 
 - Modulaufteilung, Datei- und Ordnernamen, Diagramme in SVG oder Canvas (Hauptsache, Look und Last stimmen).
-- Wie genau `intel_gpu_top -J`, `nvidia-smi` und die amdgpu-Werte gelesen werden, inklusive Ausweichweg über RAPL `energy_uj`. Auf dem Referenzrechner prüfen, für fremde Hardware gegen nachgebaute Verzeichnisbäume testen.
+- Wie genau `intel_gpu_top -J`, `nvidia-smi` und die amdgpu-Werte gelesen werden, dazu RAPL `energy_uj`, falls lesbar (nach `--allow-rapl` oder ab Werk). Auf dem Referenzrechner prüfen, für fremde Hardware gegen nachgebaute Verzeichnisbäume testen.
 - Wie „Programm ganz beenden“ erreichbar ist (z. B. Knopf in der Kopfzeile oder Strg+Q).
 - Schwellen der Einstufung im Detail, solange sie den Definitionen oben entsprechen.
 - Bezugswerte der Segmentanzeige für Netzwerk, Datenträger, Leistung und Lüfter.

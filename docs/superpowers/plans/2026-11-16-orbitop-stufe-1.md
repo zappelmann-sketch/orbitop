@@ -155,7 +155,7 @@ git switch -c stufe-1
 - Produces:
   - Vier Testbäume mit `proc/` und `sys/` unter `tests/fixtures/roots/<name>/`. Alle späteren Tests nutzen sie als `root`.
   - `capture-fixture.sh <ziel>`: kopiert die Dateien aus der Liste unten vom laufenden Rechner. Symlinks unter `device/driver` bleiben Symlinks, alles andere wird als Datei kopiert. `sys/class/net/<if>/device` wird als leeres Verzeichnis angelegt. Seriennummern und MAC-Adressen werden **nicht** kopiert.
-  - `setup-privileges.sh [--dry-run]`: Mit `ORBITOP_SYSROOT` liest es die Erkennung aus einem Testbaum. Mit `--dry-run` gibt es jeden Befehl als Zeile `WOULD: <befehl>` aus, statt ihn auszuführen.
+  - `setup-privileges.sh [--dry-run] [--allow-rapl]`: Mit `ORBITOP_SYSROOT` liest es die Erkennung aus einem Testbaum. Mit `--dry-run` gibt es jeden Befehl als Zeile `WOULD: <befehl>` aus, statt ihn auszuführen.
 
 Zu erfassende Dateien: `proc/{stat,meminfo,net/dev,diskstats,mounts,cpuinfo}`, `sys/devices/system/cpu/cpu*/cpufreq/{scaling_cur_freq,cpuinfo_max_freq}`, `sys/class/hwmon/hwmon*/{name,temp*_input,temp*_label,temp*_crit,fan*_input,fan*_label,fan*_max,power*_input,power*_average,power*_label}`, `sys/class/thermal/thermal_zone*/{type,temp}`, `sys/class/powercap/intel-rapl*/{name,energy_uj,max_energy_range_uj}`, `sys/class/power_supply/*/{type,status,online,capacity,power_now,current_now,voltage_now}`, `sys/class/drm/card[0-9]*/{gt_act_freq_mhz,gt_max_freq_mhz}`, `sys/class/drm/card[0-9]*/device/{vendor,device,driver,product_name,gpu_busy_percent,mem_info_vram_used,mem_info_vram_total,pp_dpm_sclk}`, `sys/class/devfreq/*/{cur_freq,max_freq}`, `sys/block/*/{size,stat,device/model}`, `sys/class/net/*/{operstate,type}`.
 
@@ -163,7 +163,7 @@ Inhalt der Testbäume:
 
 | Baum | Inhalt |
 |---|---|
-| `intel-laptop` | erfasst mit `capture-fixture.sh` auf dem Referenzrechner. `energy_uj` wird nach `sudo` lesbar erfasst (siehe Step 6) |
+| `intel-laptop` | erfasst mit `capture-fixture.sh` auf dem Referenzrechner. `energy_uj` bleibt root-only und fehlt daher, wie auf einem Rechner ohne `--allow-rapl` |
 | `amd-desktop` | von Hand: 16 Threads; `k10temp` mit `temp1_label=Tctl`; `nct6775` mit `fan1..3` und `temp1..3`; `card0` mit Treiber `amdgpu` (`gpu_busy_percent=37`, VRAM 3 von 8 GiB, `pp_dpm_sclk`-Zeile `1: 1850Mhz *`, `device/hwmon/hwmon5/power1_average=45000000`, `temp1_input=61000`); `card1` mit Treiber `nvidia` und Vendor `0x10de`; `intel-rapl:0` `package-0`; `nvme0n1`, `sda` mit `drivetemp`-hwmon; `enp5s0`, `docker0`, `veth1a2b`; kein Akku |
 | `arm-board` | von Hand: `/proc/cpuinfo` ohne `model name`, mit `Model : Raspberry Pi 5 Model B`; 4 Threads; `thermal_zone0` (`cpu-thermal`, 52000), `thermal_zone1` (`gpu-thermal`, 48000); `card0` mit Treiber `v3d` und `devfreq` `cur_freq=500000000`, `max_freq=960000000`; `mmcblk0` mit `mmcblk0p1`, `mmcblk0p2`; `eth0`, `wlan0`; kein hwmon-Lüfter, kein RAPL, kein Akku |
 | `vm` | von Hand: 2 Threads, `vda`, `ens3`, `lo`; kein hwmon, kein thermal, kein drm, kein powercap, kein power_supply |
@@ -171,14 +171,18 @@ Inhalt der Testbäume:
 - [ ] **Step 1: Failing tests** in `tests/test_setup_script.py` (Aufruf über `subprocess`, Umgebung `ORBITOP_SYSROOT=<baum>`)
 
 ```python
-def test_intel_plans_webkit_igt_setcap_rapl():
+def test_intel_plans_webkit_igt_setcap_no_rapl():
     out = dry_run("intel-laptop")
     assert "WOULD: apt-get install -y gir1.2-webkit-6.0 intel-gpu-tools" in out
-    assert "setcap cap_perfmon=ep" in out and "/etc/tmpfiles.d/orbitop-rapl.conf" in out
-def test_amd_plans_rapl_but_no_igt():
-    out = dry_run("amd-desktop"); assert "intel-gpu-tools" not in out and "orbitop-rapl.conf" in out
+    assert "WOULD: setcap cap_perfmon=ep /usr/bin/intel_gpu_top" in out and "rapl" not in out.lower().replace("--allow-rapl", "")
+def test_amd_default_no_rapl_rule():
+    out = dry_run("amd-desktop"); assert "intel-gpu-tools" not in out and "70-orbitop-rapl.rules" not in out
+def test_amd_allow_rapl_plans_udev_rule_with_warning():
+    out = dry_run("amd-desktop", "--allow-rapl")
+    assert "/etc/udev/rules.d/70-orbitop-rapl.rules" in out and "CVE-2020-8694" in out
+    assert out.index("CVE-2020-8694") < out.index("70-orbitop-rapl.rules")      # Warnung vor der Aktion
 def test_arm_plans_only_webkit():
-    out = dry_run("arm-board"); assert "gir1.2-webkit-6.0" in out and "setcap" not in out and "rapl" not in out
+    out = dry_run("arm-board"); assert "gir1.2-webkit-6.0" in out and "setcap" not in out and "rapl" not in out.lower()
 def test_shellcheck_clean():
     assert subprocess.run(["shellcheck", "scripts/setup-privileges.sh", "scripts/capture-fixture.sh"]).returncode == 0
 ```
@@ -187,15 +191,15 @@ def test_shellcheck_clean():
 - [ ] **Step 3: `capture-fixture.sh` schreiben und den Baum `intel-laptop` erfassen. Die anderen drei Bäume von Hand anlegen, dazu `README.md` mit der Tabelle oben.**
 - [ ] **Step 4: `setup-privileges.sh` schreiben.**
   - Intel-Grafik heißt: ein `card*`-Treiber `i915` oder `xe`. RAPL heißt: `sys/class/powercap/intel-rapl:0` existiert.
-  - Die RAPL-Regel lautet `z /sys/class/powercap/intel-rapl:*/energy_uj 0444 - - -` und `z /sys/class/powercap/intel-rapl:*/intel-rapl:*/energy_uj 0444 - - -`, danach `systemd-tmpfiles --create /etc/tmpfiles.d/orbitop-rapl.conf`.
-  - Das Skript bricht ohne Root und ohne `--dry-run` mit einer Meldung ab.
-  - Am Ende erklärt es in einem Satz, warum RAPL standardmäßig nur für root lesbar ist (Seitenkanal CVE-2020-8694) und dass die Freigabe auf einem Einzelplatzrechner vertretbar ist.
-- [ ] **Step 5:** `pytest tests/test_setup_script.py -v` → 4 passed
+  - setcap-Ziel ist fest `/usr/bin/intel_gpu_top`. Im echten Lauf bricht das Skript ab, wenn das keine reguläre, root-eigene Datei ohne Symlink ist.
+  - **RAPL nur mit `--allow-rapl`** (Entscheidung des Users nach dem Security-Audit): Zuerst kommt eine Warnung mit CVE-2020-8694. Sie nennt, wer Zugriff erhält (alle lokalen Konten und Flatpak-Apps), und wie man es rückgängig macht. Danach wird die udev-Regel `/etc/udev/rules.d/70-orbitop-rapl.rules` geschrieben: `ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"`. Anschließend `udevadm control --reload` und `udevadm trigger --subsystem-match=powercap --action=add`. Im Dry-Run wird der Regelinhalt mit ausgegeben.
+  - Das Skript bricht ohne Root und ohne `--dry-run` mit einer Meldung ab. `ORBITOP_SYSROOT` gilt nur im Dry-Run, `PATH` ist fest gesetzt.
+  - Am Ende weist es darauf hin, dass ein Upgrade von `igt-gpu-tools` die Capability entfernt und das Skript dann erneut laufen muss.
+- [ ] **Step 5:** `pytest tests/test_setup_script.py -v` → passed
 - [ ] **Step 6: Einrichtung durch den User.** Den User bitten, `! sudo bash scripts/setup-privileges.sh` in der Eingabe auszuführen. Ein Agent kann kein sudo-Passwort eingeben. Danach prüfen:
   - `python3 -c "import gi; gi.require_version('WebKit','6.0')"` → kein Fehler
   - `getcap "$(command -v intel_gpu_top)"` → enthält `cap_perfmon=ep`
-  - `cat /sys/class/powercap/intel-rapl:0/energy_uj` → eine Zahl
-- [ ] **Step 7: Werkzeugausgabe aufnehmen:** `timeout 4 intel_gpu_top -J -s 1000 > tests/fixtures/tools/intel_gpu_top.json`, darin müssen mindestens zwei Objekte stehen. Dann `energy_uj` im Baum `intel-laptop` neu erfassen.
+- [ ] **Step 7: Werkzeugausgabe aufnehmen:** `timeout 4 intel_gpu_top -J -s 1000 > tests/fixtures/tools/intel_gpu_top.json`, darin müssen mindestens zwei Objekte stehen. Prüfen, dass die Objekte `power.Package` enthalten. Falls nicht, Ruling und Rückfrage an den User (Variante A setzt das voraus).
 - [ ] **Step 8: Commit** `test: Testbäume für vier Hardwareprofile, Einrichtungsskript`
 
 ---
@@ -561,7 +565,7 @@ def test_fallback_to_english(): assert load_texts("de")["tab.overview"] == "Übe
   - `dump-snapshot.py [--root R] [--ticks N] [--js]`: gibt einen Schnappschuss als JSON aus. Mit `--js` als `window.ORBITOP_DEMO = {init, tick};`, für die Demo-Seite in Task 14.
 - **Kacheln** in fester Reihenfolge: `cpu`, `gpu0…`, `mem`, `power`, `temp`, `fan`, `net`, `disk`.
   - Eine Kachel entsteht nur, wenn ihre Quelle mindestens einen Wert ungleich `None` hat. Fehlende Arten stehen in `missing`.
-  - `power` existiert, wenn RAPL, Akku oder hwmon-Leistung vorhanden ist. `main` ist RAPL `package`, sonst die Akku-Entladeleistung, sonst die erste hwmon-Leistung.
+  - `power` existiert, wenn RAPL lesbar ist, `intel_gpu_top` `pkg_w` liefert, ein Akku oder hwmon-Leistung vorhanden ist. `main` ist RAPL `package`, sonst `pkg_w` aus `GpuTools.intel`, sonst die Akku-Entladeleistung, sonst die erste hwmon-Leistung.
 - **Linien je Kachel:**
 
   | Kachel | Linien |
@@ -577,7 +581,7 @@ def test_fallback_to_english(): assert load_texts("de")["tab.overview"] == "Übe
 
 - **Skala:** `max` ist 100 bei %. Bei °C ist es 100, oder das 1,1-fache des Fenstermaximums, falls das größer ist. Sonst die „schöne“ Obergrenze des Fenstermaximums, also 1, 2 oder 5 × 10ⁿ.
 - **Segmentanzeige `seg`:** % direkt. °C geteilt durch das hwmon-`crit` der CPU, sonst durch 100. U/min geteilt durch `max_rpm`, sonst durch das Fenstermaximum. W geteilt durch das Fenstermaximum. B/s geteilt durch das Fenstermaximum.
-- **Hinweise:** `hints` = `GpuTools.hints()` und `hint.rapl_noperm`, falls RAPL zwar existiert, aber `None` liefert. `GpuTools` startet nur Werkzeuge, die `shutil.which` findet. Fehlt eines, kommt nur der Hinweis.
+- **Hinweise:** `hints` = `GpuTools.hints()` und `hint.rapl_noperm`, falls RAPL zwar existiert, aber `None` liefert und auch keine andere Paketleistung vorhanden ist. Der Hinweis nennt `--allow-rapl` samt Risiko. `GpuTools` startet nur Werkzeuge, die `shutil.which` findet. Fehlt eines, kommt nur der Hinweis.
 - **Laufwerkstemperatur `Disk.temp_c`:** der hwmon-Chip `nvme` bzw. `drivetemp`, dessen `device`-Pfad zum Laufwerk gehört. Lässt sich das nicht zuordnen und gibt es genau ein NVMe-Laufwerk, nimmt der Sampler dessen einzige `nvme`-Temperatur. Sonst bleibt der Wert `None`.
 
 - [ ] **Step 1: Failing tests** (Uhr wird hineingereicht, Bäume als tmp-Kopien)
@@ -779,7 +783,7 @@ def test_install_script_shellcheck(): assert run(["shellcheck", "scripts/install
 - Create: `README.md`, `CLAUDE.md`
 
 **Interfaces:**
-- `README.md` auf Englisch mit kurzem deutschem Abschnitt: was orbitop ist, Screenshot (`docs/screenshot.png` aus der App), Voraussetzungen, Installation aus dem Repository (`setup-privileges.sh`, `install-user.sh`), Lizenz, Schriften-Lizenz, Hinweis zur RAPL-Freigabe.
+- `README.md` auf Englisch mit kurzem deutschem Abschnitt: was orbitop ist, Screenshot (`docs/screenshot.png` aus der App), Voraussetzungen, Installation aus dem Repository (`setup-privileges.sh`, `install-user.sh`), Lizenz, Schriften-Lizenz, Hinweis zu `--allow-rapl` und seinem Risiko.
 - `CLAUDE.md` auf Deutsch, mit dem Pflichtkopf aus `/init`:
   - Testbefehle: `pytest -q`, einzelner Test mit `pytest tests/test_x.py::name`.
   - App starten: `bin/orbitop` und `ORBITOP_SNAPSHOT`.
