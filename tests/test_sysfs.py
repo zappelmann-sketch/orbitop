@@ -22,3 +22,21 @@ def test_glob_natural_order(tmp_path):
 def test_link_name_dangling(tmp_path):
     (tmp_path / "driver").symlink_to("../../bus/pci/drivers/amdgpu")
     assert sysfs.link_name(str(tmp_path / "driver")) == "amdgpu"
+
+
+def test_glob_natural_order_survives_superscript_digits(tmp_path):
+    for n in ("hwmon²", "hwmon1"):
+        (tmp_path / n).mkdir()
+    assert len(sysfs.glob(str(tmp_path), "/hwmon*")) == 2
+
+
+def test_glob_root_with_brackets(tmp_path):
+    root = tmp_path / "r[1]"
+    (root / "a").mkdir(parents=True)
+    assert sysfs.glob(str(root), "/a") == [str(root) + "/a"]
+
+
+def test_read_float_non_finite_returns_none(tmp_path):
+    for i, txt in enumerate(("nan", "inf", "-inf")):
+        (tmp_path / str(i)).write_text(txt)
+        assert sysfs.read_float(str(tmp_path / str(i))) is None
