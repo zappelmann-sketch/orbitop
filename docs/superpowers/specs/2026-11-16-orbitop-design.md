@@ -240,6 +240,38 @@ Weg 1, Aufbau „Kachelraster“, Aussehen laut Entwürfen, zweiter Reiter „Pr
 - Reicht auch das nicht, wird der User gefragt.
 - Die Messung der eigenen Last ist eine frühe Aufgabe im Plan.
 
+## Messung Eigenlast (2026-11-16)
+
+Gemessen auf dem Referenzrechner mit `scripts/measure-load.py --pid <orbitop> --seconds 60`: utime + stime des ganzen Prozessbaums (orbitop, WebKit-Web- und Netzwerkprozess, bwrap, xdg-dbus-proxy, `intel_gpu_top`), je Prozess über (PID, Startzeit), auch kurzlebige Kinder. PSS ist die Summe aus `smaps_rollup`; `intel_gpu_top` ist wegen seiner Datei-Capability nicht lesbar und fehlt darin (RSS 2,7 MB). Fenster 1600×1000 auf dem Bildschirm, Skalierung 1,25 (WebKit zeichnet mit DPR 2). Jede Lage 60 s nach 60 s Aufwärmen („kurz“), Übersicht und Prozesse zusätzlich nach 5 Minuten mit vollen Puffern („Dauer“). Ab Hebel 1b wurde jeder Stand aus einem eigenen Git-Arbeitsbaum des jeweiligen Commits gestartet.
+
+CPU in % eines Kerns, in Klammern PSS in MB:
+
+| Stand | Ausgeblendet | Übersicht kurz | Übersicht Dauer | Prozesse kurz | Prozesse Dauer |
+|---|---|---|---|---|---|
+| Ausgangsstand (256c2c0) | 4,30 (169) | 10,08 (242) | 11,94 (262) | 24,80 (262) | 25,50 (274) |
+| Hebel 1a: inkrementelles Zeichnen, Gitter als 2. Canvas (2fdf6a0) | – | 9,41 (257) | 12,06 (327) | – | – |
+| Hebel 1b: Gitter als SVG (181996c) | – | 9,78 (254) | 10,30 (257) | – | – |
+| Hebel 2: Prozessliste virtualisiert (4840a20) | – | – | – | 10,29 (245) | 10,93 (248) |
+| Hebel 3: langsame hwmon-Chips alle 5 s (1cfee92) | 4,31 (170) | – | – | – | – |
+| Hebel 4: status nur bei Bedarf (35e0ce5) | 3,98 (170) | 9,38 (250) | 9,35 (257) | 9,76 (244) | 10,38 (249) |
+| Hebel 5 + 6: intel_gpu_top 2 s, WebKit-Cache-Modell (6c162f1) | 2,80 (169) | 7,38 (249) | 8,00 (257) | 8,55 (244) | 9,11 (248) |
+| **Budget** | **≤ 1,5** | **≤ 5** | **≤ 5** | **≤ 5** | **≤ 5**; PSS **< 250** |
+
+Aufteilung im Endstand (Übersicht, Dauer): WebKit-Webprozess 4,05 %, orbitop (Python, GTK) 2,70 %, `intel_gpu_top` 1,25 %. Ausgeblendet: orbitop 1,62 %, `intel_gpu_top` 1,18 %.
+
+Einzelmessungen ohne App:
+- `intel_gpu_top -J`: mit `-s 1000` 2,20 %, mit `-s 2000` 1,10 %.
+- WebKit allein mit den Demodaten, jede Sekunde ein Takt bei vollen Puffern: Übersicht 4,00 % → 2,60 %, Prozesse 15,04 % → 2,75 %.
+- `HardwareAccelerationPolicy.NEVER` spart im Webprozess 43 MB, kostet aber rund 15 Punkte CPU; verworfen. `CacheModel.DOCUMENT_VIEWER` ändert PSS und CPU nicht messbar (Rauschen), ist aber gesetzt.
+- Hebel 3 senkt die gemessene CPU kaum: Der SMM-Aufruf von `dell_smm` läuft in einem Kernel-Worker auf CPU 0, nicht im Prozessbaum. Er spart vor allem die 58 ms Wartezeit je Takt und Systemlast außerhalb von orbitop.
+
+Bildvergleich (kopfloser Chrome und WebKitGTK, 1600×1000 bei DPR 2, Demoseite vorher gegen nachher):
+- Volles Zeichnen mit SVG-Gitter: höchstens 11 von 255 (Chrome) bzw. 22 (WebKit), nur an Kanten.
+- Nach 40 inkrementellen Takten (`demo.html?replay=40`): höchstens 139, mit 3×3-Nachbarschaft 63 (Chrome) bzw. 84 und 50 (WebKit), nur an den Kanten schmaler Spitzen. Ursache ist der Rest des Schritts: Das Kurvenbild liegt bis zu einem halben Bildpunkt (bei DPR 2 einem Viertel CSS-Pixel) neben der Sollposition. Gegen ein volles Zeichnen mit genau diesem Versatz weicht jede Canvas höchstens 29 von 255 ab (vormultipliziert); so stark unterscheiden sich auch zwei volle Zeichnungen, die nur um einen Schritt verschoben sind.
+- Prozess-Reiter mit virtualisierter Tabelle: höchstens 2 (Chrome und WebKit).
+
+**Verbleibende Lücken:** Ausgeblendet 2,80 % statt ≤ 1,5 %, Übersicht 7,4–8,0 % statt ≤ 5 %, Prozesse 8,6–9,1 % statt ≤ 5 %, PSS bis 257 MB statt < 250 MB. Alle sechs unsichtbaren Hebel sind umgesetzt; der Look ist unverändert. Weitere Einsparungen ändern Verhalten oder Darstellung und brauchen die Entscheidung des Users.
+
 ## Offene Punkte
 
 - Stufe 2 bekommt eine eigene Design-Runde.
