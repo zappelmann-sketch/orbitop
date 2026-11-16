@@ -2,26 +2,36 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Installs the runtime packages and grants the few privileges orbitop optionally uses.
-# Usage: sudo bash setup-privileges.sh [--dry-run]
-# Detection reads from ${ORBITOP_SYSROOT:-/} so it can be tested against fake trees.
+# Usage: sudo bash setup-privileges.sh [--dry-run] [--allow-rapl]
+# With --dry-run, detection reads from ${ORBITOP_SYSROOT:-/} so it can be tested against fake trees.
 set -euo pipefail
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+
+usage() { echo "usage: $0 [--dry-run] [--allow-rapl]" >&2; exit 2; }
 
 dry_run=0
-case "${1:-}" in
-    "") ;;
-    --dry-run) dry_run=1 ;;
-    *) echo "usage: $0 [--dry-run]" >&2; exit 2 ;;
-esac
-[ $# -le 1 ] || { echo "usage: $0 [--dry-run]" >&2; exit 2; }
+allow_rapl=0
+for arg in "$@"; do
+    case "$arg" in
+        --dry-run) dry_run=1 ;;
+        --allow-rapl) allow_rapl=1 ;;
+        *) usage ;;
+    esac
+done
 
 if [ "$dry_run" -eq 0 ] && [ "$(id -u)" -ne 0 ]; then
     echo "This script must run as root (use: sudo bash $0), or pass --dry-run." >&2
     exit 1
 fi
 
-root=${ORBITOP_SYSROOT:-/}
+# Only the dry run may look at a fake tree; a real run always inspects the real system.
+root=/
+[ "$dry_run" -eq 1 ] && root=${ORBITOP_SYSROOT:-/}
 root=${root%/}
-tmpfiles_conf=/etc/tmpfiles.d/orbitop-rapl.conf
+
+rapl_rules=/etc/udev/rules.d/70-orbitop-rapl.rules
+rapl_rule='ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"'
+igt=/usr/bin/intel_gpu_top
 
 has_intel_gfx=0
 for link in "$root"/sys/class/drm/card[0-9]*/device/driver; do
@@ -43,32 +53,35 @@ run() {
     fi
 }
 
-write_tmpfiles_conf() {
-    if [ "$dry_run" -eq 1 ]; then
-        echo "WOULD: write $tmpfiles_conf"
-        return
-    fi
-    printf '%s\n' \
-        'z /sys/class/powercap/intel-rapl:*/energy_uj 0444 - - -' \
-        'z /sys/class/powercap/intel-rapl:*/intel-rapl:*/energy_uj 0444 - - -' \
-        > "$tmpfiles_conf"
-    chmod 0644 -- "$tmpfiles_conf"
-}
-
 packages=(gir1.2-webkit-6.0)
 [ "$has_intel_gfx" -eq 1 ] && packages+=(intel-gpu-tools)
 run apt-get install -y "${packages[@]}"
 
 if [ "$has_intel_gfx" -eq 1 ]; then
-    igt=/usr/bin/intel_gpu_top
-    if [ "$dry_run" -eq 0 ]; then
-        igt=$(readlink -f -- "$(command -v intel_gpu_top)")
+    if [ "$dry_run" -eq 0 ] && { [ -L "$igt" ] || [ ! -f "$igt" ] || [ "$(stat -c %u -- "$igt")" != 0 ]; }; then
+        echo "$igt is not a regular root-owned file; refusing to set capabilities." >&2
+        exit 1
     fi
     run setcap cap_perfmon=ep "$igt"
+    echo "Note: upgrading intel-gpu-tools removes this capability; run this script again afterwards."
 fi
 
-if [ "$has_rapl" -eq 1 ]; then
-    write_tmpfiles_conf
-    run systemd-tmpfiles --create "$tmpfiles_conf"
-    echo "Note: RAPL energy counters are readable by root only because they allow a power side channel (CVE-2020-8694); on a single-user machine, making them world-readable is acceptable."
+if [ "$has_rapl" -eq 1 ] && [ "$allow_rapl" -eq 0 ]; then
+    echo "Note: power readings need --allow-rapl (see the warning it prints)."
+fi
+
+if [ "$has_rapl" -eq 1 ] && [ "$allow_rapl" -eq 1 ]; then
+    echo "WARNING: RAPL energy counters are root-only because of CVE-2020-8694 (power side channel)."
+    echo "This rule makes them readable by every local account and every Flatpak app."
+    echo "Undo: sudo rm $rapl_rules and reboot."
+    if [ "$dry_run" -eq 1 ]; then
+        echo "WOULD: write $rapl_rules:"
+        echo "$rapl_rule"
+    else
+        (umask 022 && printf '%s\n' "$rapl_rule" > "$rapl_rules")
+    fi
+    run udevadm control --reload
+    run udevadm trigger --subsystem-match=powercap --action=add
+elif [ "$allow_rapl" -eq 1 ]; then
+    echo "No RAPL interface found; nothing to do for --allow-rapl."
 fi

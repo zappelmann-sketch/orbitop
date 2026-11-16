@@ -2,11 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Copies a fixed list of /proc and /sys files of the running machine into <target>.
-# Never copies serials, MAC addresses (address) or anything outside the list.
+# <target> must not exist or be empty: capture into a fresh directory, then swap it in.
+# Never copies serials, MAC addresses (address), host or user names; interfaces named
+# enx*/wlx* (MAC in the name) and network/loop/home mounts are dropped.
 set -euo pipefail
 
 [ $# -eq 1 ] || { echo "usage: $0 <target-dir>" >&2; exit 2; }
 target=$(realpath -m -- "$1")
+if [ -e "$target" ] && [ -n "$(ls -A -- "$target")" ]; then
+    echo "$target is not empty; capture into a fresh directory and swap it in." >&2
+    exit 1
+fi
 mkdir -p -- "$target"
 cd /
 shopt -s nullglob
@@ -20,25 +26,32 @@ copy_file() {
     timeout 1 cat -- "$src" > "$dst" 2>/dev/null || rm -f -- "$dst"
 }
 
-# Expands "<dir-glob>" x "<file> ..." without recursion.
+# Copies every <dir-glob>/<file-glob> match, no recursion.
 copy_glob() {
-    local dir=$1 f d
+    local dir=$1 f d p
     shift
     for d in $dir; do
-        for f in "$@"; do copy_file "$d/$f"; done
+        for f in "$@"; do
+            for p in "$d"/$f; do copy_file "$p"; done
+        done
     done
+}
+
+# Writes a filtered copy of a file (stdin filter given as command).
+filter_file() {
+    local src=$1 dst=$target/$1
+    shift
+    [ -r "$src" ] || return 0
+    mkdir -p -- "${dst%/*}"
+    timeout 1 "$@" < "$src" > "$dst" 2>/dev/null || true
 }
 
 copy_file proc/stat
 copy_file proc/meminfo
-copy_file proc/net/dev
 copy_file proc/diskstats
-copy_file proc/cpuinfo
-# Mounts under home/media dirs can reveal user names; snap loop mounts reveal installed software.
-if [ -r proc/mounts ]; then
-    mkdir -p -- "$target/proc"
-    timeout 1 grep -Ev '^/dev/loop| /(home|media|run/media|run/user|mnt|snap|run/snapd)(/| )' proc/mounts > "$target/proc/mounts" || true
-fi
+filter_file proc/cpuinfo grep -vi '^serial'
+filter_file proc/net/dev grep -Ev '^ *(enx|wlx)'
+filter_file proc/mounts grep -Ev '^/dev/loop|^(nfs|nfs4|cifs|smb3|smbfs|//)| /(home|media|run/media|run/user|mnt|snap|run/snapd)(/| )'
 
 copy_glob "sys/devices/system/cpu/cpu[0-9]*/cpufreq" scaling_cur_freq cpuinfo_max_freq
 copy_glob "sys/class/hwmon/hwmon*" name 'temp*_input' 'temp*_label' 'temp*_crit' \
@@ -52,10 +65,8 @@ copy_glob "sys/class/drm/card[0-9]/device" vendor device product_name gpu_busy_p
 copy_glob "sys/class/devfreq/*" cur_freq max_freq
 copy_glob "sys/block/*" size stat
 copy_glob "sys/block/*/device" model
-copy_glob "sys/class/net/*" operstate type
-
-# hwmon behind drm devices (amdgpu keeps its hwmon there).
-copy_glob "sys/class/drm/card[0-9]/device/hwmon/hwmon*" name 'temp*_input' 'power*_average' 'power*_input'
+copy_glob "sys/block/*/*" partition
+copy_glob "sys/class/net/[!ew]* sys/class/net/e[!n]* sys/class/net/en[!x]* sys/class/net/w[!l]* sys/class/net/wl[!x]*" operstate type
 
 # Driver symlinks stay symlinks, but only their relative target is recorded.
 for l in sys/class/drm/card[0-9]/device/driver; do
@@ -64,8 +75,11 @@ for l in sys/class/drm/card[0-9]/device/driver; do
     ln -sfn -- "../../../bus/pci/drivers/$(basename -- "$(readlink -- "$l")")" "$target/$l"
 done
 
-# A NIC counts as physical when its "device" entry exists: record an empty directory.
-for n in sys/class/net/*; do
-    [ -e "$n/device" ] && mkdir -p -- "$target/$n/device"
+# "device" entries mark physical NICs and disks: record an empty directory (.keep, git drops empty dirs).
+for d in sys/class/net/*/device sys/block/*/device; do
+    [ -e "$d" ] || continue
+    case "$d" in sys/class/net/enx*|sys/class/net/wlx*) continue ;; esac
+    mkdir -p -- "$target/$d"
+    : > "$target/$d/.keep"
 done
 exit 0
