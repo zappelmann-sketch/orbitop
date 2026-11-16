@@ -25,7 +25,7 @@ function byteStep(big) {
 }
 
 const state = {
-  lang: "en", texts: {}, version: "", tab: "overview", last: null, briefs: [], collator: new Intl.Collator(),
+  lang: "en", texts: {}, version: "", tab: "overview", last: null, n: 0, briefs: [], collator: new Intl.Collator(),
   sel: null, cursor: null, sort: { col: "cpu", desc: true }, filter: "all", query: "", autoPick: false,
   target: null, opener: null, pending: null, lastTerm: null, alert: null, // Rückfrage, laufendes Beenden, Nachsehen
 };
@@ -209,10 +209,14 @@ function colorsOf(t) {
   return [first, ...(EXTRA[t.kind] || [])];
 }
 
+/** Diagrammfläche: Beschriftung, Gitter-Canvas und darüber die Canvas der Kurven (zurückgegeben). */
 function plot(parent, cls, cap) {
   const box = el("div", cls, parent);
   el("span", "cap", box, cap);
-  return el("canvas", "", box);
+  const grid = el("canvas", "grid", box);
+  const c = el("canvas", "", box);
+  c.grid = grid;
+  return c;
 }
 
 /** Beschriftung folgt der ersten Kurve: Takt statt Auslastung, Einheit der Skala bei Raten. */
@@ -237,7 +241,7 @@ function makeTile(t) {
     threads: el("div", "", inner), threadEls: [], legend: el("div", "lg", inner), legendSig: null,
     kv: el("div", "kv", inner), dev: el("table", "dev", inner), devShape: null,
   };
-  v.cap = v.canvas.previousSibling;
+  v.cap = v.canvas.parentNode.firstChild;
   v.threads.hidden = true; // nur die CPU-Kachel zeigt Threads
   tiles.set(t.id, v);
   return v;
@@ -262,7 +266,8 @@ function updateThreads(v, threads) {
       const x = Math.min(Math.max(latest(values) || 0, 0), 100);
       v.threadEls[i].style.setProperty("--v", String(x));
       v.threadEls[i].classList.toggle("hot", x >= 80);
-    } else {
+    } else if ((v.threadEls[i].at ?? -Infinity) <= state.n - 2) { // Mini-Verläufe nur alle 2 s (Spec, Eigenlast)
+      v.threadEls[i].at = state.n;
       drawArea(v.threadEls[i], [{ fill: true, max: 100, values }],
                { color: v.colors[0], gridEvery: GRID_SECONDS, points: THREAD_POINTS });
     }
@@ -473,7 +478,7 @@ function buildProcs() {
   ui.dpid = el("div", "s", dh);
   ui.dcmd = el("div", "s cmd nm", ui.dbody);
   ui.dcanvas = plot(ui.dbody, "plot proc", "");
-  label(ui.dcanvas.previousSibling, "cap.proc_cpu");
+  label(ui.dcanvas.parentNode.firstChild, "cap.proc_cpu");
   ui.dkv = el("div", "kv", ui.dbody);
   ui.verdict = el("div", "verdict", ui.dbody);
   const btns = el("div", "btns", ui.dbody);
@@ -789,6 +794,7 @@ window.orbitop = {
       hdrInfo();
     } else if (msg.type === "tick") {
       state.last = msg;
+      state.n++;
       renderFooter(msg.missing, msg.hints);
       if (state.tab === "overview") renderOverview(msg); // ausgeblendete Kacheln nicht zeichnen
       else renderProcs(msg);
