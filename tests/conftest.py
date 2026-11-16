@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 import shutil
+import subprocess
 
 import pytest
 
@@ -23,3 +24,14 @@ def tree_copy(tmp_path):
         shutil.copytree(src, dst, symlinks=True)
         return dst
     return make
+
+
+@pytest.fixture(autouse=True)
+def no_real_pkexec(monkeypatch):
+    """Ein echter pkexec-Start (Passwortdialog!) lässt jeden Test laut scheitern, auch über den Default-Runner."""
+    real = subprocess.Popen
+
+    def guard(args, *a, **kw):
+        assert "pkexec" not in str(args[0] if isinstance(args, (list, tuple)) else args), "echter pkexec-Aufruf"
+        return real(args, *a, **kw)
+    monkeypatch.setattr(subprocess, "Popen", guard)

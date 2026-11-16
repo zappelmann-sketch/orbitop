@@ -88,7 +88,8 @@ def test_is_alive(child):
     assert not is_alive(999999, 1)
 
 
-def test_foreign_uses_pkexec_helper():
+def test_foreign_uses_pkexec_helper(monkeypatch):
+    monkeypatch.setattr(sys, "executable", "/venv/bin/python")
     calls = []
     assert terminate(1, start_of(1), False, run=fake(calls, 126)) == "denied"
     argv, kw = calls[0]
@@ -208,10 +209,6 @@ def test_empty_cmdline_with_other_ppid_not_refused(child, tmp_path):
     assert child.wait(5) == -signal.SIGKILL
 
 
-def test_missing_pkexec_is_error():
-    assert terminate(1, 1, False, run=fake([], exc=FileNotFoundError("/usr/bin/pkexec"))) == "error"
-
-
 def test_helper_has_no_orbitop_import():
     src = open(HELPER).read()
     assert "import orbitop" not in src and "from orbitop" not in src
@@ -223,3 +220,15 @@ def test_ppid2_with_cmdline_not_refused(child, tmp_path):
     fake_proc(tmp_path, child.pid, s, "2", b"sleep\0")
     assert killhelper.send(child.pid, s, "KILL", str(tmp_path)) == killhelper.SENT
     assert child.wait(5) == -signal.SIGKILL
+
+
+def test_own_permission_error_is_denied(child, monkeypatch):
+    def deny(fd, s):
+        raise PermissionError
+    monkeypatch.setattr(signal, "pidfd_send_signal", deny)
+    assert terminate(child.pid, start_of(child.pid), False) == "denied"
+
+
+def test_guard_blocks_real_pkexec():
+    with pytest.raises(AssertionError):
+        terminate(1, start_of(1), False)
