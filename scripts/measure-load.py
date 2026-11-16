@@ -75,10 +75,11 @@ def main(argv=None) -> int:
             seen.setdefault(k, [0, 0, comm])[1:] = [ticks, comm]
     elapsed = time.monotonic() - t0
     pct = {k: 100 * (last - base) / TICK / elapsed for k, (base, last, _) in seen.items()}
+    pss = {k: _pss_kb(k[0]) for k in now}  # am Ende lebende Prozesse
     for k in sorted(pct, key=pct.get, reverse=True):
-        print(f"  {k[0]:>7} {seen[k][2]:<20} {pct[k]:6.2f} %", file=sys.stderr)
+        print(f"  {k[0]:>7} {seen[k][2]:<20} {pct[k]:6.2f} % {pss.get(k, 0) / 1024:7.1f} MB", file=sys.stderr)
     print(f"cpu_pct_of_one_core={sum(pct.values()):.2f}")
-    print(f"pss_mb={sum(_pss_kb(pid) for pid, _ in now) / 1024:.1f}")
+    print(f"pss_mb={sum(pss.values()) / 1024:.1f}")
     print(f"processes={len(seen)}")
     return 0
 
