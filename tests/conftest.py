@@ -13,3 +13,13 @@ def intel_copy(tmp_path):
     dst = str(tmp_path / "root")
     shutil.copytree(INTEL, dst, symlinks=True)
     return dst
+
+
+@pytest.fixture
+def tree_copy(tmp_path):
+    """Fabrik: beschreibbare Kopie eines beliebigen Baums."""
+    def make(src):
+        dst = str(tmp_path / "root")
+        shutil.copytree(src, dst, symlinks=True)
+        return dst
+    return make
