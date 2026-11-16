@@ -1,0 +1,12 @@
+#!/usr/bin/python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+import os
+import sys
+
+# realpath: auch ein Symlink auf diesen Starter findet das Repository
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.realpath(__file__))))
+
+from orbitop.__main__ import main  # noqa: E402
+
+sys.exit(main(sys.argv[1:]))

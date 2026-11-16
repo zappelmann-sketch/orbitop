@@ -44,6 +44,7 @@
   "detail.started": "Running since",
   "detail.started_value": "{time} ({age})",
   "detail.threads": "Threads",
+  "error.runtime_missing": "orbitop needs the package {package}. Install it with: sudo apt install {package}",
   "filter.all": "All",
   "filter.flagged": "Flagged",
   "filter.mine": "Mine only",
