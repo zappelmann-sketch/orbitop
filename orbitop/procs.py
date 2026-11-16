@@ -14,6 +14,7 @@ from orbitop.system import MAX_DT
 HISTORY = 150
 SPARK = 30
 CMDLINE_MAX = 4096
+_CHUNK = 65536
 ARGS_MAX = 120
 
 
@@ -43,9 +44,11 @@ def _read(p: str) -> str | None:
         return None
     try:
         chunks = []
-        while chunk := os.read(fd, 65536):  # status kann bei vielen Gruppen > 64 KiB werden
+        while True:  # status kann bei vielen Gruppen > 64 KiB werden; weiterlesen nur nach vollem Block
+            chunk = os.read(fd, _CHUNK)
             chunks.append(chunk)
-        return b"".join(chunks).decode("utf-8", errors="replace")
+            if len(chunk) < _CHUNK:
+                return b"".join(chunks).decode("utf-8", errors="replace")
     except OSError:
         return None
     finally:

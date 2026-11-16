@@ -6,6 +6,7 @@ import timeit
 
 import pytest
 
+from orbitop import procs
 from orbitop.procs import ProcTable, RawProc, parse_stat, scan
 
 CLK = 100
@@ -126,6 +127,15 @@ def test_scan_status_over_64kib_with_ctxt_lines_at_end(tmp_path):
         "\nvoluntary_ctxt_switches:\t30\nnonvoluntary_ctxt_switches:\t4\n")
     assert (tmp_path / "proc" / "100" / "status").stat().st_size > 65536
     assert (100, 98765) in scan(str(tmp_path))
+
+
+def test_read_small_file_needs_one_read_call(tmp_path, monkeypatch):
+    f = tmp_path / "f"
+    f.write_text("abc")
+    calls = []
+    real = os.read
+    monkeypatch.setattr(os, "read", lambda fd, n: calls.append(n) or real(fd, n))
+    assert procs._read(str(f)) == "abc" and len(calls) == 1
 
 
 def test_scan_non_ascii_digit_pid_with_stat_skipped(tmp_path):
