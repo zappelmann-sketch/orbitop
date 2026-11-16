@@ -10,6 +10,7 @@ MAX_DT = 5.0
 
 @dataclass
 class CpuSample:
+    """threads[i] gehört zu CPU i (cpuN); fehlende CPUs sind None, die Länge schrumpft nie."""
     total: float | None
     threads: list[float | None]
     freq_ghz: float | None
@@ -26,7 +27,7 @@ class Mem:
 
 
 def _parse_stat(text: str | None) -> dict[str, tuple[int, int]]:
-    """Zeilenname ("cpu", "cpu0", ...) -> (busy, gesamt) in Ticks. Kaputte Zeilen entfallen."""
+    """Zeilenname ("cpu", "cpu0", ...) -> (busy, idle) in Ticks. Kaputte Zeilen entfallen."""
     out = {}
     for line in (text or "").splitlines():
         f = line.split()
@@ -39,18 +40,17 @@ def _parse_stat(text: str | None) -> dict[str, tuple[int, int]]:
         if len(v) < 5:
             continue
         idle = v[3] + v[4]
-        total = sum(v)
-        out[f[0]] = (total - idle, total)
+        out[f[0]] = (sum(v) - idle, idle)
     return out
 
 
 def _percent(prev: tuple[int, int] | None, cur: tuple[int, int]) -> float | None:
     if prev is None:
         return None
-    busy, total = cur[0] - prev[0], cur[1] - prev[1]
-    if busy < 0 or total <= 0:
+    busy, idle = cur[0] - prev[0], cur[1] - prev[1]
+    if busy < 0 or idle < 0 or busy + idle <= 0:
         return None
-    return min(100.0, 100.0 * busy / total)
+    return 100.0 * busy / (busy + idle)
 
 
 def _read_model(root: str) -> str:
@@ -71,16 +71,21 @@ class CpuReader:
         self._model = _read_model(root)
         self._prev: dict[str, tuple[int, int]] = {}
         self._prev_now: float | None = None
+        self._max_id = -1
 
     def read(self, now: float) -> CpuSample:
         cur = _parse_stat(sysfs.read_str(sysfs.path(self._root, "/proc/stat")))
         dt = None if self._prev_now is None else now - self._prev_now
         prev = self._prev if dt is not None and 0 < dt <= MAX_DT else {}
         self._prev, self._prev_now = cur, now
-        names = [n for n in cur if n != "cpu"]
+        ids = {int(n[3:]): n for n in cur if n[3:].isdecimal()}
+        self._max_id = max(self._max_id, *ids, -1)
         return CpuSample(
             total=_percent(prev.get("cpu"), cur["cpu"]) if "cpu" in cur else None,
-            threads=[_percent(prev.get(n), cur[n]) for n in names],
+            threads=[
+                _percent(prev.get(ids[i]), cur[ids[i]]) if i in ids else None
+                for i in range(self._max_id + 1)
+            ],
             freq_ghz=self._freq_ghz(),
             model=self._model,
         )
