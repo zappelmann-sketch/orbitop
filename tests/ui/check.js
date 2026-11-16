@@ -47,9 +47,11 @@ document.addEventListener("DOMContentLoaded", () => {
     devices: { cols: ["series.rx", "series.tx"], rows: [{ name: evil, values: [{ v: 2048, u: "B/s" }, null] }] } };
   const gpu = { id: "gpu0", kind: "gpu", name: "", main: { v: 5, u: "%" }, aside: null, seg: 5, warn: true,
     series: [{ key: "kv.clock", fill: true, max: 100, u: "%", values: [5] }], threads: null, kv: [], devices: null };
+  const disk = { id: "disk", kind: "disk", name: "", main: { v: 1, u: "B/s" }, aside: null, seg: 1, warn: false,
+    series: [{ key: "series.read", fill: true, max: 5000, u: "B/s", values: [1] }], threads: null, kv: [], devices: null };
   const top = { cpu: [{ pid: 42, start: 7, name: evil, cpu: 98.4, rss: 1 }], mem: { pid: 43, start: 8, name: "b", cpu: 0, rss: 2 * G } };
   const tick = (tiles, extra) => ({ type: "tick", tiles, missing: [], hints: [], top, procs: null, detail: null, ...extra });
-  receive(tick([cpu([[1, 2], [3, 4], [5], [6]]), net, gpu], { missing: ["fan"], hints: [evil, "constructor"] }));
+  receive(tick([cpu([[1, 2], [3, 4], [5], [6]]), net, gpu, disk], { missing: ["fan"], hints: [evil, "constructor"] }));
   eq($$("img").length, 0, "kein HTML aus Namen");
   eq($(".tile .nm").textContent, evil, "Kachelname");
   eq($(".tile .aside").textContent, evil, "aside l");
@@ -73,7 +75,19 @@ document.addEventListener("DOMContentLoaded", () => {
   eq([...dev.tHead.rows[0].cells].map((c) => c.textContent).join("|"), "|Empfangen|Senden", "Tabellenkopf übersetzt");
   eq(plain([...dev.tBodies[0].rows[0].cells].map((c) => c.textContent).join("|")), evil + "|2 KB/s|–", "Zeile mit null als –");
   const caps = [...$$(".tile > .in > .plot .cap")].map((c) => c.textContent);
-  eq(caps.join("|"), "AUSLASTUNG · 5 MIN|MB/s · 5 Min|TAKT · 5 MIN", "Beschriftung: Einheit der Skala, Takt bei GPU");
+  eq(caps.join("|"), "AUSLASTUNG · 5 MIN|MB/s · 5 Min|TAKT · 5 MIN|KB/s · 5 Min",
+     "Beschriftung: Einheit der Skala (2e6 -> MB/s, 5000 -> KB/s), Takt bei GPU");
+
+  // Ändert sich die Zahl der Geräte, wird die Tabelle passend neu gebaut
+  const netRows = (n) => ({ ...net, devices: { cols: net.devices.cols,
+    rows: Array.from({ length: n }, (_, i) => ({ name: "if" + i, values: [{ v: i, u: "B/s" }, null] })) } });
+  receive(tick([{ ...net, devices: null }]));
+  eq($(".tile table.dev").hidden, true, "ohne Geräte keine Tabelle");
+  for (const n of [2, 1, 2]) {
+    receive(tick([netRows(n)]));
+    eq([...$(".tile table.dev").tBodies[0].rows].map((r) => r.cells[0].textContent).join(","),
+       Array.from({ length: n }, (_, i) => "if" + i).join(","), `Geräte-Tabelle mit ${n} Zeilen`);
+  }
 
   // ---- Threads: bis 8 Mini-Diagramme, ab 9 Balken ----
   receive(tick([cpu(Array.from({ length: 8 }, () => [10]))]));

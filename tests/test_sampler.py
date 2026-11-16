@@ -805,6 +805,12 @@ def test_net_seg_absolute_with_link_speed_of_every_active_device(monkeypatch):
     assert net_seg(monkeypatch, [fast, wifi]) == (62.5, False)
 
 
+def test_net_link_reference_ignores_stale_speed_of_inactive_device(monkeypatch):
+    fast = NetDev("a", 1.25e6, 1.0, 0, 0, True, 100)  # aktiv, 100 Mbit/s
+    stale = NetDev("b", 0.0, 0.0, 0, 0, False, 1000)  # inaktiv, meldet noch 1000 Mbit/s
+    assert net_seg(monkeypatch, [fast, stale]) == (10, True)  # Bezug 12,5 MB/s, nicht 137,5 MB/s
+
+
 def test_disk_seg_relative_to_scale_top(monkeypatch):
     s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
     monkeypatch.setattr(s._disk, "read", lambda now: [Disk("sda", "", 3000.0, 0.0, None, None, None)])
