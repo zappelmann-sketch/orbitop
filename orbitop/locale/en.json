@@ -126,6 +126,7 @@
   "tile.power": "Power",
   "tile.temp": "Temperatures",
   "tile.temp_aside": "hottest sensor",
+  "unit.rpm": "rpm",
   "verdict.busy_iounknown": "Constant load, I/O could not be checked. It has been computing non-stop on one core for {since}. Whether it reads or writes could not be checked, because it is a foreign process. That can be an endless loop or a long calculation. Are you expecting it to compute for this long?",
   "verdict.busy_noio": "Constant load with no sign of life from outside. It has been computing non-stop on one core for {since}, reads and writes nothing and waits for nothing. That fits an endless loop, but just as well a long calculation. From outside the two cannot be told apart. Are you expecting it to compute for this long?",
   "verdict.kernel_hang": "Stuck in the kernel. It has been stuck in a kernel operation for {since}, usually disk, USB or a network drive. This is a real hang. Even “Kill now” only takes effect once the kernel releases it.",

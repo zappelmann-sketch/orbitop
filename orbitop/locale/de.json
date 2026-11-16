@@ -126,6 +126,7 @@
   "tile.power": "Leistung",
   "tile.temp": "Temperaturen",
   "tile.temp_aside": "heißester Sensor",
+  "unit.rpm": "U/min",
   "verdict.busy_iounknown": "Dauerlast, E/A nicht prüfbar. Er rechnet seit {since} ununterbrochen auf einem Kern. Ob er liest oder schreibt, konnte nicht geprüft werden, weil es ein fremder Prozess ist. Das kann eine Endlosschleife sein oder eine lange Berechnung. Erwartest du gerade, dass er so lange rechnet?",
   "verdict.busy_noio": "Dauerlast ohne Lebenszeichen nach außen. Er rechnet seit {since} ununterbrochen auf einem Kern, liest und schreibt nichts und wartet auf nichts. Das passt zu einer Endlosschleife, aber genauso zu einer langen Berechnung. Von außen ist das nicht zu unterscheiden. Erwartest du gerade, dass er so lange rechnet?",
   "verdict.kernel_hang": "Hängt im Kernel. Er steckt seit {since} in einer Kernel-Operation fest, meist Festplatte, USB oder Netzlaufwerk. Das ist ein echtes Hängen. Selbst „Sofort beenden“ greift erst, wenn der Kernel ihn loslässt.",

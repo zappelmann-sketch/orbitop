@@ -24,6 +24,23 @@ def _interval(text: str) -> float:
     return v
 
 
+def anonymize(tick: dict) -> dict:
+    """Ersetzt Prozessnamen, Argumente, Befehlszeilen, Benutzer und Elternnamen durch proc-N und user (Demodaten)."""
+    names: dict[str, str] = {}
+
+    def alias(name: str) -> str:
+        return names.setdefault(name, f"proc-{len(names) + 1}")
+
+    rows = [*(tick["top"]["cpu"] or []), tick["top"]["mem"], *(tick["procs"] or []), tick["detail"]]
+    for r in filter(None, rows):
+        r["name"] = alias(r["name"])
+        if "args" in r:
+            r["args"], r["user"] = "", "user"
+        if "cmdline" in r:
+            r["cmdline"], r["parent"] = r["name"], alias(r["parent"]) if r["parent"] else ""
+    return tick
+
+
 def main(argv=None) -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--root", default="/")
@@ -32,6 +49,7 @@ def main(argv=None) -> None:
     ap.add_argument("--view", choices=("overview", "procs"), default="overview",
                     help="procs füllt auch procs und detail (erste Zeile)")
     ap.add_argument("--js", action="store_true", help="window.ORBITOP_DEMO = {init, tick};")
+    ap.add_argument("--anonymize", action="store_true", help="Prozessnamen, Befehlszeilen und Benutzer ersetzen")
     a = ap.parse_args(argv)
     # Fixture-Bäume bekommen keine echten Werkzeuge, sonst mischten sich echte GPU-Werte in die Ausgabe
     sampler = Sampler(a.root, tools=GpuTools([]) if os.path.realpath(a.root) != "/" else None)
@@ -47,6 +65,8 @@ def main(argv=None) -> None:
             tick = sampler.snapshot({"tab": "procs", "pid": first["pid"], "start": first["start"]})
     finally:
         sampler.close()
+    if a.anonymize:
+        tick = anonymize(tick)
     if a.js:
         lang = detect_language(os.environ)
         init = {"type": "init", "lang": lang, "texts": load_texts(lang), "version": __version__}

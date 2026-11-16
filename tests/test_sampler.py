@@ -623,6 +623,22 @@ def test_dump_view_procs_fills_detail(intel_copy):
     assert json.loads(dump().stdout)["procs"] is None
 
 
+# R30: Demodaten ohne echte Prozessnamen, Befehlszeilen und Benutzer
+def test_dump_anonymize_removes_names_cmdlines_users(intel_copy):
+    # gegenseitige Eltern: detail (erste Zeile, Reihenfolge je Dateisystem) hat immer einen geheimen Elternnamen
+    make_proc(Path(intel_copy), 7, comm="geheim-kind", ppid=8, cmdline=b"/opt/geheim\0--token=xyz\0")
+    make_proc(Path(intel_copy), 8, comm="geheim-eltern", ppid=7, cmdline=b"/opt/geheim-eltern\0--pass\0")
+    out = subprocess.run([sys.executable, SCRIPT, "--root", intel_copy, "--ticks", "2", "--interval", "0.05",
+                          "--view", "procs", "--anonymize"], capture_output=True, text=True, check=True).stdout
+    tick = json.loads(out)
+    assert "geheim" not in out and "token" not in out and "--pass" not in out
+    rows = tick["procs"] + [tick["detail"], tick["top"]["mem"]] + tick["top"]["cpu"]
+    assert {r["name"] for r in rows} <= {f"proc-{i}" for i in range(1, len(rows) + 1)}
+    assert {r["user"] for r in tick["procs"]} == {"user"} and {r["args"] for r in tick["procs"]} == {""}
+    d = tick["detail"]
+    assert d["cmdline"] == d["name"] and d["parent"] in {r["name"] for r in tick["procs"]} - {d["name"]}
+
+
 @pytest.mark.parametrize("bad", ["0", "-1", "nan", "inf", "x"])
 def test_dump_rejects_bad_interval(bad):
     r = dump("--interval", bad, check=False)
