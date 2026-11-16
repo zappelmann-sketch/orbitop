@@ -399,11 +399,13 @@ function fillInto(node, tpl, vars, lead) {
   node.replaceChildren(...(lead ? [el("b", "", null, lead)] : []), ...parts);
 }
 
-/** Sekunden als „45 s“, „4 Min 12 s“ (unter 10 Min), „38 Min“, „2 h 5 Min“. */
+/** Sekunden als „45 s“, „4 Min 12 s“ (unter 10 Min), „38 Min“, „2 Std 5 Min“, „2 T 4 Std“. */
 function duration(sec) {
-  const s = Math.max(0, Math.round(sec)), m = Math.floor(s / 60), min = text("unit.min");
+  const s = Math.max(0, Math.round(sec)), m = Math.floor(s / 60), h = Math.floor(m / 60), d = Math.floor(h / 24);
+  const [min, hr, day] = ["unit.min", "unit.h", "unit.d"].map(text);
   if (s < 60) return `${s} s`;
-  if (m >= 60) return `${Math.floor(m / 60)} h ${m % 60} ${min}`;
+  if (d) return `${d} ${day} ${h % 24} ${hr}`;
+  if (h) return `${h} ${hr} ${m % 60} ${min}`;
   return m < 10 && s % 60 ? `${m} ${min} ${s % 60} s` : `${m} ${min}`;
 }
 
@@ -587,7 +589,14 @@ function compare(a, b) {
 }
 
 function renderProcs(msg) {
-  if (!Array.isArray(msg.procs)) return; // Python füllt procs erst nach der view-Meldung
+  if (!Array.isArray(msg.procs)) { // Python füllt procs erst nach der view-Meldung
+    if (ui.d && !same(ui.d, state.sel)) { // andere Auswahl (Chip): das alte Detail verschwindet, bis ihre Daten kommen
+      ui.d = ui.shown = null;
+      ui.dbody.hidden = true;
+    }
+    renderButtons(); // auch „läuft …“ gleich nach dem Bestätigen
+    return;
+  }
   hdrInfo();
   const col = COLS.find((c) => c.id === state.sort.col), dir = state.sort.desc ? -1 : 1, q = state.query;
   const list = msg.procs.filter((p) => FILTERS[state.filter](p) && (!q || `${p.name}\n${p.args}`.toLowerCase().includes(q)));
@@ -634,8 +643,10 @@ function renderDetail(msg) {
   const full = msg.detail && same(msg.detail, sel) ? msg.detail : null;
   const d = full || (sel && msg.procs.find((p) => same(p, sel))) || null;
   ui.shown = full;
+  ui.d = d;
   ui.none.hidden = !!d;
   ui.dbody.hidden = !d;
+  renderButtons();
   if (!d) return;
   setText(ui.dname, String(d.name));
   ui.dname.title = String(d.name);
@@ -644,9 +655,9 @@ function renderDetail(msg) {
   const hist = full ? full.history : [];
   drawArea(ui.dcanvas, [{ fill: true, max: Math.max(100, Math.ceil(Math.max(0, ...hist) / 100) * 100), values: hist }],
            { color: AREA.cpu, gridEvery: PROC_GRID, points: PROC_POINTS });
-  const num = (x) => number(x, lang, 0, 0, false);
+  const num = (x) => number(x, lang, 0, x < 10 ? 1 : 0, false);
   pairs(ui.dkv, [
-    [text("detail.cpu"), Math.abs(d.cpu - 100) < 10 ? fill("detail.cpu_one_core", { pct: num(d.cpu) }) : fmt({ v: d.cpu, u: "%" }, lang)],
+    [text("detail.cpu"), d.cpu >= 90 && d.cpu <= 105 ? fill("detail.cpu_one_core", { pct: num(d.cpu) }) : fmt({ v: d.cpu, u: "%" }, lang)],
     [text("detail.ram"), fmt({ v: d.rss, u: "B" }, lang)],
     [text("detail.io"), ioText(d)],
     [text("detail.threads"), fmt({ v: d.threads, u: "" }, lang)], // Zeile ohne threads: „–“
@@ -656,10 +667,15 @@ function renderDetail(msg) {
   ]);
   const tpl = text("verdict." + d.state), cut = tpl.indexOf(". ") + 1; // erster Satz fett
   ui.verdict.className = "verdict " + (KIND[d.state] || "idle");
-  fillInto(ui.verdict, tpl.slice(cut), { since: duration(d.since), parent: full ? String(full.parent) : "" }, tpl.slice(0, cut));
-  // pid 1 und Kernel-Threads verweigert killhelper (dieselbe Regel wie actions._precheck)
-  const kernel = full && (full.pid === 1 || (!full.cmdline && (full.ppid === 0 || full.ppid === 2)));
-  const why = d.state === "zombie" ? "result.zombie" : kernel ? "result.kernel" : state.pending ? "btn.busy" : null;
+  const parent = !full ? "–" : full.parent ? String(full.parent) : fill("detail.parent_pid", { pid: full.ppid });
+  fillInto(ui.verdict, tpl.slice(cut), { since: duration(d.since), parent }, tpl.slice(0, cut));
+}
+
+/** Knöpfe frei nur mit vollem Detail der Auswahl, ohne Sperrgrund und ohne laufendes Beenden. */
+function renderButtons() {
+  const d = ui.d, full = ui.shown;
+  const why = !d ? null : d.state === "zombie" ? "result.zombie" : full && full.kernel === true ? "result.kernel"
+    : state.pending ? "btn.busy" : null;
   const off = String(!full || !!why); // aria-disabled statt disabled: der Knopf behält den Fokus und nennt den Grund
   for (const b of [ui.term, ui.kill]) if (b.getAttribute("aria-disabled") !== off) b.setAttribute("aria-disabled", off);
   setText(ui.reason, why ? text(why) : "");
@@ -677,7 +693,9 @@ function makeDialog(cls, titleId) {
       closeDialog(d);
     }
   });
-  d.addEventListener("close", () => closeDialog(d)); // falls die Seite ohne uns schließt
+  d.addEventListener("close", () => { // falls die Seite ohne uns schließt; kommt nach unserem Schließen erst später
+    if (!d.open) closeDialog(d);
+  });
   return el("div", "in", el("div", "frame", d));
 }
 
@@ -726,8 +744,8 @@ function buildDialogs() {
 /** Rückfrage öffnen; das Ziel (pid, start) wird jetzt festgehalten, nicht erst beim Bestätigen. */
 function ask(force, opener) {
   const d = ui.shown;
-  if (!d || opener.getAttribute("aria-disabled") === "true") return;
-  state.target = { pid: d.pid, start: d.start, force };
+  if (!d || !same(d, state.sel) || opener.getAttribute("aria-disabled") === "true") return;
+  state.target = { pid: d.pid, start: d.start, force, name: String(d.name) };
   ui.confirm.classList.toggle("kill", force);
   setText(ui.cTitle, text(force ? "confirm.title_kill" : "confirm.title"));
   fillInto(ui.cText, text(force ? "confirm.kill_text" : "confirm.terminate_text"), { name: String(d.name), pid: d.pid });
@@ -746,8 +764,10 @@ function confirmed() {
   refresh();
 }
 
-function notify(code) {
-  setText(ui.noticeText, text("result." + (RESULTS.includes(code) ? code : "error")));
+/** Ergebnis als Meldung; t (Ziel der Rückfrage) nennt den Prozess, denn die Auswahl kann inzwischen eine andere sein. */
+function notify(code, t) {
+  const msg = text("result." + (RESULTS.includes(code) ? code : "error"));
+  fillInto(ui.noticeText, t ? text("notice.for") : msg, t ? { name: t.name, pid: t.pid, text: msg } : {});
   ui.notice.hidden = false;
 }
 
@@ -773,14 +793,15 @@ window.orbitop = {
       if (state.tab === "overview") renderOverview(msg); // ausgeblendete Kacheln nicht zeichnen
       else renderProcs(msg);
     } else if (msg.type === "terminate_result") {
+      const t = state.pending;
       state.pending = null; // Python nimmt erst jetzt wieder ein terminate an
-      notify(msg.result);
+      notify(msg.result, t && t.pid === msg.pid ? t : null);
       refresh();
     } else if (msg.type === "terminate_check") {
       const t = state.lastTerm;
       if (!t || msg.pid !== t.pid) return;
       if (msg.alive) state.alert = keyOf(t); // „Sofort beenden“ hervorheben
-      else notify("gone");
+      else notify("gone", t);
       refresh();
     }
   },

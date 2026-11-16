@@ -36,6 +36,17 @@ class RawProc:
     args: str
 
 
+def is_kernel_thread(ppid: int, cmdline) -> bool:
+    """Kernel-Thread: Kind von 0 oder kthreadd (2) ohne Befehlszeile."""
+    return not cmdline and ppid in (0, 2)
+
+
+def is_kernel(pid: int, ppid: int, cmdline) -> bool:
+    """Nicht beendbar: PID 1 oder Kernel-Thread. Einzige Quelle der Regel; killhelper.send hält eine eigene Kopie,
+    weil er unter python3 -I ohne Paket läuft. cmdline als str oder bytes (es zählt nur, ob sie leer ist)."""
+    return pid == 1 or is_kernel_thread(ppid, cmdline)
+
+
 def _read(p: str) -> str | None:
     """Schlanker als sysfs.read_str (kein TextIOWrapper), das hier läuft je Prozess und Tick."""
     try:
@@ -132,7 +143,7 @@ def scan(root: str, cmdlines: dict | None = None,
         if c is None or c[0] != s["name"]:
             c = cmdlines[key] = (s["name"], *_read_cmdline(base + "/cmdline"))
         name = sysfs.printable(s["name"])
-        if not c[1] and s["ppid"] in (0, 2):  # nur echte Kernel-Threads (Kinder von 0/kthreadd)
+        if is_kernel_thread(s["ppid"], c[1]):  # Klammern nur für Kernel-Threads, nicht für PID 1
             name = f"[{name}]"
         out[key] = RawProc(int(n), s["start"], s["ppid"], name, c[1], uid, s["state"], s["ticks"],
                            s["rss"] * page_size, s["threads"], vctx, nvctx, _parse_io(_read(base + "/io")),
@@ -217,6 +228,7 @@ class ProcTable:
         parent = next((p.raw.name for k, p in self._entries.items() if k[0] == r.ppid), "")
         return {**self._row(e, now), "cmdline": r.cmdline, "ppid": r.ppid, "parent": parent,
                 "threads": r.threads, "vctx": e.vctx_rate, "nvctx": e.nvctx_rate,
+                "kernel": is_kernel(r.pid, r.ppid, r.cmdline),
                 "started": int(self._btime + r.start / self.clk_tck), "history": list(e.history)}
 
     def _brief(self, e: _Entry) -> dict:

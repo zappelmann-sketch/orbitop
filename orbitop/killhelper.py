@@ -25,6 +25,7 @@ def _stat(pid: int, root: str) -> tuple[str, int, int]:
 def send(pid: int, start: int, sig: str, root: str = "/") -> int:
     """Prüft und signalisiert race-frei über ein pidfd, das VOR der Prüfung geöffnet wird.
     Wirft PermissionError, wenn das Signal nicht erlaubt ist."""
+    # Kopie von orbitop.procs.is_kernel (PID 1 oder Kernel-Thread): der Helfer läuft unter -I ohne das Paket
     if pid == 1:
         return KERNEL
     try:

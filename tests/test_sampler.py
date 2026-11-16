@@ -226,12 +226,25 @@ def validate_tick(snap, texts):
                 assert isinstance(d["name"], str) and len(d["values"]) == len(t["devices"]["cols"])
                 assert all(n is None or num_ok(n) is None for n in d["values"])
         assert t["threads"] is None or all(len(x) <= 60 for x in t["threads"])
+    d = snap["detail"]
+    if d is not None:
+        assert type(d["kernel"]) is bool and type(d["ppid"]) is int and isinstance(d["cmdline"], str)
+        assert len(d["history"]) <= 150 and any((r["pid"], r["start"]) == (d["pid"], d["start"]) for r in snap["procs"])
 
 
 @pytest.mark.parametrize("root", [INTEL, AMD, ARM, VM])
 def test_tick_matches_contract(root):
     from orbitop.i18n import load_texts
     validate_tick(run(root, ticks=4).snapshot(OVERVIEW), load_texts("en"))
+
+
+def test_procs_view_matches_contract(with_procs):
+    from orbitop.i18n import load_texts
+    s = run(with_procs)
+    row = s.snapshot({"tab": "procs", "pid": None, "start": None})["procs"][0]
+    snap = s.snapshot({"tab": "procs", "pid": row["pid"], "start": row["start"]})
+    assert snap["detail"] is not None
+    validate_tick(snap, load_texts("en"))
 
 
 def test_pair_and_direction_shapes():

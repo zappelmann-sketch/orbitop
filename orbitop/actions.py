@@ -5,7 +5,7 @@ import os
 import subprocess
 
 from orbitop import killhelper
-from orbitop.procs import parse_stat
+from orbitop.procs import is_kernel, parse_stat
 
 _HELPER = os.path.abspath(killhelper.__file__)
 # Absolute Pfade: kein PATH- oder venv-Einfluss auf das, was als root läuft.
@@ -60,12 +60,9 @@ def _precheck(pid: int, start: int, root: str) -> str | None:
             return "mismatch"
         if s["state"] in "ZX":
             return "zombie"
-        if pid == 1:
-            return "kernel"
-        if s["ppid"] in (0, 2):  # dieselbe Regel wie killhelper.send
-            with open(f"{root}/proc/{pid}/cmdline", "rb") as f:
-                if not f.read(1):
-                    return "kernel"
+        with open(f"{root}/proc/{pid}/cmdline", "rb") as f:
+            if is_kernel(pid, s["ppid"], f.read(1)):  # dieselbe Regel wie killhelper.send
+                return "kernel"
     except (OSError, ValueError, IndexError):
         return "gone"
     return None

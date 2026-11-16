@@ -241,6 +241,25 @@ def test_rows_and_detail_shape(tmp_path):
     assert t.rows(2.0)[0]["own"] is True and t.rows(2.0)[1]["own"] is False
 
 
+@pytest.mark.parametrize("pid,ppid,cmdline,want", [
+    (1, 0, "/sbin/init splash", True),   # PID 1 auch mit Befehlszeile
+    (5, 2, "", True), (5, 0, "", True),  # Kernel-Threads: Kind von 0 oder kthreadd, ohne Befehlszeile
+    (5, 2, "/usr/bin/x", False),         # Kind von kthreadd mit Befehlszeile ist ein normaler Prozess
+    (5, 1000, "", False),                # leere Befehlszeile allein reicht nicht
+])
+def test_is_kernel(pid, ppid, cmdline, want):
+    assert procs.is_kernel(pid, ppid, cmdline) is want
+
+
+def test_detail_has_kernel_flag(tmp_path):
+    (tmp_path / "proc").mkdir()
+    (tmp_path / "proc" / "stat").write_text("btime 1000000\n")
+    t = ProcTable(clk_tck=CLK, uid=1000, root=str(tmp_path))
+    t.update({(1, 5): raw(pid=1, start=5, ppid=0, cmdline="/sbin/init"), (7, 1): raw(pid=7, ppid=2, cmdline=""),
+              (8, 1): raw(pid=8, ppid=2, cmdline="/bin/x"), (9, 1): raw(pid=9, ppid=1000, cmdline="")}, 0)
+    assert [t.detail(pid, start, 0)["kernel"] for pid, start in ((1, 5), (7, 1), (8, 1), (9, 1))] == [True, True, False, False]
+
+
 def test_own_uses_table_uid():
     t = ProcTable(clk_tck=CLK, uid=4242)
     t.update({(10, 1): raw(uid=4242), (11, 1): raw(pid=11, uid=1000)}, 0)
