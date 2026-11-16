@@ -6,7 +6,6 @@
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>GPL-3.0-or-later</project_license>
   <name>orbitop</name>
-  <name xml:lang="de">orbitop</name>
   <summary>System monitor for CPU, memory, GPU, network and processes</summary>
   <summary xml:lang="de">Systemmonitor für CPU, Speicher, GPU, Netzwerk und Prozesse</summary>
   <developer id="io.github.zappelmann_sketch">

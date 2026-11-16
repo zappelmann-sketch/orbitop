@@ -6,11 +6,13 @@
 set -euo pipefail
 
 APP_ID="io.github.zappelmann_sketch.orbitop"
-euid="${ORBITOP_FAKE_EUID:-$(id -u)}"  # ORBITOP_FAKE_EUID: test hook only
-[ "$euid" -ne 0 ] || { echo "refusing to run as root" >&2; exit 1; }
-[ -n "${HOME:-}" ] || { echo "HOME is not set" >&2; exit 1; }
+[ "$(id -u)" -ne 0 ] || { echo "refusing to run as root" >&2; exit 1; }
+[[ "${HOME:-}" = /* ]] || { echo "HOME must be an absolute path" >&2; exit 1; }
+case "$*" in "" | "--uninstall") ;; *) echo "usage: $0 [--uninstall]" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# a newline/CR in the path would inject extra keys into the .desktop file
+case "$repo" in *$'\n'* | *$'\r'*) echo "repo path contains a newline" >&2; exit 1 ;; esac
 apps="$HOME/.local/share/applications"
 icons="$HOME/.local/share/icons/hicolor/scalable/apps"
 auto="$HOME/.config/autostart"
@@ -27,7 +29,7 @@ if [ "${1:-}" = "--uninstall" ]; then
     refresh
     exit 0
 fi
-[ $# -eq 0 ] || { echo "usage: $0 [--uninstall]" >&2; exit 2; }
+[ -x "$repo/bin/orbitop" ] || { echo "missing or not executable: $repo/bin/orbitop" >&2; exit 1; }
 
 # Desktop Entry spec: double-quote the path, backslash-escape " ` $ \, then double
 # every backslash again (string-value escaping); % must be %%.

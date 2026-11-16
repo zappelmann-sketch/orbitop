@@ -55,7 +55,7 @@ def unescape_exec(value):
         i += 1
     if started or cur:
         args.append(cur)
-    return args
+    return [a.replace("%%", "%") for a in args]
 
 
 def test_install_creates_three_files(tmp_path):
@@ -77,28 +77,76 @@ def test_exec_is_absolute_repo_path(tmp_path):
     assert unescape_exec(exec_line(expected(tmp_path)[0])) == [str(ROOT / "bin" / "orbitop")]
 
 
-def test_exec_quoting_with_special_path(tmp_path):
-    repo = tmp_path / 'my repo "q" $x `b` \\s'
+def repo_copy(tmp_path, name, with_bin=True):
+    repo = tmp_path / name
     (repo / "scripts").mkdir(parents=True)
     (repo / "bin").mkdir()
     (repo / "data/icons").mkdir(parents=True)
     shutil.copy(SCRIPT, repo / "scripts")
     shutil.copy(ROOT / "data" / f"{APP}.desktop", repo / "data")
     shutil.copy(SVG, repo / "data/icons")
+    if with_bin:
+        shutil.copy(ROOT / "bin/orbitop", repo / "bin")
     home = tmp_path / "home"
     home.mkdir()
+    return repo, home
+
+
+def test_exec_quoting_with_special_path(tmp_path):
+    repo, home = repo_copy(tmp_path, 'my repo "q" $x `b` \\s %f')
     r = run_install(home, script=repo / "scripts/install-user.sh")
     assert r.returncode == 0, r.stderr
     d, _, a = expected(home)
     assert unescape_exec(exec_line(d)) == [str(repo / "bin/orbitop")]
     assert unescape_exec(exec_line(a)) == [str(repo / "bin/orbitop"), "--hidden"]
+    assert "%%f" in exec_line(d)
     assert subprocess.run(["desktop-file-validate", str(d), str(a)]).returncode == 0
 
 
-def test_refuses_root(tmp_path):
-    r = run_install(tmp_path, env={"ORBITOP_FAKE_EUID": "0"})
+def test_refuses_newline_in_repo_path(tmp_path):
+    repo, home = repo_copy(tmp_path, "evil\nNoDisplay=true")
+    r = run_install(home, script=repo / "scripts/install-user.sh")
     assert r.returncode != 0
+    assert not any(f.exists() for f in expected(home))
+
+
+def test_refuses_missing_launcher(tmp_path):
+    repo, home = repo_copy(tmp_path, "norepo", with_bin=False)
+    r = run_install(home, script=repo / "scripts/install-user.sh")
+    assert r.returncode != 0
+    assert not any(f.exists() for f in expected(home))
+
+
+def test_refuses_relative_home(tmp_path):
+    r = run_install("relhome")
+    assert r.returncode != 0
+
+
+def test_rejects_extra_arguments(tmp_path):
+    for args in (["--bogus"], ["--uninstall", "x"], ["x", "y"]):
+        assert run_install(tmp_path, *args).returncode != 0
     assert not any(f.exists() for f in expected(tmp_path))
+
+
+def test_installed_modes(tmp_path):
+    run_install(tmp_path)
+    assert [f.stat().st_mode & 0o777 for f in expected(tmp_path)] == [0o644] * 3
+
+
+def test_script_is_executable():
+    assert os.access(SCRIPT, os.X_OK)
+
+
+def test_refuses_root(tmp_path):
+    fake = tmp_path / "fakebin"
+    fake.mkdir()
+    (fake / "id").write_text("#!/bin/sh\necho 0\n")
+    (fake / "id").chmod(0o755)
+    home = tmp_path / "home"
+    home.mkdir()
+    r = run_install(home, env={"PATH": f"{fake}:{os.environ['PATH']}"})
+    assert r.returncode != 0
+    assert not any(f.exists() for f in expected(home))
 
 
 def test_refuses_without_home():
