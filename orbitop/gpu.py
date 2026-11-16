@@ -65,7 +65,7 @@ def _real_uid(status: str | None) -> int | None:
     for line in (status or "").splitlines():
         if line.startswith("Uid:"):
             try:
-                return int(line.split()[1])
+                return int(line.split()[1])  # erste Zahl = reale UID
             except (IndexError, ValueError):
                 return None
     return None
@@ -80,31 +80,76 @@ def _parse_fdinfo(text: str) -> dict[str, str]:
     return kv
 
 
-def fdinfo_busy(root: str, driver: str, uid: int) -> dict[str, int]:
-    """Engine -> Summe der Busy-ns über die DRM-Clients eigener Prozesse (jede client-id einmal)."""
-    engines: dict[str, int] = {}
-    seen: set[str] = set()
-    for proc in sysfs.glob(root, "/proc/[0-9]*"):
-        if _real_uid(sysfs.read_str(proc + "/status")) != uid:
-            continue
-        for fd in sysfs.glob(proc, "/fdinfo/*"):
-            text = sysfs.read_str(fd)
-            if not text or "drm-driver" not in text:
-                continue
-            kv = _parse_fdinfo(text)
-            if kv.get("drm-driver") != driver:
-                continue
-            cid = kv.get("drm-client-id")
-            if cid is not None:
-                if cid in seen:
+class FdinfoScanner:
+    """Ein Scan für alle Treiber: DRM-fdinfo eigener Prozesse.
+
+    Die fd-Verzeichnisse werden höchstens alle FULL_INTERVAL s komplett neu aufgelistet, dazwischen nur
+    neue PIDs. Gelesen wird fdinfo ausschließlich für die gemerkten DRM-fds.
+    shortcut: ein neuer DRM-fd eines schon bekannten Prozesses wird erst beim nächsten Voll-Scan
+    gesehen (<= 10 s); PID-Wiederverwendung ebenso, upgrade nur bei Bedarf an engerer Erkennung.
+    """
+    FULL_INTERVAL = 10.0
+
+    def __init__(self, root: str, uid: int):
+        self._proc = sysfs.path(root, "/proc")
+        self._uid = uid
+        self._fds: dict[str, list[str]] = {}
+        self._full_t: float | None = None
+        self._t: float | None = None
+        self._snap: dict[str, dict[str, dict[str, int]]] = {}
+        self.pdev: dict[tuple[str, str], str] = {}  # (Treiber, client-id) -> drm-pdev
+
+    def _scan_pid(self, pid: str) -> list[str]:
+        base = f"{self._proc}/{pid}"
+        if _real_uid(sysfs.read_str(base + "/status")) != self._uid:
+            return []
+        try:
+            names = os.listdir(base + "/fd")
+        except OSError:
+            return []
+        out = []
+        for n in names:
+            try:
+                if os.readlink(f"{base}/fd/{n}").startswith("/dev/dri/"):
+                    out.append(f"{base}/fdinfo/{n}")
+            except OSError:
+                pass
+        return out
+
+    def snapshot(self, now: float) -> dict[str, dict[str, dict[str, int]]]:
+        """Treiber -> client-id -> Engine -> ns (jede client-id einmal)."""
+        if now == self._t:
+            return self._snap
+        try:
+            pids = [p for p in os.listdir(self._proc) if p.isdecimal()]
+        except OSError:
+            pids = []
+        if self._full_t is None or not 0 <= now - self._full_t < self.FULL_INTERVAL:
+            self._fds, self._full_t = {p: self._scan_pid(p) for p in pids}, now
+        else:
+            self._fds = {p: self._fds[p] if p in self._fds else self._scan_pid(p) for p in pids}
+        snap: dict[str, dict[str, dict[str, int]]] = {}
+        self.pdev = {}
+        for paths in self._fds.values():
+            for path in paths:
+                text = sysfs.read_str(path)
+                if not text:
                     continue
-                seen.add(cid)
-            for k, v in kv.items():
-                num, _, unit = v.partition(" ")
-                if k.startswith("drm-engine-") and unit.strip() == "ns" and num.isdecimal():
-                    name = k[len("drm-engine-"):].lower()
-                    engines[name] = engines.get(name, 0) + int(num)
-    return engines
+                kv = _parse_fdinfo(text)
+                drv, cid = kv.get("drm-driver"), kv.get("drm-client-id")
+                if drv is None or cid is None or cid in snap.get(drv, {}):
+                    continue
+                engines = {}
+                for k, v in kv.items():
+                    num, _, unit = v.partition(" ")
+                    if (k.startswith("drm-engine-") and unit.strip() == "ns"
+                            and num.isdecimal() and len(num) <= 20):
+                        engines[k[len("drm-engine-"):].lower()] = int(num)
+                snap.setdefault(drv, {})[cid] = engines
+                if "drm-pdev" in kv:
+                    self.pdev[(drv, cid)] = kv["drm-pdev"]
+        self._t, self._snap = now, snap
+        return snap
 
 
 def _scaled(v: float | None, div: float) -> float | None:
@@ -135,11 +180,12 @@ def _sclk(dev: str) -> tuple[float | None, float | None]:
 
 
 class GpuReader:
-    def __init__(self, root: str, info: GpuInfo, tools=None):
+    def __init__(self, root: str, info: GpuInfo, tools=None, scanner: FdinfoScanner | None = None):
         self._root, self.info, self._tools = root, info, tools
+        self._scanner = scanner or FdinfoScanner(root, os.getuid())
         self.name = info.name
         self._fd_t: float | None = None
-        self._fd_prev: dict[str, int] | None = None
+        self._fd_prev: dict[str, dict[str, int]] | None = None
         self._fd_busy: float | None = None
 
     def read(self, now: float) -> GpuSample:
@@ -190,6 +236,7 @@ class GpuReader:
         if t.get("name"):
             self.name = t["name"]
         busy = t.get("busy")
+        # vram_used/vram_total liefert das Werkzeug in MiB (wie nvidia-smi)
         used, total = t.get("vram_used"), t.get("vram_total")
         return GpuSample(busy, None if busy is None else "global", t.get("freq_mhz"),
                          t.get("freq_max_mhz"), t.get("power_w"), t.get("temp_c"),
@@ -210,15 +257,33 @@ class GpuReader:
         busy = self._own_busy(now)
         return GpuSample(busy, None if busy is None else "own", freq, top)
 
+    def _clients(self, now: float) -> dict[str, dict[str, int]]:
+        """Eigene Clients dieser Karte: client-id -> Engine -> ns (Treiber und drm-pdev passend)."""
+        snap = self._scanner.snapshot(now)
+        pdev = self._scanner.pdev
+        drv, pci = self.info.driver, self.info.pci
+        return {cid: eng for cid, eng in snap.get(drv, {}).items()
+                if not (pci and (drv, cid) in pdev and pdev[(drv, cid)] != pci)}
+
     def _own_busy(self, now: float) -> float | None:
-        """Auslastung eigener DRM-Clients aus fdinfo, höchstens alle FDINFO_INTERVAL s neu berechnet."""
+        """Auslastung eigener DRM-Clients, höchstens alle FDINFO_INTERVAL s neu berechnet.
+
+        Nur Clients, die in beiden Schnappschüssen vorkommen; Engine-Summe über Clients, Maximum über Engines.
+        """
         if self._fd_t is not None and 0 <= now - self._fd_t < FDINFO_INTERVAL:
             return self._fd_busy
-        snap = fdinfo_busy(self._root, self.info.driver, os.getuid())
+        cur = self._clients(now)
         prev, dt = self._fd_prev, None if self._fd_t is None else now - self._fd_t
-        self._fd_prev, self._fd_t, self._fd_busy = snap, now, None
-        if prev is not None and dt is not None and 0 < dt <= MAX_DT:
-            deltas = [snap[e] - prev[e] for e in snap if e in prev]
-            if all(d >= 0 for d in deltas) and all(snap.get(e, 0) >= prev[e] for e in prev):
-                self._fd_busy = min(100.0, max(deltas, default=0) / (dt * 1e9) * 100)
+        self._fd_prev, self._fd_t, self._fd_busy = cur, now, None
+        if prev is None or dt is None or not 0 < dt <= MAX_DT:
+            return None
+        per_engine: dict[str, int] = {}
+        for cid, engines in cur.items():
+            for e, ns in engines.items():
+                if cid in prev and e in prev[cid]:
+                    if ns < prev[cid][e]:
+                        return None  # Zähler gefallen
+                    per_engine[e] = per_engine.get(e, 0) + ns - prev[cid][e]
+        if per_engine:
+            self._fd_busy = min(100.0, max(per_engine.values()) / (dt * 1e9) * 100)
         return self._fd_busy

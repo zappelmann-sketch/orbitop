@@ -3,7 +3,13 @@
 import os
 import shutil
 
-from orbitop.gpu import GpuReader, discover_gpus, fdinfo_busy
+import statistics
+import time
+
+import pytest
+
+from orbitop import gpu as gpumod
+from orbitop.gpu import FdinfoScanner, GpuReader, discover_gpus
 from tests.roots import AMD, ARM, INTEL, VM
 
 
@@ -160,53 +166,174 @@ def test_devfreq_below_device(tree_copy):
     assert (s.freq_mhz, s.freq_max_mhz) == (300.0, 600.0)
 
 
-def make_fdinfo(proc, pid, uid, files):
+def add_client(proc, pid, fd, text, uid=None, status=None, target="/dev/dri/renderD128"):
     p = proc / str(pid)
-    (p / "fdinfo").mkdir(parents=True)
-    (p / "status").write_text(f"Name:\tx\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n")
-    for i, (cid, drv, render) in enumerate(files):
-        (p / "fdinfo" / str(10 + i)).write_text(
-            f"pos:\t0\ndrm-driver:\t{drv}\ndrm-client-id:\t{cid}\n"
-            f"drm-engine-Render:\t{render} ns\ndrm-engine-capacity-render:\t1\n")
+    (p / "fd").mkdir(parents=True, exist_ok=True)
+    (p / "fdinfo").mkdir(parents=True, exist_ok=True)
+    u = os.getuid() if uid is None else uid
+    (p / "status").write_text(status or f"Name:\tx\nUid:\t{u}\t{u}\t{u}\t{u}\n")
+    if not (p / "fd" / str(fd)).is_symlink():
+        os.symlink(target, p / "fd" / str(fd))
+    (p / "fdinfo" / str(fd)).write_text(text)
 
 
-def test_fdinfo_dedupes_client_ids(tmp_path):
+def info(drv="i915", cid=7, ns=0, pdev=None, engine="render"):
+    extra = f"drm-pdev:\t{pdev}\n" if pdev else ""
+    return f"pos:\t0\ndrm-driver:\t{drv}\ndrm-client-id:\t{cid}\n{extra}drm-engine-{engine}:\t{ns} ns\n"
+
+
+def scanner(tmp_path):
+    return FdinfoScanner(str(tmp_path), os.getuid())
+
+
+def test_scanner_dedupes_client_ids_and_filters_uid(tmp_path):
     proc = tmp_path / "proc"
     uid = os.getuid()
-    make_fdinfo(proc, 100, uid, [(7, "i915", 1_000_000), (7, "i915", 1_000_000)])
-    make_fdinfo(proc, 101, uid, [(8, "i915", 2_000_000), (9, "xe", 500)])
-    make_fdinfo(proc, 102, uid + 1, [(10, "i915", 9_000_000)])  # fremder Prozess
-    assert fdinfo_busy(str(tmp_path), "i915", uid) == {"render": 3_000_000}
+    add_client(proc, 100, 10, info(ns=1_000_000))
+    add_client(proc, 100, 11, info(ns=1_000_000))
+    add_client(proc, 101, 10, info(cid=8, ns=2_000_000))
+    add_client(proc, 101, 11, info("xe", 9, 500))
+    add_client(proc, 102, 10, info(cid=10, ns=9_000_000), uid=uid + 1)  # fremder Prozess
+    assert scanner(tmp_path).snapshot(0) == {"i915": {"7": {"render": 1_000_000}, "8": {"render": 2_000_000}},
+                                             "xe": {"9": {"render": 500}}}
 
 
-def test_fdinfo_skips_unreadable_and_foreign(tmp_path):
+def test_scanner_real_uid_not_effective(tmp_path):
+    add_client(tmp_path / "proc", 5, 10, info(),
+               status=f"Uid:\t{os.getuid() + 1}\t{os.getuid()}\t0\t0\n")
+    assert scanner(tmp_path).snapshot(0) == {}
+
+
+def test_scanner_skips_broken_and_missing(tmp_path):
     proc = tmp_path / "proc"
     (proc / "5").mkdir(parents=True)  # ohne status
-    (proc / "6" / "fdinfo").mkdir(parents=True)
+    (proc / "6").mkdir()
     (proc / "6" / "status").write_text("Uid:\tbroken\n")
-    assert fdinfo_busy(str(tmp_path), "i915", os.getuid()) == {}
-    assert fdinfo_busy(str(tmp_path / "nope"), "i915", os.getuid()) == {}
+    assert scanner(tmp_path).snapshot(0) == {}
+    assert FdinfoScanner(str(tmp_path / "nope"), os.getuid()).snapshot(0) == {}
+
+
+def test_scanner_never_reads_non_drm_fds(tmp_path, monkeypatch):
+    proc = tmp_path / "proc"
+    add_client(proc, 100, 10, info(ns=5))
+    add_client(proc, 100, 11, "pos:\t0\n", target="/dev/null")
+    add_client(proc, 100, 12, "pos:\t0\n", target="socket:[1]")
+    seen = []
+    real = gpumod.sysfs.read_str
+    monkeypatch.setattr(gpumod.sysfs, "read_str", lambda p: (seen.append(p), real(p))[1])
+    sc = scanner(tmp_path)
+    sc.snapshot(0)
+    sc.snapshot(1)
+    assert not [p for p in seen if p.endswith(("/fdinfo/11", "/fdinfo/12"))]
+    assert any(p.endswith("/fdinfo/10") for p in seen)
+
+
+def test_scanner_new_pids_between_full_scans(tmp_path):
+    proc = tmp_path / "proc"
+    add_client(proc, 100, 10, info(ns=1))
+    sc = scanner(tmp_path)
+    assert list(sc.snapshot(0)["i915"]) == ["7"]
+    add_client(proc, 200, 10, info(cid=8, ns=1))
+    assert sorted(sc.snapshot(1)["i915"]) == ["7", "8"]  # neue PID ohne Voll-Scan
+    shutil.rmtree(proc / "100")
+    assert list(sc.snapshot(2)["i915"]) == ["8"]  # verschwundene PID entfällt
+
+
+def test_scanner_ns_hardening(tmp_path):
+    add_client(tmp_path / "proc", 1, 10, info(ns="9" * 21))
+    assert scanner(tmp_path).snapshot(0) == {"i915": {"7": {}}}
+
+
+def reader(tmp_path, root=INTEL, card="card1"):
+    return GpuReader(str(tmp_path), gpu(root, card), scanner=scanner(tmp_path))
 
 
 def test_own_busy_delta_throttle_and_gap(tmp_path):
-    root = str(tmp_path)
-    uid = os.getuid()
-    make_fdinfo(tmp_path / "proc", 100, uid, [(7, "i915", 0)])
-    f = tmp_path / "proc/100/fdinfo/10"
-
-    def set_ns(ns):
-        f.write_text(f"drm-driver:\ti915\ndrm-client-id:\t7\ndrm-engine-render:\t{ns} ns\n")
-
-    r = GpuReader(root, gpu(INTEL, "card1"))
+    proc = tmp_path / "proc"
+    add_client(proc, 100, 10, info(ns=0))
+    r = reader(tmp_path)
     assert r._own_busy(0.0) is None  # kein Vorgänger
-    set_ns(1_000_000_000)
-    assert r._own_busy(1.0) is None  # gedrosselt, kein neuer Wert
-    assert r._own_busy(2.0) == 50.0  # 1 s Last in 2 s
-    set_ns(9_000_000_000)
+    add_client(proc, 100, 10, info(ns=1_000_000_000))
+    assert r._own_busy(1.0) is None  # gedrosselt
+    assert r._own_busy(2.0) == 50.0
+    add_client(proc, 100, 10, info(ns=9_000_000_000))
     assert r._own_busy(3.0) == 50.0  # gedrosselt: letzter Wert
     assert r._own_busy(4.0) == 100.0  # begrenzt
-    set_ns(1)
+    add_client(proc, 100, 10, info(ns=1))
     assert r._own_busy(6.0) is None  # Zähler gefallen
-    set_ns(2_000_000_000)
+    add_client(proc, 100, 10, info(ns=2_000_000_000))
     assert r._own_busy(20.0) is None  # dt > MAX_DT
-    assert r._own_busy(22.0) == 0.0  # nichts verändert
+    assert r._own_busy(22.0) == 0.0
+
+
+def test_own_busy_new_client_no_spike(tmp_path):
+    proc = tmp_path / "proc"
+    add_client(proc, 100, 10, info(ns=0))
+    r = reader(tmp_path)
+    r._own_busy(0.0)
+    add_client(proc, 100, 10, info(ns=1_000_000_000))
+    add_client(proc, 101, 10, info(cid=8, ns=50_000_000_000))  # neuer Client mit Altlast
+    assert r._own_busy(2.0) == 50.0
+
+
+def test_own_busy_none_without_engine_values(tmp_path):
+    proc = tmp_path / "proc"
+    for ns in (0, 5):
+        add_client(proc, 100, 10, f"drm-driver:\txe\ndrm-client-id:\t7\ndrm-cycles-rcs:\t{ns}\n")
+    r = GpuReader(str(tmp_path), gpumod.GpuInfo("card1", "xe", "intel", "x", None), scanner=scanner(tmp_path))
+    r._own_busy(0.0)
+    assert r._own_busy(2.0) is None
+
+
+def test_own_busy_no_clients_is_none(tmp_path):
+    (tmp_path / "proc").mkdir()
+    r = reader(tmp_path)
+    r._own_busy(0.0)
+    assert r._own_busy(2.0) is None
+
+
+def test_own_busy_per_card_by_pdev(tmp_path):
+    proc = tmp_path / "proc"
+    sc = scanner(tmp_path)
+    mk = lambda pci: GpuReader(str(tmp_path), gpumod.GpuInfo("c", "i915", "intel", "x", pci), scanner=sc)
+    a, b = mk("0000:00:02.0"), mk("0000:03:00.0")
+    add_client(proc, 1, 10, info(cid=1, ns=0, pdev="0000:00:02.0"))
+    add_client(proc, 1, 11, info(cid=2, ns=0, pdev="0000:03:00.0"))
+    a._own_busy(0.0), b._own_busy(0.0)
+    add_client(proc, 1, 10, info(cid=1, ns=1_000_000_000, pdev="0000:00:02.0"))
+    add_client(proc, 1, 11, info(cid=2, ns=2_000_000_000, pdev="0000:03:00.0"))
+    assert (a._own_busy(2.0), b._own_busy(2.0)) == (50.0, 100.0)
+
+
+def test_intel_own_scope_via_fdinfo(tmp_path, tree_copy):
+    root = tree_copy(INTEL)
+    proc = tmp_path / "root" / "proc"
+    add_client(proc, 1, 10, info(ns=0))
+    r = GpuReader(root, gpu(root, "card1"))
+    assert r.read(0).busy is None
+    add_client(proc, 1, 10, info(ns=1_000_000_000))
+    s = r.read(2.0)
+    assert (s.busy, s.busy_scope) == (50.0, "own")
+
+
+@pytest.mark.parametrize("bad", ["00:02.0", "0000:00:02.8", "0000:00:02.9", "0000:00:0A.0", "0000:00:02.0x"])
+def test_pci_regex_negatives(tree_copy, bad):
+    root = tree_copy(INTEL)
+    dev = f"{root}/sys/class/drm/card1/device"
+    shutil.rmtree(dev)
+    os.makedirs(f"{root}/sys/devices/{bad}")
+    os.symlink(f"../../../devices/{bad}", dev)
+    assert gpu(root, "card1").pci is None
+
+
+def test_scanner_cheap_on_real_proc():
+    sc = FdinfoScanner("/", os.getuid())
+    sc.snapshot(0.0)
+    if not any(sc._fds.values()):
+        pytest.skip("keine DRM-fds in /proc")
+    times = []
+    for i in range(1, 6):
+        t = time.process_time()
+        sc.snapshot(float(i))
+        times.append(time.process_time() - t)
+    assert statistics.median(times) < 0.015
