@@ -311,7 +311,7 @@ def test_temp_labels_carry_their_own_values():
 def test_temp_history_follows_label(monkeypatch):
     t = [Temp("A", 10.0, "x"), Temp("B", 20.0, "x"), Temp("C", 30.0, "x"), Temp("D", 40.0, "x")]
     vals = iter([sens(temps=t, cpu=50.0), sens(temps=t[1:], cpu=50.0)])
-    monkeypatch.setattr(sampler_mod, "read_sensors", lambda root: next(vals))
+    monkeypatch.setattr(sampler_mod, "read_sensors", lambda *a: next(vals))
     s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
     s.tick_system()
     s.tick_system()
@@ -876,3 +876,22 @@ def test_anonymize_replaces_every_name_field():
     assert secret not in json.dumps(out)
     assert out["top"]["cpu"][0]["name"] == out["detail"]["parent"] == "proc-1"
     assert out["detail"]["user"] == "user" and out["procs"][0]["args"] == ""
+
+
+def test_sampler_holds_slow_chip_between_ticks(tree_copy):
+    """dell_smm (BIOS-SMM) wird höchstens alle 5 s gelesen; der Sampler behält den Wert über die Takte."""
+    root = tree_copy(INTEL)
+    t = [0.0]
+    s = Sampler(root, tools=NoTools(), clock=lambda: t[0], uid=1000)
+    fan = Path(root, "sys/class/hwmon/hwmon5/fan1_input")
+    rpm = lambda: tile(s.snapshot(OVERVIEW), "fan")["main"]["v"]  # noqa: E731
+    s.tick_system()
+    old = rpm()
+    fan.write_text("1234")
+    for now in (1.0, 2.0, 3.0, 4.0):
+        t[0] = now
+        s.tick_system()
+        assert rpm() == old
+    t[0] = 5.0
+    s.tick_system()
+    assert rpm() == 1234

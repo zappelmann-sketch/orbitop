@@ -125,6 +125,7 @@ class Sampler:
         zones = sysfs.glob(root, "/sys/class/powercap/intel-rapl:*")
         self._rapl_noperm = bool(zones) and all(sysfs.read_int(z + "/energy_uj") is None for z in zones)
         self._crit = _crit(root)
+        self._held: dict = {}  # langsame hwmon-Chips für read_sensors
         self._table = ProcTable(uid=uid, root=root)
         self._now_procs = clock()
         self._bufs: dict[str, deque] = {}
@@ -174,7 +175,7 @@ class Sampler:
         self._end_tick()
 
     def _tick_sensors(self, now) -> None:
-        self._s["sens"] = _safe(read_sensors, self._root)
+        self._s["sens"] = _safe(read_sensors, self._root, self._held, now)
         self._s["batt"] = _safe(read_battery, self._root)
 
     def _tick_cpu(self, now) -> None:

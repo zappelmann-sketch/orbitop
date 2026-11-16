@@ -1,8 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Temperaturen, Lüfter, RAPL-Leistung und Akku aus /sys. Alles wird bei jedem Aufruf neu gelesen."""
+"""Temperaturen, Lüfter, RAPL-Leistung und Akku aus /sys. Alles wird bei jedem Aufruf neu gelesen, außer langsamen
+hwmon-Chips (read_sensors mit held)."""
 import os
 import re
+import time
 from dataclasses import dataclass
 
 from orbitop import sysfs
@@ -10,6 +12,8 @@ from orbitop.system import MAX_DT
 
 GPU_CHIPS = {"amdgpu", "radeon", "nouveau"}
 TEMP_MIN, TEMP_MAX = -40.0, 150.0   # °C, Obergrenze exklusiv
+SLOW_CHIPS = {"dell_smm"}  # jeder Lesezugriff ist ein BIOS-SMM-Aufruf (gemessen: 3,7 ms CPU, 58 ms Wartezeit)
+SLOW_READ_S, SLOW_EVERY_S = 0.010, 5.0  # wer länger braucht, wird höchstens alle 5 s gelesen
 _THERMAL_CPU = re.compile(r"x86_pkg_temp|cpu|soc")
 
 
@@ -49,6 +53,8 @@ class _Chip:
     dir: str
     temps: list[Temp]
     first: Temp | None  # temp1, unabhängig vom Label
+    fans: list[Fan]
+    power: list[tuple[str, float]]
 
 
 def _files(d: str, kind: str, suffix: str):
@@ -63,22 +69,52 @@ def _temp_ok(c: float) -> bool:
     return TEMP_MIN <= c < TEMP_MAX
 
 
-def _chips(root: str) -> list[_Chip]:
-    chips = []
+def _read_chip(d: str, name: str) -> _Chip:
+    temps, first = [], None
+    for n, f in _files(d, "temp", "input"):
+        v = sysfs.read_float(f)
+        if v is None or not _temp_ok(v / 1000):
+            continue
+        label = sysfs.read_str(f"{d}/temp{n}_label") or f"{name} {n}"
+        temps.append(Temp(label, v / 1000, name, d))
+        if n == "1":
+            first = temps[-1]
+    fans, power = [], []
+    for n, f in _files(d, "fan", "input"):
+        rpm = sysfs.read_float(f)
+        if rpm is None or rpm < 0:
+            continue
+        fans.append(Fan(sysfs.read_str(f"{d}/fan{n}_label") or f"{name} {n}", rpm, sysfs.read_float(f"{d}/fan{n}_max")))
+    if name not in GPU_CHIPS:  # GPU-Leistung gehört zur GPU-Kachel
+        seen = set()
+        for n, f in [*_files(d, "power", "input"), *_files(d, "power", "average")]:
+            w = sysfs.read_float(f)
+            if n in seen or w is None or w < 0:
+                continue
+            seen.add(n)
+            power.append((sysfs.read_str(f"{d}/power{n}_label") or f"{name} {n}", w / 1e6))
+    return _Chip(name, d, temps, first, fans, power)
+
+
+def _chips(root: str, held: dict, now: float, clock) -> list[_Chip]:
+    """Alle Chips; langsame aus held (Verzeichnis -> (Zeit, Chip)), solange ihr Wert jünger als SLOW_EVERY_S ist."""
+    chips, keep = [], {}
     for d in sysfs.glob(root, "/sys/class/hwmon/hwmon*"):
         name = sysfs.read_str(d + "/name")
         if not name:
             continue
-        temps, first = [], None
-        for n, f in _files(d, "temp", "input"):
-            v = sysfs.read_float(f)
-            if v is None or not _temp_ok(v / 1000):
-                continue
-            label = sysfs.read_str(f"{d}/temp{n}_label") or f"{name} {n}"
-            temps.append(Temp(label, v / 1000, name, d))
-            if n == "1":
-                first = temps[-1]
-        chips.append(_Chip(name, d, temps, first))
+        old = held.get(d)
+        if old and old[1].name == name and 0 <= now - old[0] < SLOW_EVERY_S:  # nach dem Aufwachen ggf. anderer Chip
+            keep[d] = old
+            chips.append(old[1])
+            continue
+        t = clock()
+        chip = _read_chip(d, name)
+        if name in SLOW_CHIPS or clock() - t > SLOW_READ_S:
+            keep[d] = (now, chip)
+        chips.append(chip)
+    held.clear()
+    held.update(keep)  # verschwundene Verzeichnisse fallen heraus
     return chips
 
 
@@ -124,31 +160,16 @@ def _temp_rank(t: Temp, primary: set[int]) -> int:
     return 2 if t.chip.startswith("pch_") else 3
 
 
-def read_sensors(root: str) -> SensorValues:
-    chips = _chips(root)
+def read_sensors(root: str, held: dict | None = None, now: float = 0.0, clock=time.monotonic) -> SensorValues:
+    """held behält der Aufrufer über die Takte: Darin bleiben langsame Chips (SLOW_CHIPS oder mehr als SLOW_READ_S
+    Wartezeit je Lesen) bis zu SLOW_EVERY_S stehen. Der Verlauf zeigt dann so lange denselben Wert."""
+    chips = _chips(root, {} if held is None else held, now, clock)
     cpu, used = _cpu_temp(root, chips)
     temps = [t for c in chips if c.name not in used | GPU_CHIPS for t in c.temps]
     primary = {id(next((t for t in c.temps if t.label.endswith("Composite")), c.temps[0]))
                for c in chips if c.name == "nvme" and c.temps}
     temps.sort(key=lambda t: _temp_rank(t, primary))  # stabil: hwmon-Reihenfolge bleibt innerhalb der Gruppe
-    fans, power = [], []
-    for c in chips:
-        for n, f in _files(c.dir, "fan", "input"):
-            rpm = sysfs.read_float(f)
-            if rpm is None or rpm < 0:
-                continue
-            fans.append(Fan(sysfs.read_str(f"{c.dir}/fan{n}_label") or f"{c.name} {n}", rpm,
-                            sysfs.read_float(f"{c.dir}/fan{n}_max")))
-        if c.name in GPU_CHIPS:
-            continue  # GPU-Leistung gehört zur GPU-Kachel
-        seen = set()
-        for n, f in [*_files(c.dir, "power", "input"), *_files(c.dir, "power", "average")]:
-            w = sysfs.read_float(f)
-            if n in seen or w is None or w < 0:
-                continue
-            seen.add(n)
-            power.append((sysfs.read_str(f"{c.dir}/power{n}_label") or f"{c.name} {n}", w / 1e6))
-    return SensorValues(cpu, temps, fans, power)
+    return SensorValues(cpu, temps, [f for c in chips for f in c.fans], [w for c in chips for w in c.power])
 
 
 class RaplReader:

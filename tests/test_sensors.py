@@ -5,7 +5,7 @@ import shutil
 
 import pytest
 
-from orbitop import sysfs
+from orbitop import sensors, sysfs
 from orbitop.sensors import RaplReader, read_battery, read_sensors
 from tests.roots import AMD, ARM, INTEL, VM
 
@@ -350,3 +350,49 @@ def test_temps_only_first_nvme_sensor_ranks_first(tmp_path):
     assert [(t.chip, t.label) for t in read_sensors(root).temps] == [
         ("nvme", "Composite"), ("drivetemp", "drivetemp 1"), ("pch_cannonlake", "pch_cannonlake 1"),
         ("nvme", "Sensor 1"), ("zzz", "zzz 1")]
+
+
+# ---- Langsame Chips (Task 17): dell_smm und jeder Chip mit mehr als 10 ms je Lesen höchstens alle 5 s ----
+def _smm(v):
+    return [t.value for t in v.temps if t.chip == "dell_smm"] + [f.rpm for f in v.fans]
+
+
+def test_dell_smm_read_at_most_every_5_s(intel_copy):
+    held = {}
+    first = read_sensors(intel_copy, held, 100.0)
+    _hw(intel_copy, 5, "dell_smm", {"temp1_input": 77000, "fan1_input": 3333})
+    _hw(intel_copy, 7, "coretemp", {"temp1_input": 55000})
+    mid = read_sensors(intel_copy, held, 104.9)
+    assert _smm(mid) == _smm(first)  # der letzte Wert bleibt stehen
+    assert mid.cpu_temp == pytest.approx(55.0)  # schnelle Chips jeden Takt
+    late = read_sensors(intel_copy, held, 105.0)
+    assert 77.0 in _smm(late) and 3333.0 in _smm(late)
+
+
+def test_held_chip_not_reused_after_hwmon_renumbering(intel_copy):
+    held = {}
+    read_sensors(intel_copy, held, 0.0)
+    base = f"{intel_copy}/sys/class/hwmon"
+    os.rename(f"{base}/hwmon5", f"{base}/hwmon10")  # dell_smm wandert, nvme bekommt seine alte Nummer
+    os.rename(f"{base}/hwmon3", f"{base}/hwmon5")
+    v = read_sensors(intel_copy, held, 1.0)
+    assert [t.chip for t in v.temps].count("dell_smm") == 4 and any(t.chip == "nvme" for t in v.temps)
+
+
+def test_any_chip_slower_than_10_ms_is_held(intel_copy, monkeypatch):
+    t = [0.0]
+    real = sensors._read_chip
+
+    def timed(d, name):  # nvme braucht 20 ms, alle anderen 1 ms
+        t[0] += 0.02 if name == "nvme" else 0.001
+        return real(d, name)
+    monkeypatch.setattr(sensors, "_read_chip", timed)
+    held, clock = {}, lambda: t[0]
+    nvme = lambda v: [x.value for x in v.temps if x.chip == "nvme"]  # noqa: E731
+    first = read_sensors(intel_copy, held, 0.0, clock)
+    _hw(intel_copy, 3, "nvme", {"temp1_input": 66000})
+    _hw(intel_copy, 4, "pch_skylake", {"temp1_input": 44000})
+    later = read_sensors(intel_copy, held, 4.0, clock)
+    assert nvme(later) == nvme(first)
+    assert 44.0 in [x.value for x in later.temps if x.chip == "pch_skylake"]
+    assert 66.0 in nvme(read_sensors(intel_copy, held, 5.0, clock))
