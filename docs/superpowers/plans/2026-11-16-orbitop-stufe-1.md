@@ -65,13 +65,14 @@ terminate_check  {"type":"terminate_check","pid":int,"alive":bool}
 
 Tile      {"id":"cpu|gpu0|gpu1…|mem|power|temp|fan|net|disk","kind":"cpu|gpu|mem|power|temp|fan|net|disk",
            "name":str,"main":Num,"aside":Num|Txt|null,"seg":0..100,
-           "series":[Series],"threads":[[float|null]]|null,"kv":[KV],"devices":[Device]|null}
+           "series":[Series],"threads":[[float|null]]|null,"kv":[KV],"devices":Devices|null,
+           "warn":bool}   (warn: Bernstein ab 80 % nur bei absoluter Obergrenze)
 Num       {"v":float|null,"u":"%|GHz|MHz|W|°C|rpm|B/s|B|"}  optional: "of":float|null (Anzeige „v / of u“),
           "p":"↓"|"↑" (Präfix vor dem Wert)
 Series    {"key":textkey | "label":str,"fill":bool,"max":float,"u":unit,"values":[float|null]}   (≤300)
 KV        {"k":textkey | "l":str,"v":Num|Txt|[Num|Txt]}   (Liste wird mit „ · “ verbunden)
 Txt       {"k":textkey} | {"l":str}   ("k" übersetzen, "l" = rohe Beschriftung/Name, nie übersetzen; kein nacktes str als Wert)
-Device    {"name":str,"values":[Num]}
+Devices   {"cols":[textkey],"rows":[{"name":str,"values":[Num|null]}]}   (kleine Tabelle mit Spaltenköpfen; null → „–“)
 ProcBrief {"pid":int,"start":int,"name":str,"cpu":float,"rss":int}
 ProcRow   {"pid","start","name","args","user","own":bool,"cpu":float,"spark":[float],"rss":int,
            "io":float|null,"state":State,"since":int}
