@@ -53,7 +53,7 @@ def test_cpu_busy_or_idle_backwards_is_gap(intel_copy):
     write_stat(intel_copy, [(100, 100)] * 4)
     r = CpuReader(intel_copy)
     r.read(0.0)
-    write_stat(intel_copy, [(150, 50)] * 4)  # idle ging zurück, busy stieg
+    write_stat(intel_copy, [(200, 50)] * 4)  # idle ging zurück, Summe stieg
     s = r.read(1.0)
     assert s.total is None and s.threads == [None] * 4
 
