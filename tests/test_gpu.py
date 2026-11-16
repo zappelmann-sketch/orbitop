@@ -166,12 +166,13 @@ def test_devfreq_below_device(tree_copy):
     assert (s.freq_mhz, s.freq_max_mhz) == (300.0, 600.0)
 
 
-def add_client(proc, pid, fd, text, uid=None, status=None, target="/dev/dri/renderD128"):
+def add_client(proc, pid, fd, text, uid=None, status=None, target="/dev/dri/renderD128", start=1):
     p = proc / str(pid)
     (p / "fd").mkdir(parents=True, exist_ok=True)
     (p / "fdinfo").mkdir(parents=True, exist_ok=True)
     u = os.getuid() if uid is None else uid
     (p / "status").write_text(status or f"Name:\tx\nUid:\t{u}\t{u}\t{u}\t{u}\n")
+    (p / "stat").write_text(f"{pid} (a) b) S " + "0 " * 18 + f"{start}\n")
     if not (p / "fd" / str(fd)).is_symlink():
         os.symlink(target, p / "fd" / str(fd))
     (p / "fdinfo" / str(fd)).write_text(text)
@@ -329,7 +330,7 @@ def test_pci_regex_negatives(tree_copy, bad):
 def test_scanner_cheap_on_real_proc():
     sc = FdinfoScanner("/", os.getuid())
     sc.snapshot(0.0)
-    if not any(sc._fds.values()):
+    if not any(p for _, p in sc._fds.values()):
         pytest.skip("keine DRM-fds in /proc")
     times = []
     for i in range(1, 6):
@@ -337,3 +338,53 @@ def test_scanner_cheap_on_real_proc():
         sc.snapshot(float(i))
         times.append(time.process_time() - t)
     assert statistics.median(times) < 0.015
+
+
+def test_scanner_pid_reuse_by_other_user_not_counted(tmp_path):
+    proc = tmp_path / "proc"
+    add_client(proc, 100, 10, info(ns=1))
+    sc = scanner(tmp_path)
+    assert "i915" in sc.snapshot(0)
+    shutil.rmtree(proc / "100")
+    add_client(proc, 100, 10, info(cid=9, ns=1), uid=os.getuid() + 1, start=2)
+    assert sc.snapshot(1) == {}  # kein Voll-Scan, aber Startzeit hat sich geändert
+
+
+def test_scanner_pid_reuse_by_own_process_is_rescanned(tmp_path):
+    proc = tmp_path / "proc"
+    add_client(proc, 100, 10, info(ns=1))
+    sc = scanner(tmp_path)
+    sc.snapshot(0)
+    shutil.rmtree(proc / "100")
+    add_client(proc, 100, 12, info(cid=9, ns=1), start=2)
+    assert list(sc.snapshot(1)["i915"]) == ["9"]
+
+
+def test_scanner_full_relist_after_interval(tmp_path):
+    proc = tmp_path / "proc"
+    add_client(proc, 100, 10, info(ns=1))
+    add_client(proc, 100, 11, info(cid=8, ns=1))
+    sc = scanner(tmp_path)
+    assert sorted(sc.snapshot(0)["i915"]) == ["7", "8"]
+    add_client(proc, 100, 12, info(cid=9, ns=1))  # neuer fd in bekanntem Prozess
+    os.remove(proc / "100/fd/11")  # fd geschlossen, fdinfo-Datei bleibt (veralteter Cache)
+    assert sorted(sc.snapshot(9.9)["i915"]) == ["7", "8"]  # noch kein Voll-Scan
+    assert sorted(sc.snapshot(10.0)["i915"]) == ["7", "9"]
+
+
+def test_scanner_clock_backwards_forces_relist(tmp_path):
+    proc = tmp_path / "proc"
+    add_client(proc, 100, 10, info(ns=1))
+    sc = scanner(tmp_path)
+    sc.snapshot(100.0)
+    add_client(proc, 100, 12, info(cid=9, ns=1))
+    assert sorted(sc.snapshot(50.0)["i915"]) == ["7", "9"]
+
+
+def test_pci_hex_device_number(tree_copy):
+    root = tree_copy(INTEL)
+    dev = f"{root}/sys/class/drm/card1/device"
+    shutil.rmtree(dev)
+    os.makedirs(f"{root}/sys/devices/0000:0a:1f.0")
+    os.symlink("../../../devices/0000:0a:1f.0", dev)
+    assert gpu(root, "card1").pci == "0000:0a:1f.0"

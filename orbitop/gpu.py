@@ -84,29 +84,36 @@ class FdinfoScanner:
     """Ein Scan für alle Treiber: DRM-fdinfo eigener Prozesse.
 
     Die fd-Verzeichnisse werden höchstens alle FULL_INTERVAL s komplett neu aufgelistet, dazwischen nur
-    neue PIDs. Gelesen wird fdinfo ausschließlich für die gemerkten DRM-fds.
-    shortcut: ein neuer DRM-fd eines schon bekannten Prozesses wird erst beim nächsten Voll-Scan
-    gesehen (<= 10 s); PID-Wiederverwendung ebenso, upgrade nur bei Bedarf an engerer Erkennung.
+    neue PIDs. Gelesen wird fdinfo ausschließlich für die gemerkten DRM-fds. Der Cache gilt je
+    (PID, Startzeit): Ändert sich die Startzeit (PID wiederverwendet), wird der Prozess neu geprüft,
+    damit nie fremde Prozesse als eigene zählen. Ein neuer DRM-fd eines bekannten Prozesses wird
+    erst beim nächsten Voll-Scan gesehen (<= 10 s).
     """
     FULL_INTERVAL = 10.0
 
     def __init__(self, root: str, uid: int):
         self._proc = sysfs.path(root, "/proc")
         self._uid = uid
-        self._fds: dict[str, list[str]] = {}
+        self._fds: dict[str, tuple[str | None, list[str]]] = {}  # pid -> (Startzeit, fdinfo-Pfade)
         self._full_t: float | None = None
         self._t: float | None = None
         self._snap: dict[str, dict[str, dict[str, int]]] = {}
         self.pdev: dict[tuple[str, str], str] = {}  # (Treiber, client-id) -> drm-pdev
 
-    def _scan_pid(self, pid: str) -> list[str]:
+    def _starttime(self, pid: str) -> str | None:
+        stat = sysfs.read_str(f"{self._proc}/{pid}/stat") or ""
+        fields = stat[stat.rfind(")") + 1:].split()  # ab Feld 3; Startzeit ist Feld 22
+        return fields[19] if len(fields) > 19 else None
+
+    def _scan_pid(self, pid: str) -> tuple[str | None, list[str]]:
         base = f"{self._proc}/{pid}"
+        start = self._starttime(pid)
         if _real_uid(sysfs.read_str(base + "/status")) != self._uid:
-            return []
+            return start, []
         try:
             names = os.listdir(base + "/fd")
         except OSError:
-            return []
+            return start, []
         out = []
         for n in names:
             try:
@@ -114,7 +121,7 @@ class FdinfoScanner:
                     out.append(f"{base}/fdinfo/{n}")
             except OSError:
                 pass
-        return out
+        return start, out
 
     def snapshot(self, now: float) -> dict[str, dict[str, dict[str, int]]]:
         """Treiber -> client-id -> Engine -> ns (jede client-id einmal)."""
@@ -127,10 +134,13 @@ class FdinfoScanner:
         if self._full_t is None or not 0 <= now - self._full_t < self.FULL_INTERVAL:
             self._fds, self._full_t = {p: self._scan_pid(p) for p in pids}, now
         else:
-            self._fds = {p: self._fds[p] if p in self._fds else self._scan_pid(p) for p in pids}
+            # Startzeit nur bei Prozessen mit DRM-fds prüfen; leere Einträge sind harmlos
+            self._fds = {p: self._fds[p] if p in self._fds and not (
+                self._fds[p][1] and self._starttime(p) != self._fds[p][0]) else self._scan_pid(p)
+                for p in pids}
         snap: dict[str, dict[str, dict[str, int]]] = {}
         self.pdev = {}
-        for paths in self._fds.values():
+        for _, paths in self._fds.values():
             for path in paths:
                 text = sysfs.read_str(path)
                 if not text:
