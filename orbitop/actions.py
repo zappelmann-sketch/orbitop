@@ -3,15 +3,15 @@
 """Prozesse beenden: eigene direkt, fremde über pkexec + killhelper.py (als root)."""
 import os
 import subprocess
-import sys
 
 from orbitop import killhelper
 from orbitop.procs import parse_stat
 
 _HELPER = os.path.abspath(killhelper.__file__)
+# Absolute Pfade: kein PATH- oder venv-Einfluss auf das, was als root läuft.
+PKEXEC = "/usr/bin/pkexec"
+PYTHON = "/usr/bin/python3"
 _RESULT = {0: "sent", 3: "mismatch", 4: "gone", 5: "zombie", 6: "kernel", 126: "denied", 127: "denied"}
-_CODES = {killhelper.SENT: "sent", killhelper.MISMATCH: "mismatch", killhelper.GONE: "gone",
-          killhelper.ZOMBIE: "zombie", killhelper.KERNEL: "kernel"}
 
 
 def _own(pid: int, root: str) -> bool | None:
@@ -27,17 +27,21 @@ def _own(pid: int, root: str) -> bool | None:
 
 
 def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run) -> str:
+    if type(pid) is not int or type(start) is not int:
+        return "error"
     sig = "KILL" if force else "TERM"
     own = _own(pid, root)
     if own is None:
         return "gone"
     if own:
         try:
-            return _CODES[killhelper.send(pid, start, sig, root)]
+            return _RESULT[killhelper.send(pid, start, sig, root)]
         except PermissionError:
             return "denied"
+        except OSError:  # z. B. Thread-ID als pid (ENOENT) oder EMFILE
+            return "error"
     try:
-        r = run(["pkexec", sys.executable, "-I", _HELPER, str(pid), str(start), sig], timeout=120)
+        r = run([PKEXEC, PYTHON, "-I", _HELPER, str(pid), str(start), sig], timeout=120)
     except (OSError, subprocess.SubprocessError):
         return "error"
     return _RESULT.get(r.returncode, "error")

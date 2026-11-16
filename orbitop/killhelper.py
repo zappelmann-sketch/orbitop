@@ -1,4 +1,4 @@
-#!/usr/bin/python3
+#!/usr/bin/python3 -I
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Signal-Kern und Root-Hilfsprogramm: killhelper.py <pid> <start> TERM|KILL (Aufruf über pkexec).
@@ -48,7 +48,7 @@ def send(pid: int, start: int, sig: str, root: str = "/") -> int:
                         return KERNEL
         except (FileNotFoundError, ProcessLookupError):
             return GONE
-        signals = [signal.SIGTERM if sig == "TERM" else signal.SIGKILL]
+        signals = [{"TERM": signal.SIGTERM, "KILL": signal.SIGKILL}[sig]]
         if sig == "TERM" and state in "Tt":
             signals.append(signal.SIGCONT)  # angehaltener Prozess muss TERM verarbeiten können
         for s in signals:
