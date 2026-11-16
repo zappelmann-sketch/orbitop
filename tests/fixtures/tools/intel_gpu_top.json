@@ -1,0 +1,222 @@
+[
+
+{
+	"period": {
+		"duration": 21.886521,
+		"unit": "ms"
+	},
+	"frequency": {
+		"requested": 0.000000,
+		"actual": 0.000000,
+		"unit": "MHz"
+	},
+	"interrupts": {
+		"count": 0.000000,
+		"unit": "irq/s"
+	},
+	"rc6": {
+		"value": 100.000000,
+		"unit": "%"
+	},
+	"power": {
+		"GPU": 0.000000,
+		"Package": 20.898591,
+		"unit": "W"
+	},
+	"imc-bandwidth": {
+		"reads": 7471.608980,
+		"writes": 687.985870,
+		"unit": "MiB/s"
+	},
+	"engines": {
+		"Render/3D": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"Blitter": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"Video": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"VideoEnhance": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		}
+	}
+},
+{
+	"period": {
+		"duration": 1021.151900,
+		"unit": "ms"
+	},
+	"frequency": {
+		"requested": 8.813576,
+		"actual": 8.813576,
+		"unit": "MHz"
+	},
+	"interrupts": {
+		"count": 74.425754,
+		"unit": "irq/s"
+	},
+	"rc6": {
+		"value": 95.635252,
+		"unit": "%"
+	},
+	"power": {
+		"GPU": 0.025701,
+		"Package": 21.202766,
+		"unit": "W"
+	},
+	"imc-bandwidth": {
+		"reads": 6298.516594,
+		"writes": 782.987939,
+		"unit": "MiB/s"
+	},
+	"engines": {
+		"Render/3D": {
+			"busy": 1.752490,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"Blitter": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"Video": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"VideoEnhance": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		}
+	}
+},
+{
+	"period": {
+		"duration": 1026.206918,
+		"unit": "ms"
+	},
+	"frequency": {
+		"requested": 2.923387,
+		"actual": 2.923387,
+		"unit": "MHz"
+	},
+	"interrupts": {
+		"count": 16.565860,
+		"unit": "irq/s"
+	},
+	"rc6": {
+		"value": 98.192291,
+		"unit": "%"
+	},
+	"power": {
+		"GPU": 0.012906,
+		"Package": 23.772147,
+		"unit": "W"
+	},
+	"imc-bandwidth": {
+		"reads": 7014.102047,
+		"writes": 1195.777054,
+		"unit": "MiB/s"
+	},
+	"engines": {
+		"Render/3D": {
+			"busy": 1.103125,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"Blitter": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"Video": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"VideoEnhance": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		}
+	}
+},
+{
+	"period": {
+		"duration": 1053.221942,
+		"unit": "ms"
+	},
+	"frequency": {
+		"requested": 2.848402,
+		"actual": 2.848402,
+		"unit": "MHz"
+	},
+	"interrupts": {
+		"count": 16.140947,
+		"unit": "irq/s"
+	},
+	"rc6": {
+		"value": 97.915596,
+		"unit": "%"
+	},
+	"power": {
+		"GPU": 0.011416,
+		"Package": 23.100502,
+		"unit": "W"
+	},
+	"imc-bandwidth": {
+		"reads": 8129.517857,
+		"writes": 1137.187547,
+		"unit": "MiB/s"
+	},
+	"engines": {
+		"Render/3D": {
+			"busy": 0.976882,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"Blitter": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"Video": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		},
+		"VideoEnhance": {
+			"busy": 0.000000,
+			"sema": 0.000000,
+			"wait": 0.000000,
+			"unit": "%"
+		}
+	}
+}
