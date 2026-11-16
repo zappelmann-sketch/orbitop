@@ -170,7 +170,9 @@ class ToolReader:
 
 
 def _intel_cmd(path: str, card: str | None) -> list[str]:
-    cmd = [path, "-J", "-s", "1000"]
+    # 2 s statt 1 s halbiert die Eigenlast von intel_gpu_top (gemessen 2,2 % -> 1,1 % eines Kerns). Die Grafik-Kachel
+    # (und die Leistung aus Package, wenn RAPL nicht lesbar ist) zeigt dann 2-s-Mittel, im Verlauf je zweimal derselbe Wert.
+    cmd = [path, "-J", "-s", "2000"]
     return cmd + ["-d", f"drm:/dev/dri/{card}"] if card else cmd
 
 

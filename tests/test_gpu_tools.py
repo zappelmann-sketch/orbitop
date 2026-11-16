@@ -189,8 +189,8 @@ def test_hint_failed_and_device_argument(monkeypatch):
     t = GpuTools(_gpus("intel", "intel"))
     wait_until(lambda: "hint.igt_failed" in t.hints())
     assert {tuple(c) for c in cmds} == {
-        ("/usr/bin/intel_gpu_top", "-J", "-s", "1000", "-d", "drm:/dev/dri/card0"),
-        ("/usr/bin/intel_gpu_top", "-J", "-s", "1000", "-d", "drm:/dev/dri/card1")}
+        ("/usr/bin/intel_gpu_top", "-J", "-s", "2000", "-d", "drm:/dev/dri/card0"),
+        ("/usr/bin/intel_gpu_top", "-J", "-s", "2000", "-d", "drm:/dev/dri/card1")}
     t.stop()
 
 
