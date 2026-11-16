@@ -54,7 +54,7 @@ def tile(snap, id):
 
 
 def test_intel_laptop_eight_tiles():
-    snap = run(INTEL).snapshot(OVERVIEW)
+    snap = run(INTEL, ticks=4).snapshot(OVERVIEW)
     assert kinds(snap) == ["cpu", "gpu", "mem", "power", "temp", "fan", "net", "disk"]
     assert snap["missing"] == []
     assert snap["hints"] == ["hint.rapl_noperm"]  # RAPL-Zone da, energy_uj nicht lesbar, keine andere Paketleistung
@@ -62,9 +62,9 @@ def test_intel_laptop_eight_tiles():
 
 
 def test_intel_package_power_from_tools_replaces_rapl_hint():
-    snap = run(INTEL, tools=NoTools(pkg_w=7.5)).snapshot(OVERVIEW)
+    snap = run(INTEL, ticks=4, tools=NoTools(pkg_w=7.5)).snapshot(OVERVIEW)
     p = tile(snap, "power")
-    assert p["main"] == {"v": 7.5, "u": "W"} and p["aside"]["v"] == 7.5
+    assert p["main"] == {"v": 7.5, "u": "W"} and p["aside"] == {"k": "series.cpu_package"}
     assert snap["hints"] == []
 
 
@@ -167,9 +167,10 @@ def test_nice_ceiling(v, want):
 
 def test_temperature_scale_grows_above_100():
     s = run(INTEL)
-    s._bufs["temp:0"].append(120.0)
+    s._bufs["temp:#cpu"].append(120.0)
     t = tile(s.snapshot(OVERVIEW), "temp")
     assert t["series"][0]["max"] == pytest.approx(132.0)
+    assert t["main"]["v"] == max(v for _, _, v in s._s["temps"]) and t["aside"] == {"k": "tile.temp_aside"}
 
 
 def num_ok(n):
@@ -178,6 +179,22 @@ def num_ok(n):
     assert n["u"] in ("%", "GHz", "MHz", "W", "°C", "rpm", "B/s", "B", "")
     assert n.get("of") is None or isinstance(n["of"], (int, float))
     assert n.get("p", "↓") in ("↓", "↑")
+
+
+def txt_ok(x, texts):
+    assert len(x) == 1 and ("k" in x and x["k"] in texts or "l" in x and isinstance(x["l"], str))
+
+
+def val_ok(v, texts):
+    """Num, Txt oder eine Liste davon; nie ein nacktes str."""
+    if isinstance(v, list):
+        assert v
+        for x in v:
+            assert not isinstance(x, list)
+            val_ok(x, texts)
+    else:
+        assert isinstance(v, dict)
+        num_ok(v) if "v" in v else txt_ok(v, texts)
 
 
 def validate_tick(snap, texts):
@@ -189,7 +206,8 @@ def validate_tick(snap, texts):
         assert isinstance(t["name"], str) and 0 <= t["seg"] <= 100
         num_ok(t["main"])
         if t["aside"] is not None:
-            num_ok(t["aside"])
+            val_ok(t["aside"], texts)
+            assert not isinstance(t["aside"], list)
         for s in t["series"]:
             assert ("key" in s) != ("label" in s)
             assert "key" not in s or s["key"] in texts
@@ -199,13 +217,7 @@ def validate_tick(snap, texts):
         for kv in t["kv"]:
             assert ("k" in kv) != ("l" in kv) and set(kv) == {"v", "k" if "k" in kv else "l"}
             assert "k" not in kv or kv["k"] in texts
-            v = kv["v"]
-            if isinstance(v, list):
-                assert v and all(num_ok(n) is None for n in v)
-            elif isinstance(v, dict):
-                num_ok(v)
-            else:
-                assert isinstance(v, str)
+            val_ok(kv["v"], texts)
         for d in t["devices"] or []:
             assert isinstance(d["name"], str)
             assert all(num_ok(n) is None for n in d["values"])
@@ -236,3 +248,387 @@ def test_dump_snapshot_js(tmp_path):
     demo = json.loads(out[len("window.ORBITOP_DEMO = "):].rstrip().removesuffix(";"))
     assert demo["init"]["lang"] == "de" and demo["init"]["version"] and demo["init"]["texts"]["tab.procs"]
     assert demo["tick"]["type"] == "tick" and len(demo["tick"]["tiles"]) == 8
+
+
+# ---- Fix-Runde 2: Befunde und Mutanten ----
+from orbitop.sensors import Battery, Fan, SensorValues, Temp, read_sensors  # noqa: E402
+from orbitop.system import NetDev  # noqa: E402
+
+
+def fake_clock():
+    c = itertools.count(1000.0)
+    return lambda: float(next(c))
+
+
+@pytest.fixture
+def patched(monkeypatch):
+    """Sampler, dessen Leser (read_sensors, read_battery, RaplReader.read) feste Werte liefern."""
+    def make(root=VM, rapl=None, tools=None, ticks=4, **readers):
+        for name, val in readers.items():
+            monkeypatch.setattr(sampler_mod, name, lambda *a, val=val: val)
+        s = Sampler(root, tools=tools or NoTools(), clock=fake_clock(), uid=1000)
+        s._rapl.read = lambda now: rapl
+        for _ in range(ticks):
+            s.tick_system()
+            s.tick_procs()
+        return s
+    return make
+
+
+def sens(power=(), fans=(), temps=(), cpu=None):
+    return SensorValues(cpu, list(temps), list(fans), list(power))
+
+
+# 1: Beschriftungen und Werte bleiben beieinander (Chipsatz-Sensor mitten in der Liste)
+def test_temp_labels_carry_their_own_values():
+    snap = run(INTEL).snapshot(OVERVIEW)
+    truth = {t.label: t.value for t in read_sensors(INTEL).temps}
+    t = tile(snap, "temp")
+    pairs = [(s["label"], s["values"][-1]) for s in t["series"] if "label" in s]
+    pairs += [(kv["l"], kv["v"]["v"]) for kv in t["kv"] if "l" in kv]
+    assert pairs and all(truth[label] == pytest.approx(v) for label, v in pairs)
+    assert any(label == "acpitz 1" for label, _ in pairs)
+
+
+# 2: Verläufe hängen am Namen, nicht an der Listenposition
+def test_temp_history_follows_label(monkeypatch):
+    t = [Temp("A", 10.0, "x"), Temp("B", 20.0, "x"), Temp("C", 30.0, "x"), Temp("D", 40.0, "x")]
+    vals = iter([sens(temps=t, cpu=50.0), sens(temps=t[1:], cpu=50.0)])
+    monkeypatch.setattr(sampler_mod, "read_sensors", lambda root: next(vals))
+    s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
+    s.tick_system()
+    s.tick_system()
+    series = {x.get("label", x.get("key")): x["values"] for x in tile(s.snapshot(OVERVIEW), "temp")["series"]}
+    assert series["series.cpu_package"] == [50.0, 50.0] and series["B"] == [20.0, 20.0]
+    assert "A" not in series  # A fiel weg, B rutschte nicht in A's Platz
+
+
+# 3 / 22 / 1a-1c: Leistungskette und Name der Series
+def power_of(patched, rapl=None, pkg_w=None, batt=None, hw=()):
+    s = patched(INTEL, rapl=rapl, read_battery=batt, read_sensors=sens(power=hw), tools=NoTools(pkg_w=pkg_w))
+    return tile(s.snapshot(OVERVIEW), "power")
+
+
+BATT = Battery(50.0, False, 9.0)
+HW = [("ina2xx 1", 3.0)]
+
+
+@pytest.mark.parametrize("kw,v,name", [
+    (dict(rapl={"package-0": 12.0}, pkg_w=8.0, batt=BATT, hw=HW), 12.0, {"key": "series.cpu_package"}),
+    (dict(rapl={"package": 20.0, "package-0": 12.0, "package-1": 8.0}, pkg_w=8.0, batt=BATT, hw=HW), 20.0,
+     {"key": "series.cpu_package"}),
+    (dict(rapl=None, pkg_w=8.0, batt=BATT, hw=HW), 8.0, {"key": "series.cpu_package"}),
+    (dict(rapl=None, pkg_w=None, batt=BATT, hw=HW), 9.0, {"key": "kv.battery"}),
+    (dict(rapl=None, pkg_w=None, batt=None, hw=HW), 3.0, {"label": "ina2xx 1"}),
+])
+def test_power_main_chain_and_series_name(patched, kw, v, name):
+    p = power_of(patched, **kw)
+    assert p["main"]["v"] == v and p["series"][0]["values"][-1] == v
+    assert {k: x for k, x in p["series"][0].items() if k in ("key", "label")} == name
+    assert p["aside"] == {("k" if "key" in name else "l"): next(iter(name.values()))}
+
+
+def test_power_chain_picks_hwmon_first_entry(patched):
+    p = power_of(patched, hw=[("a", 1.0), ("b", 2.0)])
+    assert p["main"]["v"] == 1.0
+
+
+# 4: Akku-Zeile
+def test_battery_row_on_ac_and_discharging(patched):
+    p = power_of(patched, pkg_w=5.0, batt=Battery(80.0, True, None))
+    assert next(k for k in p["kv"] if k["k"] == "kv.battery")["v"] == [{"v": 80.0, "u": "%"}, {"k": "kv.on_ac"}]
+    p = power_of(patched, pkg_w=5.0, batt=Battery(80.0, False, 9.5))
+    assert next(k for k in p["kv"] if k["k"] == "kv.battery")["v"] == [{"v": 80.0, "u": "%"}, {"v": 9.5, "u": "W"}]
+    p = power_of(patched, pkg_w=5.0, batt=Battery(80.0, False, None))
+    assert next(k for k in p["kv"] if k["k"] == "kv.battery")["v"] == [{"v": 80.0, "u": "%"}]
+
+
+# 3: aside-Entscheidungen nach dem Entwurf
+def test_asides_follow_mockup():
+    snap = run(AMD).snapshot(OVERVIEW)
+    assert tile(snap, "temp")["aside"] == {"k": "tile.temp_aside"}
+    assert tile(snap, "disk")["aside"] == {"k": "series.read"}
+    fan = tile(snap, "fan")
+    assert set(fan["aside"]) == {"l"} and fan["name"] == ""
+
+
+# 2b / 2c / 7: rapl-Hinweis
+@pytest.mark.parametrize("root", [VM, ARM])
+def test_no_rapl_hint_without_zones(root):
+    assert run(root, ticks=6).snapshot(OVERVIEW)["hints"] == []
+
+
+def test_rapl_hint_not_in_first_ticks():
+    s = run(INTEL, ticks=3)
+    assert s.snapshot(OVERVIEW)["hints"] == []
+    s.tick_system()
+    assert s.snapshot(OVERVIEW)["hints"] == ["hint.rapl_noperm"]
+
+
+def test_rapl_hint_only_if_all_zones_unreadable(tree_copy):
+    root = tree_copy(AMD)  # intel-rapl:0 hat energy_uj; eine zweite, unlesbare Zone kommt dazu
+    z = Path(root) / "sys/class/powercap/intel-rapl:1"
+    z.mkdir()
+    (z / "name").write_text("package-1\n")
+
+    def hints():
+        s = Sampler(root, tools=NoTools(), clock=fake_clock(), uid=1000)
+        s._rapl.read = lambda now: None  # keine Paketleistung aus irgendeiner Quelle
+        for _ in range(6):
+            s.tick_system()
+        return s.snapshot(OVERVIEW)["hints"]
+    assert "hint.rapl_noperm" not in hints()
+    (Path(root) / "sys/class/powercap/intel-rapl:0/energy_uj").unlink()
+    assert "hint.rapl_noperm" in hints()
+
+
+def test_temp_main_is_hottest_sensor(patched):
+    s = patched(read_sensors=sens(cpu=50.0, temps=[Temp("hot", 80.0, "x"), Temp("cool", 30.0, "x")]))
+    t = tile(s.snapshot(OVERVIEW), "temp")
+    assert t["main"]["v"] == 80.0 and t["series"][0]["key"] == "series.cpu_package"
+    assert t["series"][0]["values"][-1] == 50.0  # gefüllt bleibt die CPU
+
+
+# 6: seg-Klemme
+@pytest.mark.parametrize("v,ref,want", [(150, 100, 100), (-5, 100, 0), (None, 100, 0), (5, 0, 0), (5, None, 0), (50, 200, 25)])
+def test_seg_clamped(v, ref, want):
+    assert sampler_mod._seg(v, ref) == want
+
+
+# 7b: view, der kein dict ist
+@pytest.mark.parametrize("view", [None, [], "procs", 5])
+def test_snapshot_survives_non_dict_view(view):
+    snap = run(VM).snapshot(view)
+    assert snap["procs"] is None and snap["detail"] is None
+
+
+# 8 / 16: pid 1 und bool, detail nur im Reiter procs
+def test_detail_bool_pid_and_overview(intel_copy):
+    make_proc(Path(intel_copy), 1)
+    s = run(intel_copy)
+    row = s.snapshot({"tab": "procs", "pid": None, "start": None})["procs"][0]
+    assert row["pid"] == 1
+    assert s.snapshot({"tab": "procs", "pid": True, "start": row["start"]})["detail"] is None
+    assert s.snapshot({"tab": "procs", "pid": 1, "start": row["start"]})["detail"]["pid"] == 1
+    assert s.snapshot({"tab": "overview", "pid": 1, "start": row["start"]})["detail"] is None
+
+
+# 9: _clean
+def test_clean_rounds_and_removes_nonfinite():
+    out = sampler_mod._clean({"a": 1.23456, "b": [float("nan"), float("inf"), 2.0], "c": "x\x1b‮y", "d": 3})
+    assert out == {"a": 1.23, "b": [None, None, 2.0], "c": "x??y", "d": 3}
+
+
+def test_snapshot_floats_have_two_decimals_at_most():
+    snap = run(INTEL, ticks=5).snapshot(OVERVIEW)
+
+    def walk(o):
+        if isinstance(o, float):
+            assert o == round(o, 2)
+        elif isinstance(o, dict):
+            [walk(v) for v in o.values()]
+        elif isinstance(o, list):
+            [walk(v) for v in o]
+    walk(snap)
+
+
+# 10 / 11: Laufwerkstemperatur
+def disk_temps(root):
+    return {d["name"]: d["values"][4]["v"] for d in tile(run(root).snapshot(OVERVIEW), "disk")["devices"]}
+
+
+def test_single_nvme_fallback_when_device_link_broken(tree_copy):
+    root = tree_copy(AMD)
+    want = disk_temps(root)["nvme0n1"]
+    (Path(root) / "sys/class/hwmon/hwmon2/device").unlink()
+    got = disk_temps(root)
+    assert want is not None and got["nvme0n1"] == want and got["sda"] == disk_temps(AMD)["sda"]
+
+
+def test_no_fallback_with_two_nvme_disks(tree_copy):
+    root = tree_copy(AMD)
+    (Path(root) / "sys/class/hwmon/hwmon2/device").unlink()
+    import shutil
+    shutil.copytree(Path(root) / "sys/block/nvme0n1", Path(root) / "sys/block/nvme1n1", symlinks=True)
+    line = next(ln for ln in (Path(root) / "proc/diskstats").read_text().splitlines() if "nvme0n1 " in ln)
+    with open(Path(root) / "proc/diskstats", "a") as f:
+        f.write(line.replace("nvme0n1", "nvme1n1") + "\n")
+    got = disk_temps(root)
+    assert "nvme1n1" in got and got["nvme0n1"] is None and got["nvme1n1"] is None
+
+
+def test_disk_temp_survives_hwmon_renumbering(tree_copy):
+    root = tree_copy(AMD)
+    base = Path(root) / "sys/class/hwmon"
+    want = disk_temps(root)
+    (base / "hwmon2").rename(base / "hwmon9")
+    assert disk_temps(root) == want
+
+
+# 13: Puffer
+def test_buffers_all_none_are_dropped_others_stay():
+    s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
+    s._push("gone", None)
+    s._push("kept", 1.0)
+    s._end_tick()
+    s._end_tick()
+    assert "gone" not in s._bufs and list(s._bufs["kept"]) == [1.0, None]
+
+
+# 14 / 15: Netz
+def net_tile(root, states):
+    for name, st in states.items():
+        (Path(root) / "sys/class/net" / name / "operstate").write_text(st + "\n")
+    return tile(run(root).snapshot(OVERVIEW), "net")
+
+
+def test_net_name_unknown_is_not_up(intel_copy):
+    t = net_tile(intel_copy, {"enp0s31f6": "unknown", "wlp2s0": "up"})
+    assert t["name"] == "wlp2s0" and {"k": "kv.interface", "v": {"l": "wlp2s0"}} in t["kv"]
+    t = net_tile(intel_copy, {"enp0s31f6": "up", "wlp2s0": "up"})
+    assert t["name"] == "" and not any(k.get("k") == "kv.interface" for k in t["kv"])
+
+
+def test_net_sums_over_devices(monkeypatch):
+    devs = [NetDev("a", 100.0, 10.0, 1000, 100, True), NetDev("b", 50.0, None, 2000, 200, False)]
+    s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
+    monkeypatch.setattr(s._net, "read", lambda now: devs)
+    s.tick_system()
+    t = tile(s.snapshot(OVERVIEW), "net")
+    assert t["main"] == {"v": 150.0, "u": "B/s", "p": "↓"} and t["aside"] == {"v": 10.0, "u": "B/s", "p": "↑"}
+    since = next(k for k in t["kv"] if k["k"] == "kv.since_boot")["v"]
+    assert [n["v"] for n in since] == [3000, 300]
+    assert [d["values"][0]["v"] for d in t["devices"]] == [100.0, 50.0]
+
+
+# 18: close
+def test_close_stops_only_own_tools(monkeypatch):
+    stopped = []
+
+    class Own(NoTools):
+        def __init__(self, gpus):
+            super().__init__()
+
+        def stop(self):
+            stopped.append(1)
+    monkeypatch.setattr(sampler_mod, "GpuTools", Own)
+    Sampler(VM, uid=1000).close()
+    assert stopped == [1]
+    injected = NoTools()
+    injected.stop = lambda: stopped.append(2)
+    Sampler(VM, tools=injected, uid=1000).close()
+    assert stopped == [1]
+
+
+# 19 / 20: seg für Lüfter und Temperatur
+def test_fan_seg_uses_max_rpm_then_window_max(patched):
+    s = patched(read_sensors=sens(fans=[Fan("f", 2000.0, 4000.0)]))
+    assert tile(s.snapshot(OVERVIEW), "fan")["seg"] == 50
+    s = patched(read_sensors=sens(fans=[Fan("f", 2000.0, None)]))
+    assert tile(s.snapshot(OVERVIEW), "fan")["seg"] == 100  # Fenstermaximum = aktueller Wert
+
+
+def test_temp_seg_uses_crit_else_100(tree_copy):
+    root = tree_copy(INTEL)
+    base = tile(run(root).snapshot(OVERVIEW), "temp")
+    assert base["seg"] == pytest.approx(base["main"]["v"])
+    for n in Path(root, "sys/class/hwmon").glob("hwmon*/name"):
+        if n.read_text().strip() == "coretemp":
+            for crit in n.parent.glob("temp*_crit"):
+                crit.write_text("120000\n")
+    t = tile(run(root).snapshot(OVERVIEW), "temp")
+    assert t["seg"] == pytest.approx(t["main"]["v"] / 120 * 100, abs=0.01)
+
+
+# 21: top_cpu(3)
+def test_top_cpu_is_three_sorted(tree_copy):
+    root = tree_copy(INTEL)
+    for pid in range(10, 15):
+        make_proc(Path(root), pid, ticks=(0, 0))
+    s = Sampler(root, tools=NoTools(), clock=fake_clock(), uid=1000)
+    s.tick_procs()
+    for pid in range(10, 15):
+        make_proc(Path(root), pid, ticks=(100 * (pid - 9), 0))
+    s.tick_procs()
+    top = s.snapshot(OVERVIEW)["top"]["cpu"]
+    assert [p["pid"] for p in top] == [14, 13, 12]
+
+
+# 23: Swap-Zeile
+def test_no_swap_no_swap_series_or_row(tree_copy):
+    root = tree_copy(INTEL)
+    mi = Path(root, "proc/meminfo")
+    mi.write_text("".join(ln + "\n" for ln in mi.read_text().splitlines() if not ln.startswith("Swap")))
+    m = tile(run(root).snapshot(OVERVIEW), "mem")
+    assert [s["key"] for s in m["series"]] == ["series.used"] and not any(k["k"] == "kv.swap" for k in m["kv"])
+    m = tile(run(INTEL).snapshot(OVERVIEW), "mem")
+    assert [s["key"] for s in m["series"]] == ["series.used", "series.swap"]
+    assert next(k for k in m["kv"] if k["k"] == "kv.swap")["v"]["of"] > 0
+
+
+# 9 (Minor): GPU-Kurve mischt nie Busy und Takt
+def test_gpu_series_decided_once(tree_copy):
+    t = tile(run(INTEL).snapshot(OVERVIEW), "gpu0")  # Intel: Busy-Quelle möglich, aber ohne Werte
+    assert t["series"][0]["key"] == "series.used" and set(t["series"][0]["values"]) == {None}
+    assert t["aside"]["of"] > 0
+    root = tree_copy(AMD)
+    (Path(root) / "sys/class/drm/card0/device/gpu_busy_percent").unlink()
+    t = tile(run(root).snapshot(OVERVIEW), "gpu0")
+    assert t["series"][0]["key"] == "kv.clock" and t["main"]["u"] == "%"
+
+
+# 10 (Minor): VRAM mit of
+def test_gpu_memory_has_total():
+    kv = next(k for k in tile(run(AMD).snapshot(OVERVIEW), "gpu0")["kv"] if k["k"] == "kv.memory")["v"]
+    assert kv["of"] == 8 * 1024 ** 3 and kv["v"] == 3 * 1024 ** 3
+    assert {"k": "kv.memory", "v": {"k": "kv.shared_with_ram"}} in tile(run(INTEL).snapshot(OVERVIEW), "gpu0")["kv"]
+
+
+# Sicherheit: Systemtexte werden bereinigt
+def test_system_strings_are_sanitized(tree_copy):
+    root = tree_copy(VM)
+    (Path(root) / "sys/block/vda/device/model").write_text("Evil\x1b[31m‮Disk\n")
+    cpuinfo = Path(root, "proc/cpuinfo")
+    cpuinfo.write_text(cpuinfo.read_text() + "model name\t: Bad\x1b CPU\n" if "model name" not in cpuinfo.read_text()
+                       else cpuinfo.read_text().replace("model name\t:", "model name\t: \x1b‮"))
+    snap = run(root).snapshot(OVERVIEW)
+
+    def walk(o):
+        if isinstance(o, str):
+            assert o.isprintable(), repr(o)
+        elif isinstance(o, dict):
+            [walk(v) for v in o.values()]
+        elif isinstance(o, list):
+            [walk(v) for v in o]
+    walk(snap)
+    assert tile(snap, "disk")["name"] == "Evil?[31m?Disk"
+
+
+# dump-snapshot
+SCRIPT = str(Path(__file__).parent.parent / "scripts" / "dump-snapshot.py")
+
+
+def dump(*args, check=True):
+    return subprocess.run([sys.executable, SCRIPT, "--root", INTEL, "--ticks", "2", "--interval", "0.05", *args],
+                          capture_output=True, text=True, check=check)
+
+
+def test_dump_view_procs_fills_detail(intel_copy):
+    make_proc(Path(intel_copy), 7)
+    out = subprocess.run([sys.executable, SCRIPT, "--root", intel_copy, "--ticks", "2", "--interval", "0.05",
+                          "--view", "procs"], capture_output=True, text=True, check=True).stdout
+    tick = json.loads(out)
+    assert tick["procs"] and tick["detail"]["pid"] == tick["procs"][0]["pid"]
+    assert json.loads(dump().stdout)["procs"] is None
+
+
+@pytest.mark.parametrize("bad", ["0", "-1", "nan", "inf", "x"])
+def test_dump_rejects_bad_interval(bad):
+    r = dump("--interval", bad, check=False)
+    assert r.returncode == 2 and "interval" in r.stderr
+
+
+def test_dump_fixture_root_starts_no_tools():
+    # Mit Fixture-Baum liefert keine Werkzeug-Quelle Werte: kein pkg_w, also bleibt der RAPL-Hinweis stehen
+    tick = json.loads(dump("--ticks", "5").stdout)
+    assert tick["hints"] == ["hint.rapl_noperm"]

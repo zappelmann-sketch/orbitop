@@ -48,3 +48,8 @@ def link_name(p: str) -> str | None:
         return os.path.basename(os.readlink(p))
     except OSError:
         return None
+
+
+def printable(s: str) -> str:
+    """Steuer-, Format- und Bidi-Zeichen (ESC, U+202E, ...) werden zu '?'; Text aus dem System landet später im UI."""
+    return s if s.isprintable() else "".join(c if c.isprintable() else "?" for c in s)

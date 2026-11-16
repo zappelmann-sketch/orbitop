@@ -18,6 +18,7 @@ class Temp:
     label: str
     value: float
     chip: str
+    hwmon: str = ""  # Verzeichnis des hwmon-Chips
 
 
 @dataclass
@@ -74,7 +75,7 @@ def _chips(root: str) -> list[_Chip]:
             if v is None or not _temp_ok(v / 1000):
                 continue
             label = sysfs.read_str(f"{d}/temp{n}_label") or f"{name} {n}"
-            temps.append(Temp(label, v / 1000, name))
+            temps.append(Temp(label, v / 1000, name, d))
             if n == "1":
                 first = temps[-1]
         chips.append(_Chip(name, d, temps, first))

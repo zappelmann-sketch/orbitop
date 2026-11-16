@@ -85,11 +85,6 @@ def _parse_io(text: str | None) -> int | None:
         return None
 
 
-def _clean(s: str) -> str:
-    """Steuer-, Format- und Bidi-Zeichen (ESC, U+202E, ...) werden zu '?'; Text landet später im UI."""
-    return s if s.isprintable() else "".join(c if c.isprintable() else "?" for c in s)
-
-
 def _read_cmdline(p: str) -> tuple[str, str]:
     """(cmdline, args). args: alles nach der ersten NUL; ohne NUL (setproctitle-Titel) nach dem ersten Leerzeichen.
     shortcut: ein einzelnes argv mit Leerzeichen und ohne NUL (Wine "C:\\Program Files\\x.exe") wird wie ein
@@ -105,7 +100,7 @@ def _read_cmdline(p: str) -> tuple[str, str]:
         args = raw.partition(b"\0")[2].decode("utf-8", errors="replace").replace("\0", " ")
     else:
         args = text.partition(" ")[2]
-    return _clean(text)[:CMDLINE_MAX], _clean(args)[:CMDLINE_MAX]
+    return sysfs.printable(text)[:CMDLINE_MAX], sysfs.printable(args)[:CMDLINE_MAX]
 
 
 def scan(root: str, cmdlines: dict | None = None,
@@ -136,7 +131,7 @@ def scan(root: str, cmdlines: dict | None = None,
         c = cmdlines.get(key)
         if c is None or c[0] != s["name"]:
             c = cmdlines[key] = (s["name"], *_read_cmdline(base + "/cmdline"))
-        name = _clean(s["name"])
+        name = sysfs.printable(s["name"])
         if not c[1] and s["ppid"] in (0, 2):  # nur echte Kernel-Threads (Kinder von 0/kthreadd)
             name = f"[{name}]"
         out[key] = RawProc(int(n), s["start"], s["ppid"], name, c[1], uid, s["state"], s["ticks"],

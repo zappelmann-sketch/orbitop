@@ -10,13 +10,12 @@ from orbitop import procs, sysfs
 from orbitop.gpu import FdinfoScanner, GpuReader, discover_gpus
 from orbitop.gpu_tools import GpuTools
 from orbitop.procs import ProcTable
-from orbitop.sensors import TEMP_MAX, TEMP_MIN, RaplReader, read_battery, read_sensors
+from orbitop.sensors import TEMP_MAX, RaplReader, Temp, read_battery, read_sensors
 from orbitop.system import CpuReader, DiskReader, NetReader, read_memory
 
 POINTS, THREAD_POINTS = 300, 60
 DISK_CHIPS = {"nvme", "drivetemp"}
 CPU_CHIPS = {"coretemp", "k10temp", "zenpower", "k8temp", "via_cputemp", "macsmc_hwmon"}
-CHIP_REFRESH = 60.0  # s: Zuordnung Laufwerk <-> hwmon-Chip neu suchen (USB-Hotplug)
 CPU_KEY, CHIPSET_KEY = "series.cpu_package", "series.chipset"
 KINDS = ("cpu", "gpu", "mem", "power", "temp", "fan", "net", "disk")
 
@@ -36,6 +35,14 @@ def _kv(k, v):
 
 def _kl(label, v):
     return {"l": label, "v": v}
+
+
+def _tk(key):
+    return {"k": key}
+
+
+def _tl(label):
+    return {"l": label}
 
 
 def _sum(vals):
@@ -71,9 +78,11 @@ def _unique(labels):
 
 
 def _clean(o):
-    """Nur endliche Zahlen (höchstens 2 Nachkommastellen) oder None: JSON-sicher und klein."""
+    """Nur endliche Zahlen (höchstens 2 Nachkommastellen) oder None, nur druckbare Texte: JSON-sicher und klein."""
     if isinstance(o, float):
         return round(o, 2) if math.isfinite(o) else None
+    if isinstance(o, str):
+        return sysfs.printable(o)
     if isinstance(o, dict):
         return {k: _clean(v) for k, v in o.items()}
     if isinstance(o, (list, tuple)):
@@ -116,9 +125,18 @@ class Sampler:
         self._bufs: dict[str, deque] = {}
         self._pushed: set[str] = set()
         self._n = 0
-        self._chips: list[tuple[str, str, str]] | None = None  # (Verzeichnis, Name, realpath(device))
-        self._chips_t = 0.0
+        # Busy-Kurve oder Takt-Kurve wird je GPU einmal entschieden, damit die Kurve nie zwei Größen mischt
+        self._busy_gpu = {g.info.card: self._has_busy(g.info, scanner, clock()) for g in self._gpus}
         self._s: dict = {}  # letzte Messwerte je Quelle
+
+    def _has_busy(self, info, scanner, now) -> bool:
+        if info.driver in ("i915", "xe", "nvidia"):
+            return True  # Werkzeug oder DRM-fdinfo
+        if info.driver == "amdgpu":
+            return os.path.exists(sysfs.path(self._root, "/sys/class/drm/", info.card, "/device/gpu_busy_percent"))
+        if info.driver in ("nouveau", "radeon"):
+            return False
+        return bool(_safe(scanner.snapshot, now, default={}).get(info.driver))  # devfreq-Treiber: nur mit fdinfo-Clients
 
     # ---- Puffer ----
     def _push(self, key: str, v, size=POINTS) -> None:
@@ -158,55 +176,55 @@ class Sampler:
             smp = _safe(g.read, now)
             s["gpus"].append((g, smp))
             if smp is not None:
-                v = smp.busy if smp.busy is not None else (
-                    _pct(smp.freq_mhz, smp.freq_max_mhz) if smp.freq_mhz is not None else None)
+                v = smp.busy if self._busy_gpu[g.info.card] else _pct(smp.freq_mhz, smp.freq_max_mhz)
                 self._push("gpu:" + g.info.card, v)
             if g.info.vendor == "intel" and pkg_tool is None:
                 pkg_tool = (_safe(self._tools.intel, g.info.card) or {}).get("pkg_w")
         pkg = rapl.get("package", rapl.get("package-0"))
         pkg = pkg_tool if pkg is None else pkg
         s["pkg"], s["rapl"] = pkg, rapl
-        main = next((v for v in (pkg, batt and batt.discharge_w,
-                                 sens.hwmon_power[0][1] if sens and sens.hwmon_power else None)
-                     if v is not None), None)
-        s["pwr"] = main
-        self._push("power", main)
-        # (Name, Textschlüssel?, Wert); rohe Beschriftungen werden eindeutig gemacht
-        temps = [(CPU_KEY, True, sens.cpu_temp)] if sens and sens.cpu_temp is not None else []
+        # Quelle der Hauptleistung: (Wert, Name der Kurve); Reihenfolge ist Vertrag
+        hw = sens.hwmon_power[0] if sens and sens.hwmon_power else (None, None)
+        s["pwr"], s["pwr_name"] = next(
+            ((v, n) for v, n in ((pkg, ("key", CPU_KEY)), (batt and batt.discharge_w, ("key", "kv.battery")),
+                                 (hw[1], ("label", hw[0]))) if v is not None),
+            (None, ("key", "kv.battery") if batt else ("key", CPU_KEY)))
+        self._push("power", s["pwr"])
+        # (Puffer, Name der Kurve, Wert); der Puffer folgt der eindeutigen Beschriftung, nicht der Listenposition
+        temps = [("temp:#cpu", ("key", CPU_KEY), sens.cpu_temp)] if sens and sens.cpu_temp is not None else []
         if sens:
-            labels = iter(_unique([t.label for t in sens.temps]))
-            temps += [(CHIPSET_KEY, True, t.value) if t.chip.startswith("pch_") else (next(labels), False, t.value)
-                      for t in sens.temps]
+            temps += [(f"temp:{lb}", ("key", CHIPSET_KEY) if t.chip.startswith("pch_") else ("label", lb), t.value)
+                      for t, lb in zip(sens.temps, _unique([t.label for t in sens.temps]))]
         s["temps"] = temps
         s["fans"] = list(zip(_unique([f.label for f in sens.fans]), sens.fans)) if sens else []
-        for i, (_, _, v) in enumerate(temps):
-            self._push(f"temp:{i}", v)
+        for buf, _, v in temps:
+            self._push(buf, v)
         for k, f in s["fans"]:
             self._push("fan:" + k, f.rpm)
         self._push("rx", _sum(d.rx_bps for d in s["nets"]))
         self._push("tx", _sum(d.tx_bps for d in s["nets"]))
         self._push("read", _sum(d.read_bps for d in s["disks"]))
         self._push("write", _sum(d.write_bps for d in s["disks"]))
-        self._disk_temps(s["disks"], now)
+        self._disk_temps(s["disks"], sens)
         self._end_tick()
 
-    def _disk_temps(self, disks, now: float) -> None:
-        """Disk.temp_c: Chip nvme/drivetemp mit passendem device-Pfad, sonst bei genau einem NVMe-Laufwerk dessen Chip."""
-        if self._chips is None or now - self._chips_t >= CHIP_REFRESH:
-            self._chips_t = now
-            self._chips = [
-                (d, n, os.path.realpath(d + "/device"))
-                for d in sysfs.glob(self._root, "/sys/class/hwmon/hwmon*")
-                if (n := sysfs.read_str(d + "/name")) in DISK_CHIPS]
-        nvme_chips = [c for c in self._chips if c[1] == "nvme"]
+    def _disk_temps(self, disks, sens) -> None:
+        """Disk.temp_c: Chip nvme/drivetemp, dessen device-Pfad zum Laufwerk gehört (Werte des selben Ticks aus read_sensors).
+
+        Sonst bei genau einem NVMe-Laufwerk und einem nvme-Chip dessen Temperatur.
+        """
+        chips: dict[str, Temp] = {}  # Chip-Verzeichnis -> erste Temperatur (temp1)
+        for t in sens.temps if sens else []:
+            if t.chip in DISK_CHIPS:
+                chips.setdefault(t.hwmon, t)
+        nvme = [t for t in chips.values() if t.chip == "nvme"]
         nvme_disks = [d for d in disks if d.name.startswith("nvme")]
         for d in disks:
             real = os.path.realpath(sysfs.path(self._root, "/sys/block/", d.name, "/device"))
-            chip = next((c for c in self._chips if c[2] == real), None)
-            if chip is None and len(nvme_disks) == 1 and len(nvme_chips) == 1 and d is nvme_disks[0]:
-                chip = nvme_chips[0]
-            t = chip and sysfs.read_float(chip[0] + "/temp1_input")
-            d.temp_c = t / 1000 if t is not None and TEMP_MIN <= t / 1000 < TEMP_MAX else None
+            t = next((t for h, t in chips.items() if os.path.realpath(h + "/device") == real), None)
+            if t is None and len(nvme_disks) == 1 and len(nvme) == 1 and d is nvme_disks[0]:
+                t = nvme[0]
+            d.temp_c = t.value if t else None
 
     def tick_procs(self) -> None:
         now = self._now_procs = self._clock()
@@ -252,18 +270,18 @@ class Sampler:
         if not any(v is not None for v in (smp.busy, smp.freq_mhz, smp.freq_max_mhz, smp.power_w,
                                             smp.temp_c, smp.vram_used, smp.vram_total)):
             return None
-        by_freq = smp.busy is None and smp.freq_mhz is not None and smp.freq_max_mhz
-        series, _ = self._plot("%", (("key", "kv.clock" if by_freq else "series.used"), card, True))
-        main = smp.busy if smp.busy is not None else _pct(smp.freq_mhz, smp.freq_max_mhz) if by_freq else None
+        busy = self._busy_gpu[g.info.card]
+        series, _ = self._plot("%", (("key", "series.used" if busy else "kv.clock"), card, True))
+        main = smp.busy if busy else _pct(smp.freq_mhz, smp.freq_max_mhz)
         kv = [_kv("kv.clock", _num(smp.freq_mhz, "MHz"))] if smp.freq_mhz is not None else []
         if smp.power_w is not None:
             kv.append(_kv("kv.power", _num(smp.power_w, "W")))
         if smp.temp_c is not None:
             kv.append(_kv("kv.temperature", _num(smp.temp_c, "°C")))
         if smp.vram_used is not None:
-            kv.append(_kv("kv.memory", _num(smp.vram_used, "B")))
+            kv.append(_kv("kv.memory", _num(smp.vram_used, "B", smp.vram_total)))
         elif g.info.vendor == "intel":
-            kv.append(_kv("kv.memory", "kv.shared_with_ram"))
+            kv.append(_kv("kv.memory", _tk("kv.shared_with_ram")))
         return self._tile("gpu", "gpu", g.name, _num(main, "%"), _num(smp.freq_mhz, "MHz", smp.freq_max_mhz),
                           _seg(main, 100), series, kv)
 
@@ -285,7 +303,8 @@ class Sampler:
         batt, gpu_w = s["batt"], _sum(smp.power_w for _, smp in s["gpus"] if smp)
         if s["pwr"] is None and batt is None and gpu_w is None:
             return None
-        series, wmax = self._plot("W", (("key", CPU_KEY), "power", True))
+        name = s["pwr_name"]
+        series, wmax = self._plot("W", (name, "power", True))
         kv = []
         core = s["rapl"].get("core")
         if core is not None:
@@ -293,21 +312,20 @@ class Sampler:
         if gpu_w is not None:
             kv.append(_kv("kv.gpu", _num(gpu_w, "W")))
         if batt is not None:
-            kv.append(_kv("kv.battery_ac" if batt.on_ac else "kv.battery_discharging", _num(batt.percent, "%")))
-        return self._tile("power", "power", "", _num(s["pwr"], "W"), _num(s["pkg"], "W"),
+            state = _tk("kv.on_ac") if batt.on_ac else _num(batt.discharge_w, "W") if batt.discharge_w is not None else None
+            kv.append(_kv("kv.battery", [_num(batt.percent, "%")] + ([state] if state else [])))
+        return self._tile("power", "power", "", _num(s["pwr"], "W"), _tk(name[1]) if name[0] == "key" else _tl(name[1]),
                           _seg(s["pwr"], wmax), series, kv)
 
     def _temp_tile(self):
         temps = self._s["temps"]
         if not temps:
             return None
-        series, _ = self._plot("°C", *[(("key" if txt else "label", k), f"temp:{i}", i == 0)
-                                       for i, (k, txt, _) in enumerate(temps[:3])])
+        series, _ = self._plot("°C", *[(name, buf, i == 0) for i, (buf, name, _) in enumerate(temps[:3])])
         hottest = max(v for _, _, v in temps)
-        first = temps[0]
-        return self._tile("temp", "temp", "", _num(first[2], "°C"), _num(hottest, "°C"),
-                          _seg(first[2], (self._crit if first[0] == CPU_KEY else None) or 100), series,
-                          [(_kv if txt else _kl)(k, _num(v, "°C")) for k, txt, v in temps[3:]])
+        return self._tile("temp", "temp", "", _num(hottest, "°C"), _tk("tile.temp_aside"),
+                          _seg(hottest, self._crit or 100), series,
+                          [(_kv if name[0] == "key" else _kl)(name[1], _num(v, "°C")) for _, name, v in temps[3:]])
 
     def _fan_tile(self):
         fans = self._s["fans"]
@@ -316,7 +334,7 @@ class Sampler:
         series, wmax = self._plot("rpm", *[(("label", k), "fan:" + k, i == 0) for i, (k, _) in enumerate(fans[:3])])
         first = [v for v in self._bufs["fan:" + fans[0][0]] if v is not None]
         kv = [_kv("kv.fan_min", _num(min(first), "rpm")), _kv("kv.fan_max", _num(max(first), "rpm"))]
-        return self._tile("fan", "fan", fans[0][0], _num(fans[0][1].rpm, "rpm"), None,
+        return self._tile("fan", "fan", "", _num(fans[0][1].rpm, "rpm"), _tl(fans[0][0]),
                           _seg(fans[0][1].rpm, fans[0][1].max_rpm or wmax), series, kv)
 
     def _net_tile(self):
@@ -326,11 +344,11 @@ class Sampler:
         series, wmax = self._plot("B/s", (("key", "series.rx"), "rx", True), (("key", "series.tx"), "tx", False))
         rx, tx = _sum(d.rx_bps for d in devs), _sum(d.tx_bps for d in devs)
         up = [d.name for d in devs if d.up]
-        kv = [_kv("kv.interface", up[0])] if len(up) == 1 else []
+        kv = [_kv("kv.interface", _tl(up[0]))] if len(up) == 1 else []
         kv.append(_kv("kv.since_boot", [_num(sum(d.rx_total for d in devs), "B", p="↓"),
                                         _num(sum(d.tx_total for d in devs), "B", p="↑")]))
-        return self._tile("net", "net", up[0] if len(up) == 1 else "", _num(rx, "B/s", p="↓"), _num(tx, "B/s", p="↑"),
-                          _seg(rx, wmax), series, kv,
+        return self._tile("net", "net", up[0] if len(up) == 1 else "", _num(rx, "B/s", p="↓"),
+                          _num(tx, "B/s", p="↑"), _seg(rx, wmax), series, kv,
                           [{"name": d.name, "values": [_num(d.rx_bps, "B/s"), _num(d.tx_bps, "B/s")]} for d in devs])
 
     def _disk_tile(self):
@@ -341,14 +359,14 @@ class Sampler:
         rd, wr = _sum(d.read_bps for d in disks), _sum(d.write_bps for d in disks)
         kv = [_kv("kv.write", _num(wr, "B/s"))]
         used, size = _sum(d.used for d in disks), _sum(d.size for d in disks)
-        if used is not None:
-            kv.append(_kv("kv.mounted_used", _num(used, "B", size)))
+        if used is not None:  # Summe über die eingehängten Dateisysteme, nicht die Rohkapazität
+            kv.append(_kv("kv.used", _num(used, "B", size)))
         temp = max((d.temp_c for d in disks if d.temp_c is not None), default=None)
         if temp is not None:
             kv.append(_kv("kv.temperature", _num(temp, "°C")))
         one = disks[0] if len(disks) == 1 else None
-        return self._tile("disk", "disk", (one.model or one.name) if one else "", _num(rd, "B/s"), None,
-                          _seg(rd, wmax), series, kv,
+        return self._tile("disk", "disk", (one.model or one.name) if one else "", _num(rd, "B/s"),
+                          _tk("series.read"), _seg(rd, wmax), series, kv,
                           [{"name": d.name, "values": [_num(d.read_bps, "B/s"), _num(d.write_bps, "B/s"),
                                                        _num(d.used, "B"), _num(d.size, "B"),
                                                        _num(d.temp_c, "°C")]} for d in disks])
@@ -364,11 +382,12 @@ class Sampler:
         return [t for t in out if t]
 
     def snapshot(self, view: dict) -> dict:
+        view = view if isinstance(view, dict) else {}
         tiles = _safe(self._tiles, default=[]) if self._s else []
         kinds = {t["kind"] for t in tiles}
-        hints = _safe(self._tools.hints, default=[]) or []
-        hints = list(hints)
-        if self._rapl_noperm and self._s and self._s["pkg"] is None:
+        hints = list(_safe(self._tools.hints, default=None) or [])
+        # erst nach ein paar Takten: intel_gpu_top liefert pkg_w nicht sofort
+        if self._rapl_noperm and self._n > 3 and self._s["pkg"] is None:
             hints.append("hint.rapl_noperm")
         procs_rows = detail = None
         if view.get("tab") == "procs":
