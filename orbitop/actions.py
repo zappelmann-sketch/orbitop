@@ -40,6 +40,9 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run) -
             return "denied"
         except OSError:  # z. B. Thread-ID als pid (ENOENT) oder EMFILE
             return "error"
+    dead = _dead(pid, start, root)
+    if dead:  # veraltete oder falsche Startzeit: kein Passwortdialog
+        return dead
     try:
         r = run([PKEXEC, PYTHON, "-I", _HELPER, str(pid), str(start), sig], timeout=120)
     except (OSError, subprocess.SubprocessError):
@@ -47,10 +50,17 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run) -
     return _RESULT.get(r.returncode, "error")
 
 
-def is_alive(pid: int, start: int, root="/") -> bool:
+def _dead(pid: int, start: int, root: str) -> str | None:
+    """gone, mismatch oder zombie, wenn (pid, start) kein lebender Prozess mehr ist; sonst None."""
     try:
         with open(f"{root}/proc/{pid}/stat", encoding="utf-8", errors="replace") as f:
             s = parse_stat(f.read())
     except (OSError, ValueError, IndexError):
-        return False
-    return s["start"] == start and s["state"] not in "ZX"
+        return "gone"
+    if s["start"] != start:
+        return "mismatch"
+    return "zombie" if s["state"] in "ZX" else None
+
+
+def is_alive(pid: int, start: int, root="/") -> bool:
+    return _dead(pid, start, root) is None

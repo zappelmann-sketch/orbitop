@@ -96,19 +96,49 @@ def test_foreign_uses_pkexec_helper(monkeypatch):
     assert argv == ["/usr/bin/pkexec", "/usr/bin/python3", "-I", HELPER, "1", str(start_of(1)), "TERM"]
     assert os.path.isabs(argv[3]) and kw["timeout"] == 120 and "shell" not in kw
     calls.clear()
-    terminate(1, 5, True, run=fake(calls, 0))
+    terminate(1, start_of(1), True, run=fake(calls, 0))
     assert calls[0][0][-1] == "KILL"
 
 
 @pytest.mark.parametrize("rc,want", [(0, "sent"), (3, "mismatch"), (4, "gone"), (5, "zombie"), (6, "kernel"),
                                      (126, "denied"), (127, "denied"), (2, "error"), (1, "error")])
 def test_exit_code_mapping(rc, want):
-    assert terminate(1, 1, False, run=fake([], rc)) == want
+    assert terminate(1, start_of(1), False, run=fake([], rc)) == want
 
 
 @pytest.mark.parametrize("exc", [subprocess.TimeoutExpired("pkexec", 120), FileNotFoundError("pkexec")])
 def test_pkexec_failures_are_error(exc):
-    assert terminate(1, 1, False, run=fake([], exc=exc)) == "error"
+    assert terminate(1, start_of(1), False, run=fake([], exc=exc)) == "error"
+
+
+def test_foreign_wrong_start_is_mismatch_without_prompt():
+    calls = []
+    assert terminate(1, start_of(1) + 1, False, run=fake(calls)) == "mismatch"
+    assert terminate(1, 0, True, run=fake(calls)) == "mismatch"
+    assert calls == []  # veraltete oder falsche Startzeit: nie ein Passwortdialog
+
+
+def foreign_proc(root, pid, start, state):
+    d = root / "proc" / str(pid)
+    d.mkdir(parents=True)
+    (d / "status").write_text("Name:\tx\nUid:\t0\t0\t0\t0\n")
+    if state:
+        (d / "stat").write_text(f"{pid} (x y) {state} 1 " + "0 " * 17 + f"{start} 0 0\n")
+
+
+@pytest.mark.parametrize("state,want", [("Z", "zombie"), ("X", "zombie"), (None, "gone")])
+def test_foreign_dead_target_needs_no_prompt(tmp_path, state, want):
+    foreign_proc(tmp_path, 4242, 77, state)
+    calls = []
+    assert terminate(4242, 77, False, root=str(tmp_path), run=fake(calls)) == want
+    assert calls == []
+
+
+def test_foreign_live_target_goes_to_pkexec(tmp_path):
+    foreign_proc(tmp_path, 4242, 77, "S")
+    calls = []
+    assert terminate(4242, 77, False, root=str(tmp_path), run=fake(calls, 0)) == "sent"
+    assert len(calls) == 1
 
 
 def helper(*args):

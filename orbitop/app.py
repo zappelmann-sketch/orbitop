@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Start und GTK-freie Teile der Hülle: Laufzeitprüfung, Nachrichten-Schleuse, Navigationsprüfung, Mess-Thread."""
+"""Start und GTK-freie Teile der Hülle: Laufzeitprüfung, Nachrichten-Schleuse, UI-Dateien, Mess-Thread."""
 import argparse
 import json
 import os
 import sys
 import threading
 import time
+import traceback
 from urllib.parse import unquote, urlsplit
 
 import gi
@@ -17,6 +18,9 @@ from orbitop.i18n import detect_language, load_texts
 MAX_MESSAGE = 4096
 PERIOD_S = 1.0  # tick_system; tick_procs läuft jeden zweiten Takt
 RUNTIME = (("Gtk", "4.0", "gir1.2-gtk-4.0"), ("WebKit", "6.0", "gir1.2-webkit-6.0"))
+SCHEME, UI_HOST = "orbitop", "ui"  # die Seite läuft unter orbitop://ui/…, nie unter file://
+MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".ttf": "font/ttf", ".otf": "font/otf",
+        ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".txt": "text/plain"}
 
 
 def check_runtime(require_version=gi.require_version) -> str | None:
@@ -62,16 +66,19 @@ def parse_message(raw) -> dict | None:
     return None
 
 
-def allowed_uri(uri: str, ui_dir: str) -> bool:
-    """Nur file://-Adressen von Dateien unterhalb von ui_dir, nach Auflösen von %-Kodierung, .. und Symlinks."""
+def ui_file(uri: str, ui_dir: str) -> tuple[str, str] | None:
+    """(Pfad, Inhaltstyp) für orbitop://ui/<pfad>: eine reguläre Datei bekannten Typs unterhalb von ui_dir,
+    nach Auflösen von %-Kodierung, .. und Symlinks. Alles andere: None (Navigation verboten, Laden scheitert)."""
     try:
         u = urlsplit(uri)
-        if u.scheme != "file" or u.netloc:
-            return False
-        path = os.path.realpath(unquote(u.path))
+        if u.scheme != SCHEME or u.netloc != UI_HOST:
+            return None
+        root = os.path.realpath(ui_dir)
+        path = os.path.realpath(os.path.join(root, unquote(u.path).lstrip("/")))
     except (TypeError, ValueError):  # z. B. Nullbyte im Pfad
-        return False
-    return path.startswith(os.path.realpath(ui_dir) + os.sep)
+        return None
+    mime = MIME.get(os.path.splitext(path)[1])
+    return (path, mime) if mime and path.startswith(root + os.sep) and os.path.isfile(path) else None
 
 
 def snapshot_path(value: str | None) -> str | None:
@@ -80,6 +87,14 @@ def snapshot_path(value: str | None) -> str | None:
         return None
     path = os.path.abspath(value)
     return path if os.path.isdir(os.path.dirname(path)) else None
+
+
+def _guard(fn) -> None:
+    """Ein Fehler im Sampler darf den einzigen Mess-Thread nicht still beenden."""
+    try:
+        fn()
+    except Exception:
+        traceback.print_exc()
 
 
 class Worker:
@@ -123,9 +138,9 @@ class Worker:
         due, n, fresh = self._clock(), 0, False
         while not self._stop.is_set():
             if self._clock() >= due:
-                self._sampler.tick_system()
+                _guard(self._sampler.tick_system)
                 if n % 2 == 0:
-                    self._sampler.tick_procs()
+                    _guard(self._sampler.tick_procs)
                 n += 1
                 due += PERIOD_S
                 now = self._clock()
@@ -133,7 +148,7 @@ class Worker:
                     due += PERIOD_S
                 fresh = True
             if fresh:
-                self._publish()
+                _guard(self._publish)
             fresh = self._wait(max(0.0, due - self._clock()))  # True: von update() oder stop() geweckt
             self._wake.clear()
 

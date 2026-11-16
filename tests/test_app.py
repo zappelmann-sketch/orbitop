@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from orbitop import app
-from orbitop.app import Worker, allowed_uri, check_runtime, parse_message, snapshot_path
+from orbitop.app import Worker, check_runtime, parse_message, snapshot_path, ui_file
 from orbitop.i18n import load_texts
 
 REPO = Path(__file__).resolve().parent.parent
@@ -80,33 +80,57 @@ def test_parse_message_survives_deep_nesting(monkeypatch):
     assert parse_message('{"type":"ready"}') is None
 
 
-# ---- allowed_uri ----
-@pytest.mark.parametrize("uri,ok", [
-    ((UI / "index.html").as_uri(), True),
-    ((UI / "index.html").as_uri() + "#tab", True),
-    ((UI / "fonts" / "Orbitron.ttf").as_uri(), True),
-    (UI.as_uri() + "/../sysfs.py", False),
-    (UI.as_uri() + "/%2e%2e/sysfs.py", False),
-    (UI.as_uri() + "/", False),             # Verzeichnis selbst (Auflistung)
-    (UI.as_uri(), False),
-    (UI.as_uri() + "x/index.html", False),  # Nachbarverzeichnis mit gleichem Präfix
-    (UI.as_uri() + "/a%00b.html", False),
-    ("file://host" + str(UI / "index.html"), False),
-    ("https://x", False), ("http://localhost/", False), ("file:///etc/passwd", False),
-    ("about:blank", False), ("data:text/html,hi", False), ("javascript:alert(1)", False), ("", False),
+# ---- ui_file (orbitop://ui/…) ----
+@pytest.fixture
+def ui(tmp_path):
+    """UI-Baum mit je einer Datei pro Typ, einer unbekannten Endung, Unterordner und Symlinks nach innen und außen."""
+    d = tmp_path / "ui"
+    (d / "fonts").mkdir(parents=True)
+    for name in ("index.html", "app.js", "style.css", "fonts/a.ttf", "fonts/b.otf", "fonts/c.woff2", "i.svg", "p.png",
+                 "fonts/OFL.txt", "tool.py", "noext"):
+        (d / name).write_text("x")
+    (tmp_path / "secret.js").write_text("x")
+    (d / "out.js").symlink_to(tmp_path / "secret.js")
+    (d / "in.js").symlink_to(d / "app.js")
+    return d
+
+
+@pytest.mark.parametrize("uri,name,mime", [
+    ("orbitop://ui/index.html", "index.html", "text/html"),
+    ("orbitop://ui/index.html#tab", "index.html", "text/html"),
+    ("orbitop://ui/index.html?x=1", "index.html", "text/html"),
+    ("orbitop://ui/app.js", "app.js", "text/javascript"),
+    ("orbitop://ui/style.css", "style.css", "text/css"),
+    ("orbitop://ui/fonts/a.ttf", "fonts/a.ttf", "font/ttf"),
+    ("orbitop://ui/fonts/b.otf", "fonts/b.otf", "font/otf"),
+    ("orbitop://ui/fonts/c.woff2", "fonts/c.woff2", "font/woff2"),
+    ("orbitop://ui/i.svg", "i.svg", "image/svg+xml"),
+    ("orbitop://ui/p.png", "p.png", "image/png"),
+    ("orbitop://ui/fonts/OFL.txt", "fonts/OFL.txt", "text/plain"),
+    ("orbitop://ui/%61pp.js", "app.js", "text/javascript"),
+    ("orbitop://ui/fonts/../app.js", "app.js", "text/javascript"),
+    ("orbitop://ui/in.js", "app.js", "text/javascript"),       # Symlink innerhalb bleibt erlaubt
 ])
-def test_allowed_uri(uri, ok):
-    assert allowed_uri(uri, str(UI)) is ok
+def test_ui_file_serves_known_types(ui, uri, name, mime):
+    assert ui_file(uri, str(ui)) == (os.path.realpath(ui / name), mime)
 
 
-def test_allowed_uri_resolves_symlinks(tmp_path):
-    ui = tmp_path / "ui"
-    ui.mkdir()
-    (tmp_path / "secret.txt").write_text("x")
-    (ui / "link.txt").symlink_to(tmp_path / "secret.txt")
-    (ui / "page.html").write_text("x")
-    assert allowed_uri((ui / "page.html").as_uri(), str(ui))
-    assert not allowed_uri((ui / "link.txt").as_uri(), str(ui))
+@pytest.mark.parametrize("uri", [
+    "orbitop://ui/../secret.js", "orbitop://ui/%2e%2e/secret.js", "orbitop://ui/fonts/%2E%2E/%2E%2E/secret.js",
+    "orbitop://ui/%2Fetc%2Fpasswd", "orbitop://ui//etc/passwd", "orbitop://ui/out.js",   # Symlink nach außen
+    "orbitop://ui/", "orbitop://ui", "orbitop://ui/fonts", "orbitop://ui/missing.html",
+    "orbitop://ui/tool.py", "orbitop://ui/noext", "orbitop://ui/a%00b.html",
+    "orbitop://evil/index.html", "orbitop://ui:80/index.html", "orbitop://x@ui/index.html", "orbitop:///index.html",
+    "orbitop:index.html", "orbitopx://ui/index.html",
+    "file:///etc/passwd", "file://" + str(UI / "index.html"), "https://x", "about:blank",
+    "data:text/html,hi", "javascript:alert(1)", "", None,
+])
+def test_ui_file_denies(ui, uri):
+    assert ui_file(uri, str(ui)) is None
+
+
+def test_ui_file_real_index():
+    assert ui_file("orbitop://ui/index.html", str(UI)) == (str(UI / "index.html"), "text/html")
 
 
 # ---- snapshot_path ----
@@ -303,6 +327,44 @@ def test_worker_serializes_ascii_and_drops_nan():
     s = FakeSampler(clock, snap={"v": float("nan")})
     assert run_fake(s, clock, 3, lambda w: w.update(visible=True, ready=True)) == []
     assert len(s.sys_times()) == 3  # der Worker lebt weiter
+
+
+class Flaky(FakeSampler):
+    """Wirft beim ersten Aufruf von `fail` eine Ausnahme."""
+    def __init__(self, clock, fail):
+        super().__init__(clock)
+        self.fail, self.failed = fail, False
+
+    def _maybe(self):
+        if not self.failed:
+            self.failed = True
+            raise RuntimeError("kaputt")
+
+    def tick_system(self):
+        super().tick_system()
+        if self.fail == "tick_system":
+            self._maybe()
+
+    def tick_procs(self):
+        super().tick_procs()
+        if self.fail == "tick_procs":
+            self._maybe()
+
+    def snapshot(self, view):
+        if self.fail == "snapshot":
+            self._maybe()
+        return super().snapshot(view)
+
+
+@pytest.mark.parametrize("fail", ["tick_system", "tick_procs", "snapshot"])
+def test_worker_survives_sampler_exception(fail, capsys):
+    clock = Clock()
+    s = Flaky(clock, fail)
+    posts = run_fake(s, clock, 4, lambda w: w.update(visible=True, ready=True))
+    assert s.failed and "RuntimeError: kaputt" in capsys.readouterr().err
+    assert s.sys_times() == pytest.approx([100.0, 101.0, 102.0, 103.0])  # der Takt läuft weiter
+    assert len(posts) == (3 if fail == "snapshot" else 4)
+    assert len([k for k, _ in s.calls if k == "procs"]) == 2
 
 
 def test_worker_thread_kicks_immediately_and_stops_fast():

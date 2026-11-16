@@ -3,10 +3,12 @@
 """GTK-4-Fenster mit WebView: Einzelinstanz, Hintergrundbetrieb und Brücke zur Seite.
 
 Erst nach app.check_runtime() importieren, sonst endet ein fehlendes WebKit in einem Traceback."""
+import math
 import os
 import signal
 import sys
 import threading
+import time
 from pathlib import Path
 
 import gi
@@ -17,13 +19,15 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit  # noqa: E402
 
 from orbitop import APP_ID, __version__, actions  # noqa: E402
-from orbitop.app import Worker, allowed_uri, encode, parse_message, snapshot_path  # noqa: E402
+from orbitop.app import SCHEME, UI_HOST, Worker, encode, parse_message, snapshot_path, ui_file  # noqa: E402
 from orbitop.i18n import detect_language, load_texts  # noqa: E402
 from orbitop.sampler import Sampler  # noqa: E402
 
 UI_DIR = str(Path(__file__).resolve().parent / "ui")
+INDEX_URI = f"{SCHEME}://{UI_HOST}/index.html"
 CHECK_DELAY_S = 5  # Nachsehen nach SIGTERM
 SNAPSHOT_DELAY_S = 5
+RELOAD_GAP_S = 10  # nach Abstürzen des Web-Prozesses höchstens einmal je 10 s neu laden
 
 
 def _settings() -> WebKit.Settings:
@@ -43,15 +47,17 @@ def _settings() -> WebKit.Settings:
 
 class Shell:
     def __init__(self, hidden: bool):
-        self._hidden = hidden
-        self._pending: set[tuple[int, int]] = set()  # laufende terminate je (pid, start); nur Hauptthread
-        self._app = Gtk.Application(application_id=APP_ID)
+        self._argv = ["orbitop", "--hidden"] if hidden else ["orbitop"]
+        self._terminating = False  # höchstens ein terminate zugleich, nie ein Stapel Passwortdialoge; nur Hauptthread
+        self._reloaded = -math.inf
+        # Jeder Start reicht seine Argumente an die erste Instanz weiter (Einzelinstanz über D-Bus)
+        self._app = Gtk.Application(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
         self._app.connect("startup", self._startup)
-        self._app.connect("activate", self._activate)
+        self._app.connect("command-line", self._command_line)
         self._app.connect("shutdown", self._shutdown)
 
     def run(self) -> int:
-        return self._app.run(["orbitop"])
+        return self._app.run(self._argv)
 
     # ---- Lebenszyklus (nur in der ersten Instanz) ----
     def _startup(self, app) -> None:
@@ -82,18 +88,21 @@ class Shell:
         bg = Gdk.RGBA()
         bg.parse("#0c1115")
         self._view.set_background_color(bg)  # kein weißes Aufblitzen vor dem ersten Zeichnen
+        # eigenes Schema statt file://: so deckt 'self' in der CSP nur orbitop/ui/ ab, keine beliebige lokale Datei
+        self._view.get_context().register_uri_scheme(SCHEME, self._serve)
         self._view.connect("decide-policy", self._decide_policy)
+        self._view.connect("web-process-terminated", self._on_web_crash)
         self._win = Gtk.ApplicationWindow(application=app, title="orbitop", default_width=1600, default_height=1000,
                                           child=self._view)
         self._win.connect("close-request", self._on_close)
         self._win.connect("notify::visible", self._on_visible)
-        self._view.load_uri(Path(UI_DIR, "index.html").as_uri())
+        self._win.connect("notify::suspended", self._on_visible)
+        self._view.load_uri(INDEX_URI)
 
-    def _activate(self, _app) -> None:
-        if self._hidden:
-            self._hidden = False  # nur der erste Start bleibt verborgen, jeder weitere zeigt das Fenster
-        else:
+    def _command_line(self, _app, cmdline) -> int:
+        if "--hidden" not in cmdline.get_arguments():  # verborgene Starts (Autostart) zeigen nie das Fenster
             self._win.present()
+        return 0
 
     def _shutdown(self, _app) -> None:
         self._worker.stop()
@@ -104,7 +113,7 @@ class Shell:
         return True  # nur ausblenden, nicht zerstören
 
     def _on_visible(self, win, _pspec) -> None:
-        visible = win.get_visible()
+        visible = win.get_visible() and not win.is_suspended()  # minimiert zählt als ausgeblendet
         if self._worker.update(visible=visible):
             self._send(self._init)  # der Worker schickt gleich danach einen tick
         if visible and self._snapshot:
@@ -115,6 +124,28 @@ class Shell:
     def _send(self, text: str) -> None:
         """text stammt aus encode(), ist also ein sicheres JS-Literal."""
         self._view.evaluate_javascript(f"window.orbitop.receive({text})", -1, None, None, None, None, None)
+
+    def _on_web_crash(self, _view, _reason) -> None:
+        self._worker.update(ready=False)
+        delay = math.ceil(max(0.0, self._reloaded + RELOAD_GAP_S - time.monotonic()))
+        GLib.timeout_add_seconds(delay, self._reload)
+
+    def _reload(self) -> bool:
+        self._reloaded = time.monotonic()
+        self._view.load_uri(INDEX_URI)  # die neue Seite meldet ready, dann folgen init und tick
+        return False
+
+    def _serve(self, request) -> None:
+        """Antwort für orbitop://ui/…: nur reguläre Dateien bekannten Typs unter orbitop/ui/."""
+        found = ui_file(request.get_uri(), UI_DIR)
+        try:
+            data = GLib.Bytes.new(Path(found[0]).read_bytes()) if found else None
+        except OSError:
+            data = None
+        if data is None:
+            request.finish_error(GLib.Error.new_literal(Gio.io_error_quark(), "not found", Gio.IOErrorEnum.NOT_FOUND))
+            return
+        request.finish(Gio.MemoryInputStream.new_from_bytes(data), data.get_size(), found[1])
 
     def _on_message(self, _ucm, value) -> None:
         msg = parse_message(value.to_json(0))
@@ -133,9 +164,9 @@ class Shell:
 
     def _decide_policy(self, _view, decision, kind) -> bool:
         if kind == WebKit.PolicyDecisionType.NAVIGATION_ACTION:
-            ok = allowed_uri(decision.get_navigation_action().get_request().get_uri(), UI_DIR)
+            ok = ui_file(decision.get_navigation_action().get_request().get_uri(), UI_DIR) is not None
         elif kind == WebKit.PolicyDecisionType.RESPONSE:  # nicht darstellbar hieße Download
-            ok = decision.is_mime_type_supported() and allowed_uri(decision.get_request().get_uri(), UI_DIR)
+            ok = decision.is_mime_type_supported() and ui_file(decision.get_request().get_uri(), UI_DIR) is not None
         else:  # neue Fenster
             ok = False
         if ok:
@@ -146,20 +177,24 @@ class Shell:
 
     # ---- Beenden von Prozessen ----
     def _terminate(self, pid: int, start: int, force: bool) -> None:
-        if (pid, start) in self._pending:
-            return
-        self._pending.add((pid, start))
+        if self._terminating:
+            return  # still verwerfen: die Seite zeigt erst das Ergebnis des laufenden Auftrags
+        self._terminating = True
         threading.Thread(target=self._terminate_thread, args=(pid, start, force), daemon=True).start()
 
     def _terminate_thread(self, pid: int, start: int, force: bool) -> None:  # pkexec blockiert bis zu 120 s
+        # shortcut: orbitop bricht ein offenes pkexec beim Beenden nicht selbst ab. Unter GNOME verwirft polkit die
+        # Anfrage, sobald der anfragende Prozess fehlt (beobachtet); bei anderen polkit-Agenten könnte pkexec verwaist
+        # weiterlaufen und nach späterer Bestätigung ohne Rückmeldung signalisieren. Aufrüsten, wenn der Root-Helfer
+        # (Stufe 2) einen Abbruch-Kanal bekommt.
         try:
             result = actions.terminate(pid, start, force)
-        except Exception:  # sonst bliebe (pid, start) für immer gesperrt
+        except Exception:  # sonst bliebe das Beenden für immer gesperrt
             result = "error"
         GLib.idle_add(self._terminated, pid, start, force, result)
 
     def _terminated(self, pid: int, start: int, force: bool, result: str) -> None:
-        self._pending.discard((pid, start))
+        self._terminating = False
         self._send(encode({"type": "terminate_result", "pid": pid, "result": result}))
         if result == "sent" and not force:
             GLib.timeout_add_seconds(CHECK_DELAY_S, self._check, pid, start)
