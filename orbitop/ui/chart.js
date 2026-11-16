@@ -3,7 +3,6 @@
 // Flächendiagramm (Canvas) und Segmentanzeige. Gezeichnet wird nur auf Aufruf aus receive, es gibt keinen eigenen Takt.
 "use strict";
 
-const GRID_COLOR = "rgba(120,200,255,.09)";
 const GLOW_PX = 24; // Reichweite von Leuchtsaum und Punktschatten (shadowBlur 6 und 8) in Bildpunkten, großzügig
 
 // Canvas-Größen kommen aus dem ResizeObserver: gemessen nach dem Layout, also nie ein erzwungenes Layout im Takt.
@@ -54,26 +53,13 @@ function shiftOf(prev, series) {
   return -1;
 }
 
-/** Gitter auf der eigenen Canvas darunter: 4 waagerechte Linien, senkrecht alle gridEvery Punkte vom neuesten Wert aus. */
-function drawGrid(grid, w, h, bw, bh, dpr, opts) {
-  grid.width = bw;
-  grid.height = bh;
-  const ctx = grid.getContext("2d"), step = w / (opts.points - 1);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.strokeStyle = GRID_COLOR;
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  for (let k = 1; k < 5; k++) {
-    const y = Math.round((h * k) / 5) + 0.5;
-    ctx.moveTo(0, y);
-    ctx.lineTo(w, y);
-  }
-  for (let s = opts.gridEvery; s < opts.points - 1; s += opts.gridEvery) {
-    const x = Math.round(w - s * step) + 0.5;
-    ctx.moveTo(x, 0);
-    ctx.lineTo(x, h);
-  }
-  ctx.stroke();
+/** Gitter als SVG-Pfad unter der Canvas (CSS-Pixel, Farbe in style.css): 4 waagerechte Linien, senkrecht alle
+ * gridEvery Punkte vom neuesten Wert aus. Es steht still, während das Kurvenbild verschoben wird. */
+function drawGrid(grid, w, h, opts) {
+  const step = w / (opts.points - 1), d = [];
+  for (let k = 1; k < 5; k++) d.push(`M0 ${Math.round((h * k) / 5) + 0.5}H${w}`);
+  for (let s = opts.gridEvery; s < opts.points - 1; s += opts.gridEvery) d.push(`M${Math.round(w - s * step) + 0.5} 0V${h}`);
+  grid.firstChild.setAttribute("d", d.join(""));
 }
 
 /** Flächen, Leuchtsaum, Kurven und Punkt; nur Punkte zwischen from und to (x), je einer außerhalb bleibt dabei. */
@@ -155,7 +141,7 @@ function drawArea(canvas, series, opts) {
     canvas.key = null;
   }
   if (canvas.grid && canvas.grid.key !== frame) {
-    drawGrid(canvas.grid, w, h, bw, bh, dpr, opts);
+    drawGrid(canvas.grid, w, h, opts);
     canvas.grid.key = frame;
   }
   const lines = series.map((s) => runs(s, opts.points, step, h));

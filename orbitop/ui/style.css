@@ -147,17 +147,20 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .seg b.on { background: var(--c); box-shadow: 0 0 6px color-mix(in srgb, var(--c) 70%, transparent); }
 .seg b.hot { background: var(--amber); box-shadow: 0 0 6px rgba(255, 181, 74, .7); }
 
-/* Diagrammfläche mit feiner Rasterlinien-Textur; Gitter, Kurven und Punkt zeichnet chart.js. Gitter und Kurven liegen
-   auf zwei Canvas in derselben Rasterzelle, die Kurven darüber: so lässt sich das Kurvenbild verschieben. */
+/* Diagrammfläche mit feiner Rasterlinien-Textur; Gitter, Kurven und Punkt zeichnet chart.js. Das Gitter (SVG) liegt
+   unter der Canvas der Kurven: so lässt sich das Kurvenbild verschieben, während das Gitter stehen bleibt. */
 .plot, .bars {
   background: repeating-linear-gradient(0deg, rgba(120, 200, 255, .035) 0 2px, transparent 2px 4px), #070b0d;
   border-left: 2px solid color-mix(in srgb, var(--c) 65%, transparent);
 }
-.plot { position: relative; overflow: hidden; display: grid; }
-.plot canvas { display: block; width: 100%; height: 92px; grid-area: 1 / 1; }
+.plot { position: relative; overflow: hidden; }
+.plot canvas { position: relative; display: block; width: 100%; height: 92px; }
+.plot .gridlines { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+.plot .gridlines path { fill: none; stroke: rgba(120, 200, 255, .09); stroke-width: 1; }
 .plot.mini canvas { height: 32px; }
 .cap {
   position: absolute;
+  z-index: 1; /* über Gitter und Canvas, die positioniert sind */
   left: 7px;
   top: 3px;
   font-size: 10px;

@@ -209,13 +209,13 @@ function colorsOf(t) {
   return [first, ...(EXTRA[t.kind] || [])];
 }
 
-/** Diagrammfläche: Beschriftung, Gitter-Canvas und darüber die Canvas der Kurven (zurückgegeben). */
+/** Diagrammfläche: Beschriftung, Gitter (SVG) und darüber die Canvas der Kurven (zurückgegeben). */
 function plot(parent, cls, cap) {
   const box = el("div", cls, parent);
   el("span", "cap", box, cap);
-  const grid = el("canvas", "grid", box);
   const c = el("canvas", "", box);
-  c.grid = grid;
+  c.grid = svg(box, "gridlines", null, [""]);
+  box.append(c);
   return c;
 }
 
@@ -380,7 +380,7 @@ const same = (p, sel) => !!sel && p.pid === sel.pid && p.start === sel.start;
 
 function svg(parent, cls, viewBox, paths) {
   const s = document.createElementNS(SVG_NS, "svg");
-  s.setAttribute("viewBox", viewBox);
+  if (viewBox) s.setAttribute("viewBox", viewBox);
   s.setAttribute("aria-hidden", "true");
   if (cls) s.setAttribute("class", cls);
   s.append(...paths.map(pathEl));

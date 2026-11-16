@@ -102,14 +102,14 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ---- Threads: bis 8 Mini-Diagramme, ab 9 Balken ----
   receive(tick([cpu(Array.from({ length: 8 }, () => [10]))]));
-  eq($$(".cores canvas:not(.grid)").length + "/" + $$(".bars i").length, "8/0", "8 Threads als Mini-Diagramme");
+  eq($$(".cores canvas").length + "/" + $$(".bars i").length, "8/0", "8 Threads als Mini-Diagramme");
   receive(tick([cpu(Array.from({ length: 9 }, () => [90]))]));
-  eq($$(".cores canvas:not(.grid)").length + "/" + $$(".bars i.hot").length, "0/9", "9 Threads als Balken");
+  eq($$(".cores canvas").length + "/" + $$(".bars i.hot").length, "0/9", "9 Threads als Balken");
   eq($(".bars i").style.getPropertyValue("--v"), "90", "Balkenhöhe per CSSOM");
   // Mini-Verläufe nur alle 2 s: nach einem Zeichnen bleibt der nächste Takt aus
   const thr = (n) => Array.from({ length: 4 }, (_, i) => Array.from({ length: n }, (_, j) => (i * 7 + j * 13) % 100));
   receive(tick([cpu(thr(10))]));
-  const mctx = $(".cores canvas:not(.grid)").getContext("2d"), mini = [];
+  const mctx = $(".cores canvas").getContext("2d"), mini = [];
   for (const m of ["clearRect", "drawImage"]) {
     const f = mctx[m];
     mctx[m] = function (...a) {
@@ -334,10 +334,10 @@ document.addEventListener("DOMContentLoaded", () => {
   eq($(".detail .verdict").textContent, "Dauerlast ohne Lebenszeichen. Er rechnet seit 1 Std 1 Min. Danach.", "Dauer in Stunden");
   receive(ptick(moved, busy));
   eq(off(term) + off(kill) + reason(), "falsefalse", "Knöpfe frei");
-  const dcv = $(".detail canvas.grid"), w = dcv.width, step = w / 149;
-  const alpha = (x) => dcv.getContext("2d").getImageData(x, 2, 1, 1).data[3];
-  eq(alpha(Math.round(w - 15 * step)) > 0 && alpha(Math.round(w - 30 * step)) > 0, true, "Gitter alle 15 Punkte (30 s)");
-  eq(alpha(Math.round(w - 22 * step)), 0, "zwischen den Gitterlinien leer");
+  const [gw] = $(".detail canvas").size, gstep = gw / 149;
+  const gx = [...$(".detail .gridlines path").getAttribute("d").matchAll(/M([\d.]+) 0V/g)].map((m) => Number(m[1]));
+  eq(gx.join(), Array.from({ length: 9 }, (_, i) => Math.round(gw - 15 * (i + 1) * gstep) + 0.5).join(),
+     "Gitter alle 15 Punkte (30 s), vom neuesten Wert aus");
   const fremd = full(moved[1], { io: null, own: false });
   rows()[0].click();
   receive(ptick(moved, fremd));
