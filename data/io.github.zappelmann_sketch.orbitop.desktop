@@ -1,0 +1,15 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+[Desktop Entry]
+Type=Application
+Name=orbitop
+Comment=System monitor for CPU, memory, GPU, network and processes
+Comment[de]=Systemmonitor für CPU, Speicher, GPU, Netzwerk und Prozesse
+Exec=orbitop
+Icon=io.github.zappelmann_sketch.orbitop
+Categories=System;Monitor;
+Keywords=system;monitor;cpu;gpu;memory;network;processes;
+Keywords[de]=System;Monitor;CPU;GPU;Speicher;Netzwerk;Prozesse;
+StartupNotify=true
+StartupWMClass=io.github.zappelmann_sketch.orbitop
+Terminal=false

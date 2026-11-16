@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- SPDX-License-Identifier: CC0-1.0 -->
+<!-- Copyright © 2026 zappelmann-sketch -->
+<component type="desktop-application">
+  <id>io.github.zappelmann_sketch.orbitop</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+  <name>orbitop</name>
+  <name xml:lang="de">orbitop</name>
+  <summary>System monitor for CPU, memory, GPU, network and processes</summary>
+  <summary xml:lang="de">Systemmonitor für CPU, Speicher, GPU, Netzwerk und Prozesse</summary>
+  <developer id="io.github.zappelmann_sketch">
+    <name>zappelmann-sketch</name>
+  </developer>
+  <description>
+    <p>orbitop shows the load of your computer at a glance: processor, memory, graphics card, network, disks, sensors and the running processes.</p>
+    <p xml:lang="de">orbitop zeigt die Auslastung Ihres Rechners auf einen Blick: Prozessor, Speicher, Grafikkarte, Netzwerk, Laufwerke, Sensoren und die laufenden Prozesse.</p>
+  </description>
+  <launchable type="desktop-id">io.github.zappelmann_sketch.orbitop.desktop</launchable>
+  <url type="homepage">https://github.com/zappelmann-sketch/orbitop</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-11-16"/>
+  </releases>
+  <provides>
+    <binary>orbitop</binary>
+  </provides>
+</component>
