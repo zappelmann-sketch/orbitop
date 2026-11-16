@@ -329,3 +329,73 @@ def test_scan_real_proc_fast():
     print("median scan:", statistics.median(times))
     assert statistics.median(times) < 0.05
     assert any(r.pid == os.getpid() for r in scan("/").values())
+
+
+# ---- Task 17: /proc/<pid>/status nur, wenn nötig ----
+def _status(root, pid, uid=1000, vctx=30):
+    (root / "proc" / str(pid) / "status").write_text(f"Name:\tx\nUid:\t{uid}\t{uid}\t{uid}\t{uid}\n"
+                                                     f"voluntary_ctxt_switches:\t{vctx}\nnonvoluntary_ctxt_switches:\t4\n")
+
+
+def _tick(t, root, now):
+    t.update(scan(str(root), t.cmdlines, want_status=t.wants_status(now)), now)
+
+
+def test_status_only_for_new_selected_candidates_and_every_10_s(tmp_path):
+    for pid in (100, 101, 102):
+        make_proc(tmp_path, pid, ticks=(0, 0))
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    t.selected = (101, 98765)
+    _tick(t, tmp_path, 0.0)
+    for pid in (100, 101, 102):
+        _status(tmp_path, pid, uid=4242, vctx=50)
+    make_proc(tmp_path, 102, status=False, ticks=(180, 0))  # 1,8 s CPU in 2 s: Kandidat der Dauerlast (90 %)
+    _tick(t, tmp_path, 2.0)
+    own = lambda now: {r["pid"]: r["own"] for r in t.rows(now)}  # noqa: E731
+    assert own(2.0) == {100: True, 101: False, 102: False}  # 100 wurde nicht neu gelesen
+    assert t.detail(101, 98765, 2.0)["vctx"] == 10.0  # (50 - 30) / 2 s
+    _tick(t, tmp_path, 8.0)
+    assert own(8.0)[100] is True
+    _tick(t, tmp_path, 10.0)
+    assert own(10.0)[100] is False  # spätestens nach 10 s
+    assert t.detail(100, 98765, 10.0)["vctx"] == 2.0  # Rate über das tatsächliche dt: (50 - 30) / 10 s
+
+
+def _gated_and_full(seq):
+    """Dieselbe Folge (ticks, vctx, io) je 2 s einmal mit status bei jedem Takt, einmal nur bei Bedarf."""
+    full, gated = ProcTable(clk_tck=CLK, uid=1000), ProcTable(clk_tck=CLK, uid=1000)
+    out = []
+    for i, (ticks, vctx, io) in enumerate(seq):
+        now = i * 2.0
+        due = gated.wants_status(now)((10, 1), ticks)
+        full.update({(10, 1): raw(ticks=ticks, vctx=vctx, io=io)}, now)
+        gated.update({(10, 1): raw(ticks=ticks, vctx=vctx if due else None, nvctx=0 if due else None, io=io)}, now)
+        out.append((full.rows(now)[0]["state"], gated.rows(now)[0]["state"], due))
+    return out
+
+
+@pytest.mark.parametrize("switches,io", [(0, 7), (0, None), (1, 7), (3, 7)])
+def test_classification_unchanged_by_status_gating(switches, io):
+    """12 Takte Leerlauf (wenige freiwillige Kontextwechsel), dann 70 Takte Dauerlast mit switches je Takt."""
+    seq, ticks, vctx = [], 0, 0
+    for i in range(82):
+        if i >= 12:
+            ticks += 200
+            vctx += switches
+        elif i % 6 == 0:
+            vctx += 1
+        seq.append((ticks, vctx, io))
+    out = _gated_and_full(seq)
+    assert [o[:2] for o in out if o[0] != o[1]] == []
+    assert sum(o[2] for o in out[:12]) < 6  # im Leerlauf wurde status nur selten gelesen
+    want = "working" if switches > 2 else "busy_noio" if io == 7 else "busy_iounknown"  # Grenze: 1 je s, also 2 je Takt
+    assert out[-1][0] == want
+
+
+def test_status_skipped_keeps_uid_and_rates():
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    t.update({(10, 1): raw(uid=0, vctx=10, nvctx=2)}, 0.0)
+    t.update({(10, 1): raw(uid=0, vctx=30, nvctx=6)}, 2.0)
+    t.update({(10, 1): raw(uid=None, vctx=None, nvctx=None)}, 4.0)
+    d = t.detail(10, 1, 4.0)
+    assert d["user"] == "root" and d["own"] is False and (d["vctx"], d["nvctx"]) == (10.0, 2.0)

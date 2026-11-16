@@ -8,7 +8,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from orbitop import sysfs
-from orbitop.classify import ProcState, classify, is_busy_sample
+from orbitop.classify import BUSY_CPU, ProcState, classify, is_busy_sample
 from orbitop.system import MAX_DT
 
 HISTORY = 150
@@ -16,6 +16,7 @@ SPARK = 30
 CMDLINE_MAX = 4096
 _CHUNK = 65536
 ARGS_MAX = 120
+STATUS_EVERY_S = 10.0  # status (uid, Kontextwechsel) sonst nur bei Bedarf, siehe ProcTable.wants_status
 
 
 @dataclass
@@ -25,13 +26,13 @@ class RawProc:
     ppid: int
     name: str
     cmdline: str
-    uid: int
+    uid: int | None  # uid, vctx, nvctx: None, wenn status in diesem Takt nicht gelesen wurde
     state: str
     ticks: int
     rss: int  # Bytes
     threads: int
-    vctx: int
-    nvctx: int
+    vctx: int | None
+    nvctx: int | None
     io: int | None  # rchar + wchar, None wenn nicht lesbar
     args: str
 
@@ -115,9 +116,10 @@ def _read_cmdline(p: str) -> tuple[str, str]:
 
 
 def scan(root: str, cmdlines: dict | None = None,
-         page_size: int = os.sysconf("SC_PAGE_SIZE")) -> dict[tuple[int, int], RawProc]:
+         page_size: int = os.sysconf("SC_PAGE_SIZE"), want_status=None) -> dict[tuple[int, int], RawProc]:
     """Liest alle Prozesse. `cmdlines` (Schlüssel -> (comm, cmdline, args)) wird nur für neue Schlüssel
-    und nach einem comm-Wechsel (exec) neu gelesen."""
+    und nach einem comm-Wechsel (exec) neu gelesen. `want_status(key, ticks)` entscheidet, ob status gelesen wird
+    (ohne: immer); sonst bleiben uid, vctx und nvctx None."""
     cmdlines = {} if cmdlines is None else cmdlines
     out = {}
     try:
@@ -128,15 +130,23 @@ def scan(root: str, cmdlines: dict | None = None,
         if not (n.isascii() and n.isdecimal()):  # nie Pfade aus anderem Inhalt bauen
             continue
         base = sysfs.path(root, "/proc/" + n)
-        stat, status = _read(base + "/stat"), _read(base + "/status")
-        if stat is None or status is None:
+        stat = _read(base + "/stat")
+        if stat is None:  # verschwunden
             continue
         try:
             s = parse_stat(stat)
-            uid, vctx, nvctx = _parse_status(status)
         except (ValueError, IndexError):
             continue
         key = (int(n), s["start"])
+        uid = vctx = nvctx = None
+        if want_status is None or want_status(key, s["ticks"]):
+            status = _read(base + "/status")
+            if status is None:
+                continue
+            try:
+                uid, vctx, nvctx = _parse_status(status)
+            except (ValueError, IndexError):
+                continue
         # shortcut: ein exec auf ein Programm mit gleichem comm behält die alte cmdline (comm ist das einzige
         # Exec-Signal); sauber erst, wenn zusätzlich /proc/<pid>/exe verglichen wird.
         c = cmdlines.get(key)
@@ -160,6 +170,7 @@ class _Entry:
     io_rate: float | None = None
     vctx_rate: float = 0.0
     nvctx_rate: float = 0.0
+    status_t: float | None = None  # Zeit des letzten status-Lesens
     history: deque = field(default_factory=lambda: deque(maxlen=HISTORY))
 
 
@@ -168,6 +179,7 @@ class ProcTable:
         self.clk_tck = clk_tck
         self.uid = os.getuid() if uid is None else uid
         self.cmdlines: dict[tuple[int, int], tuple[str, str, str]] = {}  # Eingabe für scan(), wird in update() bereinigt
+        self.selected: tuple[int, int] | None = None  # Prozess im Detail: status bei jedem Takt
         self._entries: dict[tuple[int, int], _Entry] = {}
         self._users: dict[int, str] = {}
         btime = re.search(r"^btime (\d+)", sysfs.read_str(sysfs.path(root, "/proc/stat")) or "", re.M)
@@ -181,20 +193,38 @@ class ProcTable:
                 self._users[uid] = str(uid)
         return self._users[uid]
 
+    def wants_status(self, now: float):
+        """Für scan: status (uid, Kontextwechsel) nur für neue Schlüssel, die Auswahl, Kandidaten der Dauerlast
+        (CPU ≥ BUSY_CPU in diesem Takt, die Regel braucht die Kontextwechsel) und sonst alle STATUS_EVERY_S."""
+        def due(key: tuple[int, int], ticks: int) -> bool:
+            e = self._entries.get(key)
+            if e is None or key == self.selected or e.status_t is None or not 0 <= now - e.status_t < STATUS_EVERY_S:
+                return True
+            dt = now - e.t
+            return 0 < dt <= MAX_DT and (ticks - e.raw.ticks) / self.clk_tck / dt * 100 >= BUSY_CPU
+        return due
+
     def update(self, raw: dict[tuple[int, int], RawProc], now: float) -> None:
         old = self._entries
         self._entries = {}
         for key, r in raw.items():
             e = old.get(key) or _Entry(r, ProcState(r.state, None, None, True, 0.0, None))
             prev, e.raw = e.raw, r
+            fresh = r.vctx is not None
+            if not fresh:  # status nicht gelesen: uid und Zähler vom letzten Lesen, die Raten bleiben stehen
+                r.uid, r.vctx, r.nvctx = prev.uid, prev.vctx, prev.nvctx
             dt = None if e.t is None else now - e.t
             valid = dt is not None and 0 < dt <= MAX_DT
-            e.cpu = e.vctx_rate = e.nvctx_rate = 0.0
+            e.cpu = 0.0
             io_delta = None
             if valid and r.ticks >= prev.ticks:
                 e.cpu = (r.ticks - prev.ticks) / self.clk_tck / dt * 100
-            if valid and r.vctx >= prev.vctx and r.nvctx >= prev.nvctx:
-                e.vctx_rate, e.nvctx_rate = (r.vctx - prev.vctx) / dt, (r.nvctx - prev.nvctx) / dt
+            ctx_ok = False  # Kontextwechsel-Rate in diesem Takt bekannt: über das tatsächliche dt seit dem letzten Lesen
+            if fresh:
+                sdt = None if e.status_t is None else now - e.status_t
+                ctx_ok = sdt is not None and 0 < sdt <= STATUS_EVERY_S + MAX_DT and r.vctx >= prev.vctx and r.nvctx >= prev.nvctx
+                e.vctx_rate, e.nvctx_rate = ((r.vctx - prev.vctx) / sdt, (r.nvctx - prev.nvctx) / sdt) if ctx_ok else (0.0, 0.0)
+                e.status_t = now
             if valid and r.io is not None and prev.io is not None and r.io >= prev.io:
                 io_delta = r.io - prev.io
             e.io_rate = None if io_delta is None else io_delta / dt
@@ -203,7 +233,7 @@ class ProcTable:
             s = e.state
             s.state, s.io_known, s.last_cpu, s.last_io_delta = r.state, r.io is not None, e.cpu, io_delta
             s.d_since = (s.d_since if s.d_since is not None else now) if r.state == "D" else None
-            busy = valid and is_busy_sample(e.cpu, e.vctx_rate, io_delta)
+            busy = valid and ctx_ok and is_busy_sample(e.cpu, e.vctx_rate, io_delta)
             s.busy_since = (s.busy_since if s.busy_since is not None else now - dt) if busy else None
             self._entries[key] = e
         self.cmdlines = {k: v for k, v in self.cmdlines.items() if k in self._entries}

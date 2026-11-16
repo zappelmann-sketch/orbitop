@@ -895,3 +895,19 @@ def test_sampler_holds_slow_chip_between_ticks(tree_copy):
     t[0] = 5.0
     s.tick_system()
     assert rpm() == 1234
+
+
+def test_snapshot_hands_selection_to_status_reading():
+    """Der gewählte Prozess bekommt bei jedem Prozess-Takt frische Kontextwechsel (procs.ProcTable.wants_status)."""
+    s = Sampler(VM, tools=NoTools(), uid=1000)
+    s.snapshot({"tab": "procs", "pid": 5, "start": 7})
+    assert s._table.selected == (5, 7)
+    s.snapshot(OVERVIEW)
+    assert s._table.selected is None
+
+
+def test_tick_procs_passes_status_gate(monkeypatch):
+    gates = []
+    monkeypatch.setattr(sampler_mod.procs, "scan", lambda root, cmdlines, want_status=None: gates.append(want_status) or {})
+    Sampler(VM, tools=NoTools(), uid=1000).tick_procs()
+    assert len(gates) == 1 and callable(gates[0])
