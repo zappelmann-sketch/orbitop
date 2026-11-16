@@ -624,7 +624,7 @@ def test_snapshot_is_json_serializable(): json.dumps(run(INTEL, ticks=2).snapsho
   - Fenster 1600×1000, Titel `orbitop`. `close-request` blendet nur aus. Strg+Q und die Nachricht `quit` beenden.
   - Timer `GLib.timeout_add(1000, tick_system)` und `(2000, tick_procs)` laufen immer. `snapshot` und `evaluate_javascript` nur bei sichtbarem Fenster und nach `ready`.
   - Bei `ready` und bei jedem erneuten Anzeigen erst `init`, dann sofort ein `tick`.
-  - WebView: `load_uri(file://…/orbitop/ui/index.html)`. `decide-policy` lehnt jede Navigation außerhalb von `file://…/orbitop/ui/` ab. Entwicklerwerkzeuge nur mit `ORBITOP_DEVTOOLS=1`.
+  - WebView: Die Oberfläche kommt über das eigene Schema `orbitop://ui/…` (`register_uri_scheme`, Handler mit realpath- und Präfix-Prüfung, nur reguläre Dateien, feste Content-Types), **nicht** über `file://`. Grund (Security-Review Task 13): CSP `'self'` umfasst bei `file://` das ganze Dateisystem. `decide-policy` erlaubt nur `orbitop://ui/`, die Top-Level-Navigation nur zu HTML. Entwicklerwerkzeuge nur mit `ORBITOP_DEVTOOLS=1`.
   - Nachrichten über `UserContentManager.register_script_message_handler("orbitop", None)` und das Signal `script-message-received::orbitop` (`value.to_json(0)`).
   - Nach `terminate` erst `terminate_result` senden. Bei `sent` ohne `force` nach 5 s `terminate_check`.
   - Mit `ORBITOP_SNAPSHOT=<pfad.png>` speichert orbitop 5 s nach dem Anzeigen einen Snapshot der WebView als PNG. Das dient der automatischen Sichtprüfung.
