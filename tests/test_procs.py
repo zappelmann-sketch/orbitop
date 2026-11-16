@@ -31,8 +31,8 @@ def make_proc(root, pid, *, stat=True, status=True, io="rchar: 10\nwchar: 5\n", 
 
 
 def raw(pid=10, start=1, ticks=0, io=0, vctx=0, nvctx=0, state="S", name="p", cmdline="/bin/p a", uid=1000,
-        rss=4096, threads=1, ppid=1):
-    return RawProc(pid, start, ppid, name, cmdline, uid, state, ticks, rss, threads, vctx, nvctx, io)
+        rss=4096, threads=1, ppid=1, args="a"):
+    return RawProc(pid, start, ppid, name, cmdline, uid, state, ticks, rss, threads, vctx, nvctx, io, args)
 
 
 def test_parse_stat_comm_with_parens_and_spaces():
@@ -74,9 +74,51 @@ def test_scan_io_none_for_foreign(tmp_path):
 
 
 def test_scan_kernel_thread_and_zombie_have_bracket_name(tmp_path):
-    make_proc(tmp_path, 2, comm="kthreadd", cmdline=b"", io=None)
+    make_proc(tmp_path, 2, comm="kthreadd", cmdline=b"", io=None, ppid=0)
     r = scan(str(tmp_path))[(2, 98765)]
     assert r.name == "[kthreadd]" and r.cmdline == ""
+
+
+def test_scan_user_process_with_empty_cmdline_gets_no_brackets(tmp_path):
+    make_proc(tmp_path, 100, comm="kworker/0:1", cmdline=b"", ppid=1000)
+    assert scan(str(tmp_path))[(100, 98765)].name == "kworker/0:1"
+
+
+def test_scan_name_and_cmdline_sanitized(tmp_path):
+    make_proc(tmp_path, 100, comm="a\x1b[1m\n\u202eX\u2066", cmdline="x\u202e\x85y\0z".encode())
+    r = scan(str(tmp_path))[(100, 98765)]
+    assert r.name == "a?[1m??X?" and r.cmdline == "x??y z" and r.args == "z"
+
+
+def test_scan_args_split_nul_or_space(tmp_path):
+    make_proc(tmp_path, 100, cmdline=b"/opt/My App/bin/x\0--flag\0")
+    make_proc(tmp_path, 101, cmdline=b"sshd: alice@pts/0")
+    r = scan(str(tmp_path))
+    assert r[(100, 98765)].args == "--flag" and r[(100, 98765)].cmdline == "/opt/My App/bin/x --flag"
+    assert r[(101, 98765)].args == "alice@pts/0"
+
+
+def test_scan_rereads_cmdline_after_comm_change(tmp_path):
+    make_proc(tmp_path, 100, comm="old", cmdline=b"/bin/old\0-a")
+    cache = {}
+    scan(str(tmp_path), cache)
+    make_proc(tmp_path, 100, comm="new", cmdline=b"/bin/new\0-b")
+    r = scan(str(tmp_path), cache)[(100, 98765)]
+    assert (r.name, r.cmdline, r.args) == ("new", "/bin/new -b", "-b")
+
+
+def test_scan_uses_real_uid_and_large_status(tmp_path):
+    make_proc(tmp_path, 100)
+    (tmp_path / "proc" / "100" / "status").write_text(
+        "Name:\tx\nUid:\t1000\t0\t0\t0\nGroups:" + " 1" * 12000 +
+        "\nvoluntary_ctxt_switches:\t30\nnonvoluntary_ctxt_switches:\t4\n")
+    r = scan(str(tmp_path))[(100, 98765)]
+    assert (r.uid, r.vctx, r.nvctx) == (1000, 30, 4)
+
+
+def test_scan_non_ascii_digit_pid_with_stat_skipped(tmp_path):
+    make_proc(tmp_path, "1\u0663")
+    assert scan(str(tmp_path)) == {}
 
 
 def test_scan_cmdline_sanitized_and_bounded(tmp_path):
@@ -119,20 +161,20 @@ def test_history_caps_at_150_and_spark_at_30():
 
 def test_busy_noio_after_120s():
     t = ProcTable(clk_tck=CLK, uid=1000)
-    for i in range(62):  # 61 Intervalle; das erste Sample zählt nicht als ausgelastet
+    for i in range(61):
         t.update({(10, 1): raw(ticks=i * 198, io=7)}, i * 2.0)
-    assert t.rows(122.0)[0]["state"] == "busy_noio"
+    assert t.rows(120.0)[0]["state"] == "busy_noio"
 
 
 def test_busy_streak_broken_by_one_sample_and_unknown_io():
     t = ProcTable(clk_tck=CLK, uid=1000)
-    for i in range(62):
+    for i in range(61):
         t.update({(10, 1): raw(ticks=(i if i != 30 else 29) * 198, io=None)}, i * 2.0)
-    assert t.rows(122.0)[0]["state"] != "busy_iounknown"  # Sample 30 ist nicht ausgelastet
+    assert t.rows(120.0)[0]["state"] != "busy_iounknown"  # Sample 30 ist nicht ausgelastet
     t2 = ProcTable(clk_tck=CLK, uid=1000)
-    for i in range(62):
+    for i in range(61):
         t2.update({(10, 1): raw(ticks=i * 198, io=None)}, i * 2.0)
-    assert t2.rows(122.0)[0]["state"] == "busy_iounknown"
+    assert t2.rows(120.0)[0]["state"] == "busy_iounknown"
 
 
 def test_d_state_becomes_kernel_hang_then_resets():
@@ -150,7 +192,14 @@ def test_pid_reuse_gets_fresh_history_and_dead_removed():
     t.update({(10, 2): raw(start=2)}, 2.0)
     assert t.detail(10, 1, 2.0) is None and t.detail(11, 1, 2.0) is None
     assert len(t.detail(10, 2, 2.0)["history"]) == 1
-    assert t.counts() == (1, 1) and len(t.cmdlines) == 0
+    assert t.counts() == (1, 1)
+
+
+def test_cmdline_cache_pruned_for_vanished_keys():
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    t.cmdlines.update({(10, 1): ("p", "x", ""), (11, 1): ("q", "y", "")})
+    t.update({(10, 1): raw()}, 0)
+    assert list(t.cmdlines) == [(10, 1)]
 
 
 def test_rows_and_detail_shape(tmp_path):
@@ -158,16 +207,69 @@ def test_rows_and_detail_shape(tmp_path):
     (tmp_path / "proc" / "stat").write_text("cpu 1 2\nbtime 1000000\n")
     t = ProcTable(clk_tck=CLK, uid=1000, root=str(tmp_path))
     t.update({(1, 5): raw(pid=1, start=5, name="init"),
-              (10, 1): raw(vctx=0, nvctx=0, io=0, uid=4242424, cmdline="/bin/p " + "y" * 200, ppid=1)}, 0)
+              (10, 1): raw(vctx=0, nvctx=0, io=0, uid=4242424, cmdline="/bin/p " + "y" * 200, ppid=1, args="y" * 200)}, 0)
     t.update({(1, 5): raw(pid=1, start=5, name="init"),
-              (10, 1): raw(vctx=20, nvctx=4, io=2000, uid=4242424, cmdline="/bin/p " + "y" * 200, ppid=1)}, 2.0)
+              (10, 1): raw(vctx=20, nvctx=4, io=2000, uid=4242424, cmdline="/bin/p " + "y" * 200, ppid=1, args="y" * 200)}, 2.0)
     d = t.detail(10, 1, 2.0)
     assert d["parent"] == "init" and d["own"] is False and d["user"] == "4242424"
     assert d["vctx"] == 10 and d["nvctx"] == 2 and d["io"] == 1000
     assert len(d["args"]) == 120 and d["args"].endswith("…") and d["cmdline"].startswith("/bin/p yy")
-    assert d["started"] == 1000000 + 0 and t.detail(1, 5, 2.0)["started"] == 1000000
+    assert d["started"] == 1000000 and t.detail(1, 5, 2.0)["started"] == 1000000 + 0
     assert t.detail(10, 99, 2.0) is None
-    assert t.rows(2.0)[0]["own"] is True
+    assert t.rows(2.0)[0]["own"] is True and t.rows(2.0)[1]["own"] is False
+
+
+def test_own_uses_table_uid():
+    t = ProcTable(clk_tck=CLK, uid=4242)
+    t.update({(10, 1): raw(uid=4242), (11, 1): raw(pid=11, uid=1000)}, 0)
+    assert [r["own"] for r in t.rows(0)] == [True, False]
+
+
+def test_started_offsets_btime_by_start_ticks(tmp_path):
+    (tmp_path / "proc").mkdir()
+    (tmp_path / "proc" / "stat").write_text("btime 1000000\n")
+    t = ProcTable(clk_tck=CLK, uid=1000, root=str(tmp_path))
+    t.update({(10, 12345): raw(start=12345)}, 0)
+    assert t.detail(10, 12345, 0)["started"] == 1000123
+
+
+def test_user_refreshed_when_uid_changes():
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    t.update({(10, 1): raw(uid=0)}, 0)
+    assert t.rows(0)[0]["user"] == "root"
+    t.update({(10, 1): raw(uid=4242424)}, 2.0)
+    assert t.rows(2.0)[0]["user"] == "4242424"
+
+
+def test_d_state_reentry_restarts_clock():
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    for now, st in [(0, "D"), (2, "D"), (4, "S"), (16, "D")]:
+        t.update({(10, 1): raw(state=st)}, float(now))
+    assert t.rows(16.0)[0]["state"] == "working"
+
+
+def test_top_cpu_excludes_zero_cpu():
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    t.update({(n, 1): raw(pid=n) for n in range(1, 6)}, 0)
+    t.update({(n, 1): raw(pid=n, ticks=20 * n if n != 3 else 0) for n in range(1, 6)}, 2.0)
+    assert len(t.top_cpu(n=5)) == 4
+
+
+def test_spark_is_newest_30():
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    for i in range(40):
+        t.update({(10, 1): raw(ticks=i * i * 10)}, i * 2.0)
+    assert t.rows(80.0)[0]["spark"] == t.detail(10, 1, 80.0)["history"][-30:]
+    assert t.rows(80.0)[0]["spark"][-1] > t.rows(80.0)[0]["spark"][0]
+
+
+def test_dt_boundary_and_io_decrease():
+    for now, ok in [(5.0, True), (5.01, False)]:
+        t = ProcTable(clk_tck=CLK, uid=1000)
+        t.update({(10, 1): raw(ticks=0, io=100)}, 0)
+        t.update({(10, 1): raw(ticks=500, io=50)}, now)
+        r = t.rows(now)[0]
+        assert (r["cpu"] > 0) is ok and r["io"] is None
 
 
 def test_top_lists_and_counts():

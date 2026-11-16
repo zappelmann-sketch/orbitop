@@ -15,7 +15,6 @@ HISTORY = 150
 SPARK = 30
 CMDLINE_MAX = 4096
 ARGS_MAX = 120
-_CONTROL = re.compile(r"[\x00-\x1f\x7f-\x9f]")
 
 
 @dataclass
@@ -33,6 +32,7 @@ class RawProc:
     vctx: int
     nvctx: int
     io: int | None  # rchar + wchar, None wenn nicht lesbar
+    args: str = ""
 
 
 def _read(p: str) -> str | None:
@@ -42,7 +42,7 @@ def _read(p: str) -> str | None:
     except OSError:
         return None
     try:
-        return os.read(fd, 16384).decode("utf-8", errors="replace")
+        return os.read(fd, 65536).decode("utf-8", errors="replace")
     except OSError:
         return None
     finally:
@@ -63,6 +63,7 @@ def _field(text: str, key: str) -> int:
     return int(text[i:i + 24].split()[0])
 
 
+# Die Kontextwechsel stammen aus status und zählen nur den Hauptthread; die Dauerlast-Heuristik ist darauf begrenzt.
 def _parse_status(text: str) -> tuple[int, int, int]:
     text = "\n" + text
     return _field(text, "Uid"), _field(text, "voluntary_ctxt_switches"), _field(text, "nonvoluntary_ctxt_switches")
@@ -78,19 +79,31 @@ def _parse_io(text: str | None) -> int | None:
         return None
 
 
-def _read_cmdline(p: str) -> str:
+def _clean(s: str) -> str:
+    """Steuer-, Format- und Bidi-Zeichen (ESC, U+202E, ...) werden zu '?'; Text landet später im UI."""
+    return s if s.isprintable() else "".join(c if c.isprintable() else "?" for c in s)
+
+
+def _read_cmdline(p: str) -> tuple[str, str]:
+    """(cmdline, args). args trennt bei der ersten NUL, ohne NUL (setproctitle) beim ersten Leerzeichen."""
     try:
         with open(p, "rb") as f:
             raw = f.read(CMDLINE_MAX * 4)
     except OSError:
-        return ""
-    text = raw.decode("utf-8", errors="replace").rstrip("\0").replace("\0", " ")
-    return _CONTROL.sub("?", text)[:CMDLINE_MAX]
+        return "", ""
+    raw = raw.rstrip(b"\0")
+    text = raw.decode("utf-8", errors="replace").replace("\0", " ")
+    if b"\0" in raw:
+        args = raw.partition(b"\0")[2].decode("utf-8", errors="replace").replace("\0", " ")
+    else:
+        args = text.partition(" ")[2]
+    return _clean(text)[:CMDLINE_MAX], _clean(args)[:CMDLINE_MAX]
 
 
 def scan(root: str, cmdlines: dict | None = None,
          page_size: int = os.sysconf("SC_PAGE_SIZE")) -> dict[tuple[int, int], RawProc]:
-    """Liest alle Prozesse. `cmdlines` (Schlüssel -> Text) wird nur für neue Schlüssel gefüllt."""
+    """Liest alle Prozesse. `cmdlines` (Schlüssel -> (comm, cmdline, args)) wird nur für neue Schlüssel
+    und nach einem comm-Wechsel (exec) neu gelesen."""
     cmdlines = {} if cmdlines is None else cmdlines
     out = {}
     try:
@@ -110,19 +123,21 @@ def scan(root: str, cmdlines: dict | None = None,
         except (ValueError, IndexError):
             continue
         key = (int(n), s["start"])
-        if key not in cmdlines:
-            cmdlines[key] = _read_cmdline(base + "/cmdline")
-        cmd = cmdlines[key]
-        out[key] = RawProc(int(n), s["start"], s["ppid"], s["name"] if cmd else f"[{s['name']}]", cmd,
-                           uid, s["state"], s["ticks"], s["rss"] * page_size, s["threads"], vctx, nvctx,
-                           _parse_io(_read(base + "/io")))
+        c = cmdlines.get(key)
+        if c is None or c[0] != s["name"]:
+            c = cmdlines[key] = (s["name"], *_read_cmdline(base + "/cmdline"))
+        name = _clean(s["name"])
+        if not c[1] and s["ppid"] in (0, 2):  # nur echte Kernel-Threads (Kinder von 0/kthreadd)
+            name = f"[{name}]"
+        out[key] = RawProc(int(n), s["start"], s["ppid"], name, c[1], uid, s["state"], s["ticks"],
+                           s["rss"] * page_size, s["threads"], vctx, nvctx, _parse_io(_read(base + "/io")),
+                           c[2])
     return out
 
 
 @dataclass
 class _Entry:
     raw: RawProc
-    user: str
     state: ProcState
     t: float | None = None
     cpu: float = 0.0
@@ -136,7 +151,7 @@ class ProcTable:
     def __init__(self, clk_tck: int = os.sysconf("SC_CLK_TCK"), uid: int | None = None, root: str = "/"):
         self.clk_tck = clk_tck
         self.uid = os.getuid() if uid is None else uid
-        self.cmdlines: dict[tuple[int, int], str] = {}  # Eingabe für scan(), wird in update() bereinigt
+        self.cmdlines: dict[tuple[int, int], tuple[str, str, str]] = {}  # Eingabe für scan(), wird in update() bereinigt
         self._entries: dict[tuple[int, int], _Entry] = {}
         self._users: dict[int, str] = {}
         btime = re.search(r"^btime (\d+)", sysfs.read_str(sysfs.path(root, "/proc/stat")) or "", re.M)
@@ -154,7 +169,7 @@ class ProcTable:
         old = self._entries
         self._entries = {}
         for key, r in raw.items():
-            e = old.get(key) or _Entry(r, self._user(r.uid), ProcState(r.state, None, None, True, 0.0, None))
+            e = old.get(key) or _Entry(r, ProcState(r.state, None, None, True, 0.0, None))
             prev, e.raw = e.raw, r
             dt = None if e.t is None else now - e.t
             valid = dt is not None and 0 < dt <= MAX_DT
@@ -172,18 +187,18 @@ class ProcTable:
             s = e.state
             s.state, s.io_known, s.last_cpu, s.last_io_delta = r.state, r.io is not None, e.cpu, io_delta
             s.d_since = (s.d_since if s.d_since is not None else now) if r.state == "D" else None
-            busy = valid and r.ticks >= prev.ticks and is_busy_sample(e.cpu, e.vctx_rate, io_delta)
-            s.busy_since = (s.busy_since if s.busy_since is not None else now) if busy else None
+            busy = valid and is_busy_sample(e.cpu, e.vctx_rate, io_delta)
+            s.busy_since = (s.busy_since if s.busy_since is not None else now - dt) if busy else None
             self._entries[key] = e
         self.cmdlines = {k: v for k, v in self.cmdlines.items() if k in self._entries}
 
     def _row(self, e: _Entry, now: float) -> dict:
         r = e.raw
         state, since = classify(e.state, now)
-        args = r.cmdline.partition(" ")[2]
+        args = r.args
         return {"pid": r.pid, "start": r.start, "name": r.name,
                 "args": args if len(args) <= ARGS_MAX else args[:ARGS_MAX - 1] + "…",
-                "user": e.user, "own": r.uid == self.uid, "cpu": e.cpu,
+                "user": self._user(r.uid), "own": r.uid == self.uid, "cpu": e.cpu,
                 "spark": list(e.history)[-SPARK:], "rss": r.rss, "io": e.io_rate,
                 "state": state, "since": since}
 
