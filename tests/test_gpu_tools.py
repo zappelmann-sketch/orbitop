@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-import os
+import json
 import shutil
 import sys
+import threading
 import time
 from pathlib import Path
 
@@ -14,8 +15,9 @@ from orbitop.gpu_tools import (GpuTools, ToolReader, parse_intel, parse_nvidia_l
                                split_json_stream, split_lines)
 
 FIX = Path(__file__).parent / "fixtures" / "tools"
-LOOP = ("import time\nprint('[', flush=True)\n"
-        "while True:\n print('{\"engines\":{\"Render/3D\":{\"busy\":7.5}}},', flush=True); time.sleep(0.1)")
+OBJ = '{\n\t"engines": {"Render/3D": {"busy": 7.5}}\n},'
+LOOP = f"import time\nprint('[', flush=True)\nwhile True:\n print({OBJ!r}, flush=True); time.sleep(0.1)"
+ONCE = f"print({OBJ!r}, flush=True)"
 
 
 def wait_until(cond, timeout=3.0):
@@ -42,18 +44,53 @@ def test_parse_intel_missing_fields():
     assert parse_intel({}) == {"busy": None, "freq_mhz": None, "gpu_w": None, "pkg_w": None}
 
 
-def test_split_across_chunks_and_strings():
-    chunks = ['[\n{"a": "}{", "b": {"c', '": 1}},\n{"d": 2', '}']
-    assert list(split_json_stream(chunks)) == [{"a": "}{", "b": {"c": 1}}, {"d": 2}]
+def test_split_clients_block_with_hostile_names():
+    objs = list(split_json_stream(open(FIX / "intel_gpu_top_clients.json")))
+    assert [parse_intel(o)["busy"] for o in objs] == [0.0, 1.004995, 2.733251]
+    assert [parse_intel(o)["freq_mhz"] for o in objs] == [0.0, 7.848317, 4.919986]
+    assert [parse_intel(o)["pkg_w"] for o in objs] == [21.701609, 10.824967, 12.486207]
+    assert all("clients" not in o for o in objs)
+
+
+def test_split_clients_not_last_member():
+    lines = ['{\n', '\t"clients": {\n', '\t\t"1": {"name": "a"b"},\n', '\t},\n', '\t"x": 1\n', '}\n']
+    assert list(split_json_stream(lines)) == [{"x": 1}]
+
+
+def test_split_newline_in_name_does_not_freeze():
+    bad = ['{\n', '\t"engines": {"R": {"busy": 1}},\n', '\t"clients": {\n', '\t\t"1": {\n',
+           '\t\t\t"name": "x\n', '}\n', '{\n', '",\n', '\t\t}\n', '\t}\n', '}\n']
+    good = ['{\n', '\t"engines": {"R": {"busy": 9}}\n', '}\n']
+    assert list(split_json_stream(bad + good))[-1] == {"engines": {"R": {"busy": 9}}}
 
 
 def test_split_skips_malformed():
-    assert list(split_json_stream(['{"a": }, {"b": 1}'])) == [{"b": 1}]
+    assert list(split_json_stream(['{\n', '"a": }\n', '},\n', '{\n', '"b": 1\n', '}\n'])) == [{"b": 1}]
 
 
 def test_split_drops_oversized_object_and_resyncs():
-    big = ['{"x": "'] + ["a" * 65536] * 20 + ['"}\n{"ok": 1}']  # ~1.3 MiB, schließt nie vor dem Limit
+    big = ['{\n'] + ['\t"x": "' + "a" * 65000 + '",\n'] * 20 + ['}\n', '{\n', '"ok": 1\n', '}\n']
     assert list(split_json_stream(big)) == [{"ok": 1}]
+
+
+def test_split_deep_nesting_does_not_raise():
+    deep = ['{\n', '"a": ' + "[" * 300000 + "]" * 300000 + '\n', '}\n', '{\n', '"ok": 1\n', '}\n']
+    assert list(split_json_stream(deep)) == [{"ok": 1}]
+
+
+def test_parse_non_finite_is_none():
+    d = parse_intel(json.loads('{"engines": {"R": {"busy": NaN}}, "power": {"GPU": Infinity}}'))
+    assert d["busy"] is None and d["gpu_w"] is None
+    n = parse_nvidia_line("00000000:01:00.0, X, nan, inf, -inf, 1, 2, 3, 4, 5")
+    assert n["busy"] is None and n["vram_used"] is None and n["vram_total"] is None and n["temp_c"] == 1.0
+
+
+def test_parse_intel_max_over_engines():
+    assert parse_intel({"engines": {"A": {"busy": 1}, "B": {"busy": 50}}})["busy"] == 50
+
+
+def test_parse_nvidia_pci_normalized():
+    assert parse_nvidia_line("00000000:0A:00.0, X, 1, 1, 1, 1, 1, 1, 1, 1")["pci"] == "0000:0a:00.0"
 
 
 def test_parse_nvidia_na():
@@ -89,7 +126,7 @@ def test_tool_reader_delivers_and_stop_kills_process():
 
 
 def test_tool_reader_restarts_at_most_every_30s(monkeypatch):
-    r = ToolReader([sys.executable, "-c", "print('{\"engines\":{}}', flush=True)"], parse_intel)
+    r = ToolReader([sys.executable, "-c", ONCE], parse_intel)
     r.start()
     wait_until(lambda: r.latest() is not None)
     wait_until(lambda: r._proc.poll() is not None)
@@ -104,7 +141,8 @@ def test_tool_reader_restarts_at_most_every_30s(monkeypatch):
 
 
 def _gpus(*vendors):
-    return [GpuInfo(f"card{i}", "x", v, "n", "0000:01:00.0") for i, v in enumerate(vendors)]
+    return [GpuInfo(f"card{i}", "nvidia" if v == "nvidia" else "i915", v, "n", "0000:01:00.0")
+            for i, v in enumerate(vendors)]
 
 
 def _no_popen(monkeypatch):
@@ -115,7 +153,7 @@ def _no_popen(monkeypatch):
 
 def test_hints_missing_tools(monkeypatch):
     _no_popen(monkeypatch)
-    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n: None)
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: None)
     t = GpuTools(_gpus("intel", "nvidia"))
     assert t.hints() == ["hint.igt_missing", "hint.nvsmi_missing"]
     assert t.intel("card0") is None and t.nvidia("0000:01:00.0") is None
@@ -124,7 +162,7 @@ def test_hints_missing_tools(monkeypatch):
 
 def test_hint_noperm_does_not_start(monkeypatch):
     _no_popen(monkeypatch)
-    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: "/usr/bin/" + n)
     monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 1000)
 
     def nocap(*a):
@@ -135,7 +173,7 @@ def test_hint_noperm_does_not_start(monkeypatch):
 
 
 def test_hint_failed_and_device_argument(monkeypatch):
-    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n: "/usr/bin/" + n)
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: "/usr/bin/" + n)
     monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 0)
     cmds = []
     real = gpu_tools.subprocess.Popen
@@ -153,7 +191,7 @@ def test_hint_failed_and_device_argument(monkeypatch):
 
 
 def test_nvidia_lookup_by_normalized_pci(monkeypatch):
-    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n: sys.executable if n == "nvidia-smi" else None)
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: sys.executable if n == "nvidia-smi" else None)
     line = "00000000:01:00.0, GTX, 18, 1, 2, 54, 40.5, 607, 1911, 0"
     monkeypatch.setattr(gpu_tools, "_nvidia_cmd", lambda path: [sys.executable, "-c", f"print({line!r}, flush=True);import time;time.sleep(5)"])
     t = GpuTools(_gpus("nvidia"))
@@ -172,5 +210,99 @@ def test_real_intel_gpu_top_delivers_within_3s():
         t.stop()
 
 
-def test_split_escaped_quote_in_string():
-    assert list(split_json_stream(['{"a": "x\\"}y"}'])) == [{"a": 'x"}y'}]
+
+def test_nouveau_gets_no_nvidia_smi(monkeypatch):
+    _no_popen(monkeypatch)
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: None)
+    t = GpuTools([GpuInfo("card0", "nouveau", "nvidia", "n", "0000:01:00.0")])
+    assert t.hints() == [] and t.nvidia("0000:01:00.0") is None
+
+
+def test_which_uses_fixed_path_and_absolute_result(monkeypatch):
+    seen = []
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: seen.append(path))
+    GpuTools(_gpus("intel", "nvidia"))
+    assert seen == [gpu_tools.TOOL_PATH] * 2 and "." not in gpu_tools.TOOL_PATH.split(":")
+    found = shutil.which("python3", path=gpu_tools.TOOL_PATH)
+    assert found is None or found.startswith("/")
+
+
+def test_invalid_card_names_rejected_for_d_argument(monkeypatch):
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: "/usr/bin/" + n)
+    monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 0)
+    cmds = []
+    real = gpu_tools.subprocess.Popen
+    monkeypatch.setattr(gpu_tools.subprocess, "Popen", lambda cmd, **kw: cmds.append(cmd) or real(["false"], **kw))
+    gpus = [GpuInfo(c, "i915", "intel", "n", None) for c in ("card0", "card1", "card0-DP-1", "card1\n")]
+    t = GpuTools(gpus)
+    t.stop()
+    assert sorted(c[-1] for c in cmds) == ["drm:/dev/dri/card0", "drm:/dev/dri/card1"]
+
+
+def test_failed_reader_is_never_restarted(monkeypatch):
+    r = ToolReader(["false"], parse_intel)
+    r.start()
+    wait_until(lambda: r.failed)
+    n = []
+    real = gpu_tools.subprocess.Popen
+    monkeypatch.setattr(gpu_tools.subprocess, "Popen", lambda *a, **k: n.append(1) or real(*a, **k))
+    r._started -= 31
+    r.latest()
+    assert n == []
+
+
+def test_stale_value_is_none(monkeypatch):
+    monkeypatch.setattr(gpu_tools, "STALE_S", 0.3)
+    r = ToolReader([sys.executable, "-c", ONCE], parse_intel)
+    r.start()
+    wait_until(lambda: r.latest() is not None)
+    time.sleep(0.4)
+    assert r.latest() is None
+    r.stop()
+
+
+def test_reader_survives_deep_nesting():
+    deep = "print('{'); print('\"a\": ' + '[' * 300000 + ']' * 300000); print('}')"
+    r = ToolReader([sys.executable, "-c", deep + ";" + ONCE], parse_intel)
+    r.start()
+    wait_until(lambda: r.latest() is not None)
+    assert r.latest()["busy"] == 7.5
+    r.stop()
+
+
+def test_concurrent_latest_spawns_one_child(monkeypatch):
+    r = ToolReader([sys.executable, "-c", LOOP], parse_intel)
+    r.start()
+    wait_until(lambda: r.latest() is not None)
+    first = r._proc
+    first.kill()
+    first.wait()
+    wait_until(lambda: not r._thread.is_alive())
+    r._started -= 31
+    procs = []
+    real = gpu_tools.subprocess.Popen
+
+    def slow(*a, **k):
+        time.sleep(0.2)
+        procs.append(real(*a, **k))
+        return procs[-1]
+    monkeypatch.setattr(gpu_tools.subprocess, "Popen", slow)
+    ts = [threading.Thread(target=r.latest) for _ in range(6)]
+    for t in ts:
+        t.start()
+    for t in ts:
+        t.join()
+    r.stop()
+    assert len(procs) == 1 and procs[0].poll() is not None
+
+
+def test_stop_kills_child_ignoring_sigterm():
+    code = ("import signal, time\nsignal.signal(signal.SIGTERM, signal.SIG_IGN)\n"
+            f"while True:\n print({OBJ!r}, flush=True); time.sleep(0.1)")
+    r = ToolReader([sys.executable, "-c", code], parse_intel)
+    r.start()
+    wait_until(lambda: r.latest() is not None)
+    proc = r._proc
+    t0 = time.monotonic()
+    r.stop()
+    assert proc.poll() is not None and time.monotonic() - t0 < 4

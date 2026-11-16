@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 """Hilfsprogramme intel_gpu_top und nvidia-smi: langlebige Kindprozesse, begrenzt geparst."""
 import json
+import math
 import os
 import re
 import shutil
@@ -12,8 +13,10 @@ from collections.abc import Callable, Iterable, Iterator
 
 MAX_BUF = 1024 * 1024  # größtes Objekt/Zeile, das gepuffert wird
 RESTART_S = 30.0
+STALE_S = 3.0  # älteren Werten wird nicht mehr getraut
+TOOL_PATH = "/usr/local/bin:/usr/bin:/bin"  # fest: kein ~/.local/bin, kein leerer PATH-Eintrag
 _CARD = re.compile(r"card[0-9]+")
-_NV_FIELDS = ("name", "busy", "vram_used", "vram_total", "temp_c", "power_w", "freq_mhz",
+_NV_FIELDS = ("busy", "vram_used", "vram_total", "temp_c", "power_w", "freq_mhz",
               "freq_max_mhz", "fan_pct")
 _NV_QUERY = ("pci.bus_id,name,utilization.gpu,memory.used,memory.total,temperature.gpu,"
              "power.draw,clocks.gr,clocks.max.gr,fan.speed")
@@ -21,9 +24,10 @@ _NV_QUERY = ("pci.bus_id,name,utilization.gpu,memory.used,memory.total,temperatu
 
 def _num(v) -> float | None:
     try:
-        return float(v)
+        f = float(v)
     except (TypeError, ValueError):
         return None
+    return f if math.isfinite(f) else None
 
 
 def parse_intel(obj: dict) -> dict:
@@ -35,42 +39,38 @@ def parse_intel(obj: dict) -> dict:
             "gpu_w": _num(power.get("GPU")), "pkg_w": _num(power.get("Package"))}
 
 
-def split_json_stream(chunks: Iterable[str]) -> Iterator[dict]:
-    """Zerlegt `[ {..}, {..}` über die Klammertiefe; kaputte oder zu große Objekte entfallen."""
+def split_json_stream(lines: Iterable[str]) -> Iterator[dict]:
+    """Rahmt Objekte über Zeilen genau `{` und `}`/`},`; der `clients`-Block (rohe Prozessnamen) entfällt."""
     buf: list[str] = []
-    size = depth = 0
-    in_str = esc = False
-    for chunk in chunks:
-        for ch in chunk:
-            if depth == 0:
-                if ch == "{":
-                    depth, buf, size, in_str, esc = 1, ["{"], 1, False, False
+    size = 0
+    active = in_clients = False
+    for line in lines:
+        s = line.rstrip("\r\n")
+        if s == "{":  # auch mitten im Objekt: neu aufsetzen
+            active, in_clients, buf, size = True, False, [s], len(s)
+            continue
+        if not active:
+            continue
+        size += len(s) + 1
+        if size > MAX_BUF:
+            active, buf = False, []
+            continue
+        if s in ("}", "},"):
+            active = False
+            text = "\n".join(buf).rstrip().removesuffix(",") + "\n}"
+            buf = []
+            try:
+                obj = json.loads(text)
+            except (ValueError, RecursionError):
                 continue
-            buf.append(ch)
-            size += 1
-            if in_str:
-                if esc:
-                    esc = False
-                elif ch == "\\":
-                    esc = True
-                elif ch == '"':
-                    in_str = False
-            elif ch == '"':
-                in_str = True
-            elif ch == "{":
-                depth += 1
-            elif ch == "}":
-                depth -= 1
-                if depth == 0:
-                    try:
-                        obj = json.loads("".join(buf))
-                    except ValueError:
-                        continue
-                    if isinstance(obj, dict):
-                        yield obj
-                    continue
-            if size > MAX_BUF:
-                depth, buf, size = 0, [], 0
+            if isinstance(obj, dict):
+                yield obj
+        elif in_clients:
+            in_clients = s not in ("\t}", "\t},")
+        elif s == '\t"clients": {':
+            in_clients = True
+        else:
+            buf.append(s)
 
 
 def split_lines(chunks: Iterable[str]) -> Iterator[str]:
@@ -87,7 +87,7 @@ def parse_nvidia_line(line: str) -> dict:
     if len(parts) != 10:
         raise ValueError("unerwartete Spaltenzahl")
     d = {"pci": parts[0].lower()[-12:], "name": parts[1]}
-    d.update({k: _num(v) for k, v in zip(_NV_FIELDS[1:], parts[2:])})  # [N/A] -> None
+    d.update({k: _num(v) for k, v in zip(_NV_FIELDS, parts[2:])})  # [N/A] -> None
     return d
 
 
@@ -108,30 +108,33 @@ class ToolReader:
 
     def start(self) -> None:
         with self._lock:
-            if self._stopped:
-                return
-            try:
-                proc = subprocess.Popen(self._cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                                        stderr=subprocess.DEVNULL, text=True, errors="replace")
-            except OSError:
-                self._started = time.monotonic()
-                self.failed = not self._ever
-                return
-            self._proc, self._started = proc, time.monotonic()
-            self._thread = threading.Thread(target=self._run, args=(proc,), daemon=True)
-            self._thread.start()
+            self._spawn()
+
+    def _spawn(self) -> None:  # Aufrufer hält self._lock
+        if self._stopped:
+            return
+        self._started = time.monotonic()
+        try:
+            proc = subprocess.Popen(self._cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                    stderr=subprocess.DEVNULL, text=True, errors="replace")
+        except OSError:
+            self.failed = not self._ever
+            return
+        self._proc = proc
+        self._thread = threading.Thread(target=self._run, args=(proc,), daemon=True)
+        self._thread.start()
 
     def _run(self, proc) -> None:
         try:
-            for item in self._split(iter(lambda: proc.stdout.readline(65536), "")):  # readline: kehrt pro Zeile zurück
+            for item in self._split(iter(lambda: proc.stdout.readline(65536), "")):
                 try:
                     val = self._parse(item)
                 except Exception:  # defekte Zeile/Objekt überspringen
                     continue
                 with self._lock:
-                    self._values[val.get(self._key) if self._key else None] = val
+                    self._values[val.get(self._key) if self._key else None] = (time.monotonic(), val)
                     self._ever = True
-        except (OSError, ValueError):
+        except Exception:  # der Thread darf nie an einem Parsefehler sterben
             pass
         with self._lock:
             if not self._ever:
@@ -139,14 +142,14 @@ class ToolReader:
 
     def latest(self, key: str | None = None) -> dict | None:
         with self._lock:
-            val = self._values.get(key)
-            restart = (not self._stopped and not self.failed and self._proc is not None
-                       and self._proc.poll() is not None
-                       and time.monotonic() - self._started >= RESTART_S)
-            val = dict(val) if val else None
-        if restart:
-            self.start()
-        return val
+            if (not self._stopped and not self.failed and self._proc is not None
+                    and self._proc.poll() is not None
+                    and time.monotonic() - self._started >= RESTART_S):
+                self._spawn()
+            stamped = self._values.get(key)
+            if stamped and time.monotonic() - stamped[0] <= STALE_S:
+                return dict(stamped[1])
+            return None
 
     def stop(self) -> None:
         with self._lock:
@@ -192,7 +195,7 @@ class GpuTools:
         self._nvidia: ToolReader | None = None
         cards = [g.card for g in gpus if g.vendor == "intel" and _CARD.fullmatch(g.card)]
         if cards:
-            path = shutil.which("intel_gpu_top")
+            path = shutil.which("intel_gpu_top", path=TOOL_PATH)
             if not path:
                 self._hints.append("hint.igt_missing")
             elif not _has_capability(path):
@@ -202,8 +205,8 @@ class GpuTools:
                     r = ToolReader(_intel_cmd(path, c if len(cards) > 1 else None), parse_intel)
                     r.start()
                     self._intel[c] = r
-        if any(g.vendor == "nvidia" for g in gpus):
-            path = shutil.which("nvidia-smi")
+        if any(g.driver == "nvidia" for g in gpus):
+            path = shutil.which("nvidia-smi", path=TOOL_PATH)
             if not path:
                 self._hints.append("hint.nvsmi_missing")
             else:
@@ -215,7 +218,7 @@ class GpuTools:
         return r.latest() if r else None
 
     def nvidia(self, pci: str) -> dict | None:
-        return self._nvidia.latest(pci.lower()[-12:]) if self._nvidia else None
+        return self._nvidia.latest(pci) if self._nvidia else None
 
     def hints(self) -> list[str]:
         failed = ["hint.igt_failed"] if any(r.failed for r in self._intel.values()) else []
