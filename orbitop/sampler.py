@@ -17,15 +17,25 @@ POINTS, THREAD_POINTS = 300, 60
 DISK_CHIPS = {"nvme", "drivetemp"}
 CPU_CHIPS = {"coretemp", "k10temp", "zenpower", "k8temp", "via_cputemp", "macsmc_hwmon"}
 CHIP_REFRESH = 60.0  # s: Zuordnung Laufwerk <-> hwmon-Chip neu suchen (USB-Hotplug)
+CPU_KEY, CHIPSET_KEY = "series.cpu_package", "series.chipset"
 KINDS = ("cpu", "gpu", "mem", "power", "temp", "fan", "net", "disk")
 
 
-def _num(v, u):
-    return {"v": v, "u": u}
+def _num(v, u, of=None, p=None):
+    n = {"v": v, "u": u}
+    if of is not None:
+        n["of"] = of
+    if p:
+        n["p"] = p
+    return n
 
 
 def _kv(k, v):
     return {"k": k, "v": v}
+
+
+def _kl(label, v):
+    return {"l": label, "v": v}
 
 
 def _sum(vals):
@@ -161,14 +171,16 @@ class Sampler:
                      if v is not None), None)
         s["pwr"] = main
         self._push("power", main)
-        temps = [("series.cpu_package", sens.cpu_temp)] if sens and sens.cpu_temp is not None else []
+        # (Name, Textschlüssel?, Wert); rohe Beschriftungen werden eindeutig gemacht
+        temps = [(CPU_KEY, True, sens.cpu_temp)] if sens and sens.cpu_temp is not None else []
         if sens:
-            temps += [("series.chipset" if t.chip.startswith("pch_") else t.label, t.value)
+            labels = iter(_unique([t.label for t in sens.temps]))
+            temps += [(CHIPSET_KEY, True, t.value) if t.chip.startswith("pch_") else (next(labels), False, t.value)
                       for t in sens.temps]
-        s["temps"] = list(zip(_unique([k for k, _ in temps]), [v for _, v in temps]))
+        s["temps"] = temps
         s["fans"] = list(zip(_unique([f.label for f in sens.fans]), sens.fans)) if sens else []
-        for k, v in s["temps"]:
-            self._push("temp:" + k, v)
+        for i, (_, _, v) in enumerate(temps):
+            self._push(f"temp:{i}", v)
         for k, f in s["fans"]:
             self._push("fan:" + k, f.rpm)
         self._push("rx", _sum(d.rx_bps for d in s["nets"]))
@@ -209,12 +221,12 @@ class Sampler:
 
     # ---- Kacheln ----
     def _plot(self, unit, *specs):
-        """specs: (Schlüssel, Puffer, gefüllt). Alle Kurven einer Kachel teilen eine Skala."""
+        """specs: ((\"key\"|\"label\", Name), Puffer, gefüllt). Alle Kurven einer Kachel teilen eine Skala."""
         vals = [list(self._bufs.get(buf, ())) for _, buf, _ in specs]
         wmax = max((v for s in vals for v in s if v is not None), default=0.0)
         top = 100.0 if unit == "%" else max(100.0, 1.1 * wmax) if unit == "°C" else _nice(wmax)
-        return [{"key": k, "fill": f, "max": top, "u": unit, "values": v}
-                for (k, _, f), v in zip(specs, vals)], wmax
+        return [{name[0]: name[1], "fill": f, "max": top, "u": unit, "values": v}
+                for (name, _, f), v in zip(specs, vals)], wmax
 
     @staticmethod
     def _tile(kind, id, name, main, aside, seg, series, kv, devices=None, threads=None):
@@ -225,12 +237,12 @@ class Sampler:
         c = self._s["cpu"]
         if c is None:
             return None
-        series, _ = self._plot("%", ("total", "cpu", True))
+        series, _ = self._plot("%", (("key", "series.used"), "cpu", True))
         temp = self._s["sens"].cpu_temp if self._s["sens"] else None
         kv = [_kv("kv.temperature", _num(temp, "°C"))] if temp is not None else []
         n_proc, n_thr = self._table.counts()
         if n_proc:
-            kv.append(_kv("kv.procs_threads", f"{n_proc} / {n_thr}"))
+            kv.append(_kv("kv.procs_threads", _num(n_proc, "", n_thr)))
         return self._tile("cpu", "cpu", c.model, _num(c.total, "%"), _num(c.freq_ghz, "GHz"),
                           _seg(c.total, 100), series, kv,
                           threads=[list(self._bufs.get(f"t{i}", ())) for i in range(len(c.threads))])
@@ -241,7 +253,7 @@ class Sampler:
                                             smp.temp_c, smp.vram_used, smp.vram_total)):
             return None
         by_freq = smp.busy is None and smp.freq_mhz is not None and smp.freq_max_mhz
-        series, _ = self._plot("%", ("kv.clock" if by_freq else "busy", card, True))
+        series, _ = self._plot("%", (("key", "kv.clock" if by_freq else "series.used"), card, True))
         main = smp.busy if smp.busy is not None else _pct(smp.freq_mhz, smp.freq_max_mhz) if by_freq else None
         kv = [_kv("kv.clock", _num(smp.freq_mhz, "MHz"))] if smp.freq_mhz is not None else []
         if smp.power_w is not None:
@@ -252,27 +264,28 @@ class Sampler:
             kv.append(_kv("kv.memory", _num(smp.vram_used, "B")))
         elif g.info.vendor == "intel":
             kv.append(_kv("kv.memory", "kv.shared_with_ram"))
-        return self._tile("gpu", "gpu", g.name, _num(main, "%"), _num(smp.freq_mhz, "MHz"),
+        return self._tile("gpu", "gpu", g.name, _num(main, "%"), _num(smp.freq_mhz, "MHz", smp.freq_max_mhz),
                           _seg(main, 100), series, kv)
 
     def _mem_tile(self):
         m = self._s["mem"]
         if m is None or not m.total:
             return None
-        specs = [("series.used", "mem", True)] + ([("series.swap", "swap", False)] if m.swap_total else [])
+        specs = [(("key", "series.used"), "mem", True)] + (
+            [(("key", "series.swap"), "swap", False)] if m.swap_total else [])
         series, _ = self._plot("%", *specs)
         used = _pct(m.used, m.total)
-        kv = [_kv("kv.memory", _num(m.total, "B")), _kv("kv.available", _num(m.available, "B"))]
+        kv = [_kv("kv.available", _num(m.available, "B"))]
         if m.swap_total:
-            kv.append(_kv("kv.swap", _num(m.swap_used, "B")))
-        return self._tile("mem", "mem", "", _num(used, "%"), _num(m.used, "B"), _seg(used, 100), series, kv)
+            kv.append(_kv("kv.swap", _num(m.swap_used, "B", m.swap_total)))
+        return self._tile("mem", "mem", "", _num(used, "%"), _num(m.used, "B", m.total), _seg(used, 100), series, kv)
 
     def _power_tile(self):
         s = self._s
         batt, gpu_w = s["batt"], _sum(smp.power_w for _, smp in s["gpus"] if smp)
         if s["pwr"] is None and batt is None and gpu_w is None:
             return None
-        series, wmax = self._plot("W", ("series.cpu_package", "power", True))
+        series, wmax = self._plot("W", (("key", CPU_KEY), "power", True))
         kv = []
         core = s["rapl"].get("core")
         if core is not None:
@@ -288,18 +301,19 @@ class Sampler:
         temps = self._s["temps"]
         if not temps:
             return None
-        series, _ = self._plot("°C", *[(k, "temp:" + k, i == 0) for i, (k, _) in enumerate(temps[:3])])
-        hottest = max(v for _, v in temps)
-        ref = self._crit if temps[0][0] == "series.cpu_package" else None
-        return self._tile("temp", "temp", "", _num(temps[0][1], "°C"), _num(hottest, "°C"),
-                          _seg(temps[0][1], ref or 100), series,
-                          [_kv(k, _num(v, "°C")) for k, v in temps[3:]])
+        series, _ = self._plot("°C", *[(("key" if txt else "label", k), f"temp:{i}", i == 0)
+                                       for i, (k, txt, _) in enumerate(temps[:3])])
+        hottest = max(v for _, _, v in temps)
+        first = temps[0]
+        return self._tile("temp", "temp", "", _num(first[2], "°C"), _num(hottest, "°C"),
+                          _seg(first[2], (self._crit if first[0] == CPU_KEY else None) or 100), series,
+                          [(_kv if txt else _kl)(k, _num(v, "°C")) for k, txt, v in temps[3:]])
 
     def _fan_tile(self):
         fans = self._s["fans"]
         if not fans:
             return None
-        series, wmax = self._plot("rpm", *[(k, "fan:" + k, i == 0) for i, (k, _) in enumerate(fans[:3])])
+        series, wmax = self._plot("rpm", *[(("label", k), "fan:" + k, i == 0) for i, (k, _) in enumerate(fans[:3])])
         first = [v for v in self._bufs["fan:" + fans[0][0]] if v is not None]
         kv = [_kv("kv.fan_min", _num(min(first), "rpm")), _kv("kv.fan_max", _num(max(first), "rpm"))]
         return self._tile("fan", "fan", fans[0][0], _num(fans[0][1].rpm, "rpm"), None,
@@ -309,13 +323,13 @@ class Sampler:
         devs = self._s["nets"]
         if not devs:
             return None
-        series, wmax = self._plot("B/s", ("series.rx", "rx", True), ("series.tx", "tx", False))
+        series, wmax = self._plot("B/s", (("key", "series.rx"), "rx", True), (("key", "series.tx"), "tx", False))
         rx, tx = _sum(d.rx_bps for d in devs), _sum(d.tx_bps for d in devs)
         up = [d.name for d in devs if d.up]
         kv = [_kv("kv.interface", up[0])] if len(up) == 1 else []
-        kv += [_kv("kv.since_boot", _num(sum(d.rx_total for d in devs), "B")),
-               _kv("kv.since_boot", _num(sum(d.tx_total for d in devs), "B"))]
-        return self._tile("net", "net", up[0] if len(up) == 1 else "", _num(rx, "B/s"), _num(tx, "B/s"),
+        kv.append(_kv("kv.since_boot", [_num(sum(d.rx_total for d in devs), "B", p="↓"),
+                                        _num(sum(d.tx_total for d in devs), "B", p="↑")]))
+        return self._tile("net", "net", up[0] if len(up) == 1 else "", _num(rx, "B/s", p="↓"), _num(tx, "B/s", p="↑"),
                           _seg(rx, wmax), series, kv,
                           [{"name": d.name, "values": [_num(d.rx_bps, "B/s"), _num(d.tx_bps, "B/s")]} for d in devs])
 
@@ -323,12 +337,12 @@ class Sampler:
         disks = self._s["disks"]
         if not disks:
             return None
-        series, wmax = self._plot("B/s", ("series.read", "read", True), ("series.write", "write", False))
+        series, wmax = self._plot("B/s", (("key", "series.read"), "read", True), (("key", "series.write"), "write", False))
         rd, wr = _sum(d.read_bps for d in disks), _sum(d.write_bps for d in disks)
         kv = [_kv("kv.write", _num(wr, "B/s"))]
         used, size = _sum(d.used for d in disks), _sum(d.size for d in disks)
         if used is not None:
-            kv += [_kv("kv.mounted_used", _num(used, "B")), _kv("kv.mounted_size", _num(size, "B"))]
+            kv.append(_kv("kv.mounted_used", _num(used, "B", size)))
         temp = max((d.temp_c for d in disks if d.temp_c is not None), default=None)
         if temp is not None:
             kv.append(_kv("kv.temperature", _num(temp, "°C")))

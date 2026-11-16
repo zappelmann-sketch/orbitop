@@ -64,7 +64,6 @@
   "kv.gpu": "Grafik",
   "kv.interface": "Schnittstelle",
   "kv.memory": "Speicher",
-  "kv.mounted_size": "Größe (eingehängt)",
   "kv.mounted_used": "Belegt (eingehängt)",
   "kv.power": "Leistung",
   "kv.procs_threads": "Prozesse / Threads",

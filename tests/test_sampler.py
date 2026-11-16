@@ -88,7 +88,7 @@ def test_arm_missing_fan_and_power_and_gpu_by_frequency():
     snap = run(ARM).snapshot(OVERVIEW)
     assert set(snap["missing"]) == {"fan", "power"} and "gpu" in kinds(snap)
     g = tile(snap, "gpu0")
-    assert g["series"][0]["key"] == "kv.clock"
+    assert g["series"][0]["key"] == "kv.clock" and g["aside"]["of"] == 960
     assert g["main"] == {"v": pytest.approx(500 / 960 * 100, abs=0.01), "u": "%"}
 
 
@@ -128,7 +128,7 @@ def test_procs_only_in_procs_view(with_procs):
     assert s.snapshot(OVERVIEW)["procs"] is None and s.snapshot(OVERVIEW)["detail"] is None
     snap = s.snapshot({"tab": "procs", "pid": None, "start": None})
     assert isinstance(snap["procs"], list) and snap["detail"] is None
-    assert snap["top"]["mem"]["rss"] > 0 and tile(snap, "cpu")["kv"][-1] == {"k": "kv.procs_threads", "v": "2 / 14"}
+    assert snap["top"]["mem"]["rss"] > 0 and tile(snap, "cpu")["kv"][-1] == {"k": "kv.procs_threads", "v": {"v": 2, "u": "", "of": 14}}
 
 
 def test_detail_needs_int_pid_and_start(with_procs):
@@ -167,9 +167,64 @@ def test_nice_ceiling(v, want):
 
 def test_temperature_scale_grows_above_100():
     s = run(INTEL)
-    s._bufs["temp:series.cpu_package"].append(120.0)
+    s._bufs["temp:0"].append(120.0)
     t = tile(s.snapshot(OVERVIEW), "temp")
     assert t["series"][0]["max"] == pytest.approx(132.0)
+
+
+def num_ok(n):
+    assert set(n) <= {"v", "u", "of", "p"} and {"v", "u"} <= set(n)
+    assert n["v"] is None or isinstance(n["v"], (int, float)) and not isinstance(n["v"], bool)
+    assert n["u"] in ("%", "GHz", "MHz", "W", "°C", "rpm", "B/s", "B", "")
+    assert n.get("of") is None or isinstance(n["of"], (int, float))
+    assert n.get("p", "↓") in ("↓", "↑")
+
+
+def validate_tick(snap, texts):
+    """Prüft einen tick gegen den Schnappschuss-Vertrag (wiederverwendbar)."""
+    assert snap["type"] == "tick" and set(snap["missing"]) <= set(sampler_mod.KINDS)
+    assert all(h in texts for h in snap["hints"])
+    for t in snap["tiles"]:
+        assert t["kind"] in sampler_mod.KINDS and t["id"].startswith(t["kind"])
+        assert isinstance(t["name"], str) and 0 <= t["seg"] <= 100
+        num_ok(t["main"])
+        if t["aside"] is not None:
+            num_ok(t["aside"])
+        for s in t["series"]:
+            assert ("key" in s) != ("label" in s)
+            assert "key" not in s or s["key"] in texts
+            assert isinstance(s["fill"], bool) and s["max"] > 0 and len(s["values"]) <= 300
+            assert all(v is None or isinstance(v, float) for v in s["values"])
+        assert [s["fill"] for s in t["series"]][:1] == [True]
+        for kv in t["kv"]:
+            assert ("k" in kv) != ("l" in kv) and set(kv) == {"v", "k" if "k" in kv else "l"}
+            assert "k" not in kv or kv["k"] in texts
+            v = kv["v"]
+            if isinstance(v, list):
+                assert v and all(num_ok(n) is None for n in v)
+            elif isinstance(v, dict):
+                num_ok(v)
+            else:
+                assert isinstance(v, str)
+        for d in t["devices"] or []:
+            assert isinstance(d["name"], str)
+            assert all(num_ok(n) is None for n in d["values"])
+        assert t["threads"] is None or all(len(x) <= 60 for x in t["threads"])
+
+
+@pytest.mark.parametrize("root", [INTEL, AMD, ARM, VM])
+def test_tick_matches_contract(root):
+    from orbitop.i18n import load_texts
+    validate_tick(run(root, ticks=4).snapshot(OVERVIEW), load_texts("en"))
+
+
+def test_pair_and_direction_shapes():
+    snap = run(INTEL).snapshot(OVERVIEW)
+    assert tile(snap, "mem")["aside"]["of"] > tile(snap, "mem")["aside"]["v"]
+    net = tile(snap, "net")
+    assert net["main"]["p"] == "↓" and net["aside"]["p"] == "↑"
+    since = next(k for k in net["kv"] if k.get("k") == "kv.since_boot")["v"]
+    assert [n["p"] for n in since] == ["↓", "↑"]
 
 
 def test_dump_snapshot_js(tmp_path):

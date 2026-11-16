@@ -64,7 +64,6 @@
   "kv.gpu": "Graphics",
   "kv.interface": "Interface",
   "kv.memory": "Memory",
-  "kv.mounted_size": "Size (mounted file systems)",
   "kv.mounted_used": "Used (mounted file systems)",
   "kv.power": "Power",
   "kv.procs_threads": "Processes / threads",
