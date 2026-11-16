@@ -3,6 +3,7 @@
 import glob
 import os
 import shutil
+from pathlib import Path
 
 import pytest
 
@@ -89,7 +90,7 @@ def test_cpu_empty_or_missing_stat(intel_copy):
 
 def test_cpu_model_and_freq():
     assert CpuReader(ARM).read(0).model == "Raspberry Pi 5 Model B"
-    assert "model name" not in open(f"{ARM}/proc/cpuinfo").read()
+    assert "model name" not in Path(f"{ARM}/proc/cpuinfo").read_text()
     assert CpuReader(INTEL).read(0).model == "Intel(R) Core(TM) i7-7600U CPU @ 2.80GHz"
 
 
@@ -121,7 +122,7 @@ def test_cpu_vm_two_threads():
 
 
 def _meminfo_kb(root, key):
-    for line in open(f"{root}/proc/meminfo"):
+    for line in Path(f"{root}/proc/meminfo").read_text().splitlines():
         if line.startswith(key + ":"):
             return int(line.split()[1])
 

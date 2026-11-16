@@ -2,6 +2,8 @@
 # Copyright © 2026 zappelmann-sketch
 """Hülle ohne Fenster: Handler mit Attrappen für Worker, WebView, Entscheidungen, Thread und GLib-Zeitgeber."""
 import json
+import sys
+import warnings
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -12,6 +14,7 @@ from orbitop.app import check_runtime
 if check_runtime():
     pytest.skip("GTK 4 oder WebKitGTK 6.0 fehlt", allow_module_level=True)
 
+import gi  # noqa: E402
 from gi.repository import GLib, WebKit  # noqa: E402
 
 from orbitop import shell  # noqa: E402
@@ -307,6 +310,33 @@ def test_settings_hardened(monkeypatch):
 def test_devtools_only_with_env_1(monkeypatch, value, on):
     monkeypatch.setenv("ORBITOP_DEVTOOLS", value)
     assert shell._settings().get_enable_developer_extras() is on
+
+
+# ---- Signale ----
+def test_unix_signal_add_prefers_glibunix():
+    gi.require_version("GLibUnix", "2.0")
+    from gi.repository import GLibUnix
+    with warnings.catch_warnings():  # GLib.unix_signal_add wäre hier derselbe Aufruf, aber mit Veraltet-Warnung
+        warnings.simplefilter("error", DeprecationWarning)
+        assert shell._unix_signal_add() == GLibUnix.signal_add
+
+
+@pytest.mark.parametrize("block", ["require", "import"])
+def test_unix_signal_add_falls_back_without_glibunix(monkeypatch, block):  # z. B. Ubuntu 24.04, PyGObject 3.48
+    if block == "require":
+        real = gi.require_version
+
+        def require(namespace, version):
+            if namespace == "GLibUnix":
+                raise ValueError("Namespace GLibUnix not available")
+            return real(namespace, version)
+        monkeypatch.setattr(gi, "require_version", require)
+    else:
+        monkeypatch.setitem(sys.modules, "gi.repository.GLibUnix", None)
+        monkeypatch.delattr(sys.modules["gi.repository"], "GLibUnix", raising=False)
+    with warnings.catch_warnings():  # die Ausweichfunktion ist im neuen PyGObject veraltet
+        warnings.simplefilter("ignore", DeprecationWarning)
+        assert shell._unix_signal_add() == GLib.unix_signal_add
 
 
 # ---- Lebenszyklus ----

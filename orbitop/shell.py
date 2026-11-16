@@ -30,6 +30,16 @@ SNAPSHOT_DELAY_S = 5
 RELOAD_GAP_S = 10  # nach Abstürzen des Web-Prozesses höchstens einmal je 10 s neu laden
 
 
+def _unix_signal_add():
+    """GLibUnix.signal_add (neues PyGObject); ältere Fassungen ohne GLibUnix (Ubuntu 24.04: 3.48) nur GLib.unix_signal_add."""
+    try:
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+    except (ImportError, ValueError):
+        return GLib.unix_signal_add
+    return GLibUnix.signal_add
+
+
 def _settings() -> WebKit.Settings:
     return WebKit.Settings(
         enable_javascript=True,
@@ -67,7 +77,7 @@ class Shell:
         quit_action.connect("activate", lambda *_: app.quit())
         app.add_action(quit_action)
         app.set_accels_for_action("app.quit", ["<Control>q"])
-        GLib.unix_signal_add(GLib.PRIORITY_DEFAULT, signal.SIGTERM, app.quit)  # sauber beenden, auch per timeout/kill
+        _unix_signal_add()(GLib.PRIORITY_DEFAULT, signal.SIGTERM, app.quit)  # sauber beenden, auch per timeout/kill
         app.hold()  # weiterlaufen, auch ohne sichtbares Fenster
         lang = detect_language(os.environ)
         self._init = encode({"type": "init", "lang": lang, "texts": load_texts(lang), "version": __version__})

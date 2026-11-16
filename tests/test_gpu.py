@@ -5,6 +5,7 @@ import shutil
 
 import statistics
 import time
+from pathlib import Path
 
 import pytest
 
@@ -50,7 +51,7 @@ def test_pci_from_realpath_and_names():
 
 def test_product_name_and_connectors_ignored(tree_copy):
     root = tree_copy(INTEL)
-    (open(f"{root}/sys/class/drm/card1/device/product_name", "w")).write("Iris Xe\n")
+    Path(f"{root}/sys/class/drm/card1/device/product_name").write_text("Iris Xe\n")
     os.makedirs(f"{root}/sys/class/drm/card1-DP-1")
     gpus = discover_gpus(root)
     assert [(g.card, g.name) for g in gpus] == [("card1", "Iris Xe")]
@@ -67,10 +68,10 @@ def test_amdgpu_sample():
 def test_amdgpu_sclk_without_star_and_power_fallback(tree_copy):
     root = tree_copy(AMD)
     dev = f"{root}/sys/class/drm/card0/device"
-    open(f"{dev}/pp_dpm_sclk", "w").write("0: 500Mhz\n1: 1850Mhz\n")
+    Path(f"{dev}/pp_dpm_sclk").write_text("0: 500Mhz\n1: 1850Mhz\n")
     hw = f"{dev}/hwmon/hwmon5"
     os.remove(f"{hw}/power1_average")
-    open(f"{hw}/power1_input", "w").write("7000000\n")
+    Path(f"{hw}/power1_input").write_text("7000000\n")
     s = GpuReader(root, gpu(root, "card0")).read(0)
     assert s.freq_mhz is None and s.power_w == 7.0
 
@@ -102,8 +103,8 @@ def test_xe_freq(tree_copy):
     os.remove(f"{dev}/driver")
     os.symlink("../../../bus/pci/drivers/xe", f"{dev}/driver")
     os.makedirs(f"{dev}/tile0/gt0/freq0")
-    open(f"{dev}/tile0/gt0/freq0/act_freq", "w").write("650\n")
-    open(f"{dev}/tile0/gt0/freq0/max_freq", "w").write("1300\n")
+    Path(f"{dev}/tile0/gt0/freq0/act_freq").write_text("650\n")
+    Path(f"{dev}/tile0/gt0/freq0/max_freq").write_text("1300\n")
     s = GpuReader(root, gpu(root, "card1")).read(0)
     assert (s.freq_mhz, s.freq_max_mhz) == (650.0, 1300.0)
 
@@ -160,8 +161,8 @@ def test_devfreq_below_device(tree_copy):
     shutil.rmtree(f"{root}/sys/class/devfreq")
     d = f"{root}/sys/class/drm/card0/device/devfreq/x"
     os.makedirs(d)
-    open(f"{d}/cur_freq", "w").write("300000000\n")
-    open(f"{d}/max_freq", "w").write("600000000\n")
+    Path(f"{d}/cur_freq").write_text("300000000\n")
+    Path(f"{d}/max_freq").write_text("600000000\n")
     s = GpuReader(root, gpu(root, "card0")).read(0)
     assert (s.freq_mhz, s.freq_max_mhz) == (300.0, 600.0)
 

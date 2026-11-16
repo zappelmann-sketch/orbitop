@@ -2,10 +2,20 @@
 # Copyright © 2026 zappelmann-sketch
 import shutil
 import subprocess
+import warnings
 
 import pytest
 
 from tests.roots import INTEL
+
+# PyGObject 3.56 warnt schon beim ersten Import von GLib über sein eigenes veraltetes unix_signal_add_full
+# (gi/overrides/__init__.py, nicht orbitop). Einmal still vorladen, damit -W error::DeprecationWarning nur eigenen Code trifft.
+with warnings.catch_warnings():
+    warnings.filterwarnings("ignore", r"GLib\.unix_signal_add_full is deprecated", DeprecationWarning)
+    try:
+        from gi.repository import GLib  # noqa: F401
+    except ImportError:
+        pass
 
 
 @pytest.fixture

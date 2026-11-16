@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -269,7 +270,7 @@ def test_empty_cmdline_with_other_ppid_not_refused(child, tmp_path):
 
 
 def test_helper_has_no_orbitop_import():
-    src = open(HELPER).read()
+    src = Path(HELPER).read_text()
     assert "import orbitop" not in src and "from orbitop" not in src
     assert src.startswith("#!/usr/bin/python3 -I\n") and os.stat(HELPER).st_mode & 0o777 == 0o755
 

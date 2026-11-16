@@ -30,7 +30,8 @@ def wait_until(cond, timeout=3.0):
 
 
 def test_split_and_parse_recorded_intel():
-    objs = list(split_json_stream(open(FIX / "intel_gpu_top.json")))
+    with open(FIX / "intel_gpu_top.json") as f:
+        objs = list(split_json_stream(f))
     assert len(objs) >= 2
     s = parse_intel(objs[-1])
     assert 0 <= s["busy"] <= 100 and s["freq_mhz"] >= 0
@@ -45,7 +46,8 @@ def test_parse_intel_missing_fields():
 
 
 def test_split_clients_block_with_hostile_names():
-    objs = list(split_json_stream(open(FIX / "intel_gpu_top_clients.json")))
+    with open(FIX / "intel_gpu_top_clients.json") as f:
+        objs = list(split_json_stream(f))
     assert [parse_intel(o)["busy"] for o in objs] == [0.0, 1.004995, 2.733251]
     assert [parse_intel(o)["freq_mhz"] for o in objs] == [0.0, 7.848317, 4.919986]
     assert [parse_intel(o)["pkg_w"] for o in objs] == [21.701609, 10.824967, 12.486207]
@@ -100,7 +102,8 @@ def test_parse_nvidia_na():
 
 
 def test_parse_nvidia_fixture_not_supported():
-    lines = list(split_lines(open(FIX / "nvidia-smi.csv")))
+    with open(FIX / "nvidia-smi.csv") as f:
+        lines = list(split_lines(f))
     assert parse_nvidia_line(lines[1])["fan_pct"] is None
     with pytest.raises(ValueError):
         parse_nvidia_line("kaputt")
@@ -138,6 +141,7 @@ def test_tool_reader_restarts_at_most_every_30s(monkeypatch):
     r.latest()
     assert r._proc is not first
     r.stop()
+    first.stdout.close()  # der ersetzte Lauf; stop() schließt nur den aktuellen
 
 
 def _gpus(*vendors):
@@ -246,6 +250,7 @@ def test_failed_reader_is_never_restarted(monkeypatch):
     monkeypatch.setattr(gpu_tools.subprocess, "Popen", lambda *a, **k: n.append(1) or real(*a, **k))
     r._started -= 31
     r.latest()
+    r.stop()
     assert n == []
 
 
@@ -290,6 +295,7 @@ def test_concurrent_latest_spawns_one_child(monkeypatch):
     first.kill()
     first.wait()
     wait_until(lambda: not r._thread.is_alive())
+    first.stdout.close()  # stop() schließt nur den neuen Lauf
     r._lock = YieldingLock()
     r._started -= 31
     procs = []
