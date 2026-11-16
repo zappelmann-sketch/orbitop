@@ -25,7 +25,7 @@ STATES = ["working", "waiting", "busy_noio", "busy_iounknown", "kernel_hang", "s
 RESULTS = ["sent", "gone", "mismatch", "zombie", "kernel", "denied", "error"]
 # Typische Ersatzschreibweisen; "ue" allein wäre zu laut (Dauerlast, Queue).
 UMLAUT_SUBSTITUTES = re.compile(
-    r"\b(Ae|Oe|Ue)\w+|\w*(fuer|ueber|Ueber|koenn|moeg|wuerd|Laeuft|laeuft|Lueft|Prozess?e?n?\s+gehoer"
+    r"\b(Ae|Oe|Ue)\w+|\w*(fuer|Groesse|groesse|Schluessel|Verfuegbar|verfuegbar|Waehle|waehle|Koennen|ueber|Ueber|koenn|moeg|wuerd|Laeuft|laeuft|Lueft|Prozess?e?n?\s+gehoer"
     r"|Datentraeger|Geraet|Gehaeuse|Zaehl|hoeher|waehl|aender|Aender|schliess|oeffn|Oeffn)\w*")
 
 
@@ -43,7 +43,13 @@ def placeholders(text):
     ({"LANG": "de_DE.UTF-8", "LANGUAGE": "en:de"}, "en"), ({"LC_ALL": "C", "LANGUAGE": "de"}, "en"),
     ({"LANG": "en_US.UTF-8", "LC_MESSAGES": "de_DE.UTF-8"}, "de"),
     ({"LANG": "de_DE.UTF-8", "LC_ALL": ""}, "de"),
-    ({"LANG": "POSIX"}, "en"), ({"LANG": "en_US.UTF-8", "LANGUAGE": "de:en"}, "de"),
+    ({"LANG": "POSIX"}, "en"), ({"LANG": "POSIX", "LANGUAGE": "de"}, "en"), ({"LANG": "", "LANGUAGE": "de"}, "en"),
+    ({"LANG": "dex"}, "en"), ({"LANG": "dk_DK"}, "en"), ({"LANG": "deu"}, "en"), ({"LANG": "de"}, "de"),
+    ({"LANG": "de.UTF-8"}, "de"), ({"LANG": "de_DE@euro"}, "de"),
+    ({"LC_ALL": "de_DE", "LC_MESSAGES": "en_US"}, "de"), ({"LC_ALL": "en_US", "LC_MESSAGES": "de_DE"}, "en"),
+    ({"LC_MESSAGES": "en_US", "LANG": "de_DE"}, "en"),
+    ({"LANG": " de_DE "}, "de"), ({"LC_ALL": "  ", "LANG": "de_DE"}, "de"), ({"LANG": "en_US", "LANGUAGE": " de "}, "de"),
+    ({"LANG": "en_US", "LANGUAGE": ":de"}, "de"), ({"LANG": "de_DE", "LANGUAGE": ":en"}, "en"), ({"LANG": "en_US.UTF-8", "LANGUAGE": "de:en"}, "de"),
 ])
 def test_detect_language(env, lang):
     assert detect_language(env) == lang
@@ -106,7 +112,8 @@ def test_german_has_real_umlauts():
 
 
 def test_umlaut_check_detects_substitutes():
-    assert UMLAUT_SUBSTITUTES.search("Uebersicht") and UMLAUT_SUBSTITUTES.search("fuer dich")
+    for word in ("Uebersicht", "fuer dich", "Groesse", "Schluessel", "Verfuegbar", "Waehle", "Koennen"):
+        assert UMLAUT_SUBSTITUTES.search(word), word
     assert not UMLAUT_SUBSTITUTES.search("Dauerlast über Zeit")
 
 
@@ -142,3 +149,19 @@ def test_broken_english_gives_empty_dict(tmp_path, monkeypatch):
 def test_works_from_other_cwd(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     assert load_texts("en")["tab.overview"] == "Overview"
+
+
+def test_load_texts_ignores_unknown_language(tmp_path, monkeypatch):
+    (tmp_path / "en.json").write_text('{"a": "A"}', encoding="utf-8")
+    (tmp_path / "evil.json").write_text('{"a": "X"}', encoding="utf-8")
+    (tmp_path.parent / "esc.json").write_text('{"a": "X"}', encoding="utf-8")
+    monkeypatch.setattr(i18n, "LOCALE_DIR", tmp_path)
+    assert load_texts("evil") == {"a": "A"}
+    assert load_texts("../esc") == {"a": "A"}
+
+
+def test_kill_dialog_has_own_labels():
+    for lang in ("en", "de"):
+        d = json_of(lang)
+        assert d["confirm.title_kill"] != d["confirm.title"]
+        assert d["confirm.yes_kill"] != d["confirm.yes"]
