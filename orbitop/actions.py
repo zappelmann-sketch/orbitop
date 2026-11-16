@@ -40,9 +40,9 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run) -
             return "denied"
         except OSError:  # z. B. Thread-ID als pid (ENOENT) oder EMFILE
             return "error"
-    dead = _dead(pid, start, root)
-    if dead:  # veraltete oder falsche Startzeit: kein Passwortdialog
-        return dead
+    refused = _precheck(pid, start, root)
+    if refused:  # veraltete Startzeit oder verweigertes Ziel: kein Passwortdialog
+        return refused
     try:
         r = run([PKEXEC, PYTHON, "-I", _HELPER, str(pid), str(start), sig], timeout=120)
     except (OSError, subprocess.SubprocessError):
@@ -50,17 +50,26 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run) -
     return _RESULT.get(r.returncode, "error")
 
 
-def _dead(pid: int, start: int, root: str) -> str | None:
-    """gone, mismatch oder zombie, wenn (pid, start) kein lebender Prozess mehr ist; sonst None."""
+def _precheck(pid: int, start: int, root: str) -> str | None:
+    """Ergebnis ohne Passwortdialog: gone, mismatch oder zombie, wenn (pid, start) nicht mehr lebt; kernel für pid 1
+    und Kernel-Threads, die killhelper ohnehin verweigert. None: der Prozess lebt und darf gefragt werden."""
     try:
         with open(f"{root}/proc/{pid}/stat", encoding="utf-8", errors="replace") as f:
             s = parse_stat(f.read())
+        if s["start"] != start:
+            return "mismatch"
+        if s["state"] in "ZX":
+            return "zombie"
+        if pid == 1:
+            return "kernel"
+        if s["ppid"] in (0, 2):  # dieselbe Regel wie killhelper.send
+            with open(f"{root}/proc/{pid}/cmdline", "rb") as f:
+                if not f.read(1):
+                    return "kernel"
     except (OSError, ValueError, IndexError):
         return "gone"
-    if s["start"] != start:
-        return "mismatch"
-    return "zombie" if s["state"] in "ZX" else None
+    return None
 
 
 def is_alive(pid: int, start: int, root="/") -> bool:
-    return _dead(pid, start, root) is None
+    return _precheck(pid, start, root) in (None, "kernel")

@@ -137,6 +137,22 @@ def test_terminate_flood_starts_one_thread(rig):
     assert len(rig.threads) == 2 and rig.threads[1].args == (7, 8, True)
 
 
+def test_failed_thread_start_keeps_gate_open(rig, monkeypatch):
+    class NoThread:
+        def __init__(self, **kw):
+            pass
+
+        def start(self):
+            raise RuntimeError("can't start new thread")
+    monkeypatch.setattr(shell, "threading", SimpleNamespace(Thread=NoThread))
+    with pytest.raises(RuntimeError):
+        rig.s._on_message(None, terminate_msg(1, 2))
+    monkeypatch.setattr(shell, "threading", SimpleNamespace(Thread=lambda **kw: SimpleNamespace(
+        start=lambda: rig.threads.append(kw))))
+    rig.s._on_message(None, terminate_msg(3, 4))  # das Tor ist noch offen
+    assert rig.threads == [{"target": rig.s._terminate_thread, "args": (3, 4, False), "daemon": True}]
+
+
 @pytest.mark.parametrize("outcome,result", [("sent", "sent"), (RuntimeError("x"), "error")])
 def test_terminate_thread_posts_result(rig, monkeypatch, outcome, result):
     def fake_terminate(pid, start, force):
@@ -193,6 +209,7 @@ NAV, NEW, RESP = (WebKit.PolicyDecisionType.NAVIGATION_ACTION, WebKit.PolicyDeci
 @pytest.mark.parametrize("kind,uri,supported,verdict", [
     (NAV, shell.INDEX_URI, True, "use"),
     (NAV, shell.INDEX_URI + "#procs", True, "use"),
+    (NAV, "orbitop://ui/app.js", True, "ignore"),  # oben nur Seiten, nie Skripte
     (NAV, (UI / "index.html").as_uri(), True, "ignore"),
     (NAV, "file:///etc/passwd", True, "ignore"),
     (NAV, "orbitop://ui/../app.py", True, "ignore"),
@@ -207,6 +224,16 @@ NAV, NEW, RESP = (WebKit.PolicyDecisionType.NAVIGATION_ACTION, WebKit.PolicyDeci
 def test_decide_policy(rig, kind, uri, supported, verdict):
     d = Decision(uri, supported)
     assert rig.s._decide_policy(None, d, kind) is True
+    assert d.verdict == verdict
+
+
+@pytest.mark.parametrize("name,verdict", [("page.html", "use"), ("i.svg", "ignore"), ("p.png", "ignore"),
+                                          ("f.ttf", "ignore"), ("s.css", "ignore")])
+def test_top_level_navigation_only_to_html(rig, monkeypatch, tmp_path, name, verdict):
+    (tmp_path / name).write_text("x")
+    monkeypatch.setattr(shell, "UI_DIR", str(tmp_path))
+    d = Decision("orbitop://ui/" + name)
+    rig.s._decide_policy(None, d, NAV)
     assert d.verdict == verdict
 
 
@@ -230,6 +257,29 @@ def test_serve_index():
     shell.Shell(False)._serve(r)
     data = (UI / "index.html").read_bytes()
     assert r.done == ("ok", data, len(data), "text/html")
+
+
+@pytest.mark.parametrize("name,mime", [("a.js", "text/javascript"), ("f.ttf", "font/ttf"), ("i.svg", "image/svg+xml"),
+                                       ("x.woff", "font/woff"), ("d.json", "application/json")])
+def test_serve_content_types(monkeypatch, tmp_path, name, mime):
+    (tmp_path / name).write_bytes(b"\x00\x01data")
+    monkeypatch.setattr(shell, "UI_DIR", str(tmp_path))
+    r = Request("orbitop://ui/" + name)
+    shell.Shell(False)._serve(r)
+    assert r.done == ("ok", b"\x00\x01data", 6, mime)
+
+
+def test_serve_unreadable_file_is_error(monkeypatch, tmp_path):
+    f = tmp_path / "a.js"
+    f.write_text("x")
+    f.chmod(0)
+    monkeypatch.setattr(shell, "UI_DIR", str(tmp_path))
+    r = Request("orbitop://ui/a.js")
+    try:
+        shell.Shell(False)._serve(r)
+    finally:
+        f.chmod(0o644)
+    assert r.done[0] == "error"
 
 
 @pytest.mark.parametrize("uri", ["orbitop://ui/missing.html", "orbitop://ui/../app.py", "orbitop://ui/%2e%2e/app.py",
@@ -301,6 +351,13 @@ def test_command_line_presents_unless_hidden(args, shown):  # erste wie weitere 
     s._win = Win()
     assert s._command_line(None, SimpleNamespace(get_arguments=lambda: args)) == 0
     assert s._win.presented == int(shown)
+
+
+def test_activate_presents_window():  # gapplication launch / D-Bus Activate
+    s = shell.Shell(False)
+    s._win = Win()
+    s._app.emit("activate")
+    assert s._win.presented == 1
 
 
 @pytest.mark.parametrize("hidden,argv", [(True, ["orbitop", "--hidden"]), (False, ["orbitop"])])

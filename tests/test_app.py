@@ -86,9 +86,12 @@ def ui(tmp_path):
     """UI-Baum mit je einer Datei pro Typ, einer unbekannten Endung, Unterordner und Symlinks nach innen und außen."""
     d = tmp_path / "ui"
     (d / "fonts").mkdir(parents=True)
-    for name in ("index.html", "app.js", "style.css", "fonts/a.ttf", "fonts/b.otf", "fonts/c.woff2", "i.svg", "p.png",
-                 "fonts/OFL.txt", "tool.py", "noext"):
+    for name in ("index.html", "app.js", "style.css", "fonts/a.ttf", "fonts/b.otf", "fonts/c.woff2", "fonts/e.woff",
+                 "data.json", "i.svg", "p.png", "fonts/OFL.txt", "tool.py", "noext"):
         (d / name).write_text("x")
+    (d / "d.js").mkdir()  # Verzeichnis mit bekannter Endung
+    (tmp_path / "uix").mkdir()  # Nachbar mit gleichem Präfix
+    (tmp_path / "uix" / "index.html").write_text("x")
     (tmp_path / "secret.js").write_text("x")
     (d / "out.js").symlink_to(tmp_path / "secret.js")
     (d / "in.js").symlink_to(d / "app.js")
@@ -104,6 +107,8 @@ def ui(tmp_path):
     ("orbitop://ui/fonts/a.ttf", "fonts/a.ttf", "font/ttf"),
     ("orbitop://ui/fonts/b.otf", "fonts/b.otf", "font/otf"),
     ("orbitop://ui/fonts/c.woff2", "fonts/c.woff2", "font/woff2"),
+    ("orbitop://ui/fonts/e.woff", "fonts/e.woff", "font/woff"),
+    ("orbitop://ui/data.json", "data.json", "application/json"),
     ("orbitop://ui/i.svg", "i.svg", "image/svg+xml"),
     ("orbitop://ui/p.png", "p.png", "image/png"),
     ("orbitop://ui/fonts/OFL.txt", "fonts/OFL.txt", "text/plain"),
@@ -119,6 +124,7 @@ def test_ui_file_serves_known_types(ui, uri, name, mime):
     "orbitop://ui/../secret.js", "orbitop://ui/%2e%2e/secret.js", "orbitop://ui/fonts/%2E%2E/%2E%2E/secret.js",
     "orbitop://ui/%2Fetc%2Fpasswd", "orbitop://ui//etc/passwd", "orbitop://ui/out.js",   # Symlink nach außen
     "orbitop://ui/", "orbitop://ui", "orbitop://ui/fonts", "orbitop://ui/missing.html",
+    "orbitop://ui/../uix/index.html", "orbitop://ui/%2e%2e/uix/index.html", "orbitop://ui/d.js",
     "orbitop://ui/tool.py", "orbitop://ui/noext", "orbitop://ui/a%00b.html",
     "orbitop://evil/index.html", "orbitop://ui:80/index.html", "orbitop://x@ui/index.html", "orbitop:///index.html",
     "orbitop:index.html", "orbitopx://ui/index.html",
@@ -365,6 +371,20 @@ def test_worker_survives_sampler_exception(fail, capsys):
     assert s.sys_times() == pytest.approx([100.0, 101.0, 102.0, 103.0])  # der Takt läuft weiter
     assert len(posts) == (3 if fail == "snapshot" else 4)
     assert len([k for k, _ in s.calls if k == "procs"]) == 2
+
+
+def test_worker_prints_each_distinct_error_once(capsys):
+    clock = Clock()
+
+    class Broken(FakeSampler):
+        def tick_system(self):
+            super().tick_system()
+            raise RuntimeError("anders" if len(self.sys_times()) == 4 else "kaputt")
+    s = Broken(clock)
+    run_fake(s, clock, 6)
+    err = capsys.readouterr().err
+    assert err.count("RuntimeError: kaputt") == 1 and err.count("RuntimeError: anders") == 1
+    assert err.count("Traceback") == 2
 
 
 def test_worker_thread_kicks_immediately_and_stops_fast():

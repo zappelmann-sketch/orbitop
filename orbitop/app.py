@@ -19,8 +19,9 @@ MAX_MESSAGE = 4096
 PERIOD_S = 1.0  # tick_system; tick_procs läuft jeden zweiten Takt
 RUNTIME = (("Gtk", "4.0", "gir1.2-gtk-4.0"), ("WebKit", "6.0", "gir1.2-webkit-6.0"))
 SCHEME, UI_HOST = "orbitop", "ui"  # die Seite läuft unter orbitop://ui/…, nie unter file://
-MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".ttf": "font/ttf", ".otf": "font/otf",
-        ".woff2": "font/woff2", ".svg": "image/svg+xml", ".png": "image/png", ".txt": "text/plain"}
+MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json",
+        ".ttf": "font/ttf", ".otf": "font/otf", ".woff": "font/woff", ".woff2": "font/woff2",
+        ".svg": "image/svg+xml", ".png": "image/png", ".txt": "text/plain"}
 
 
 def check_runtime(require_version=gi.require_version) -> str | None:
@@ -89,14 +90,6 @@ def snapshot_path(value: str | None) -> str | None:
     return path if os.path.isdir(os.path.dirname(path)) else None
 
 
-def _guard(fn) -> None:
-    """Ein Fehler im Sampler darf den einzigen Mess-Thread nicht still beenden."""
-    try:
-        fn()
-    except Exception:
-        traceback.print_exc()
-
-
 class Worker:
     """Einziger Benutzer des Samplers: Takte, Schnappschuss und JSON im eigenen Thread.
 
@@ -109,6 +102,7 @@ class Worker:
         self._view = {"tab": "overview", "pid": None, "start": None}
         self._stop, self._wake = threading.Event(), threading.Event()
         self._wait = wait or self._wake.wait
+        self._errors: set[tuple[str, str]] = set()  # schon gemeldete Fehler (Typ, Text)
         self._thread = threading.Thread(target=self.run, name="orbitop-worker", daemon=True)
 
     def update(self, *, visible=None, ready=None, view=None) -> bool:
@@ -138,9 +132,9 @@ class Worker:
         due, n, fresh = self._clock(), 0, False
         while not self._stop.is_set():
             if self._clock() >= due:
-                _guard(self._sampler.tick_system)
+                self._guard(self._sampler.tick_system)
                 if n % 2 == 0:
-                    _guard(self._sampler.tick_procs)
+                    self._guard(self._sampler.tick_procs)
                 n += 1
                 due += PERIOD_S
                 now = self._clock()
@@ -148,9 +142,19 @@ class Worker:
                     due += PERIOD_S
                 fresh = True
             if fresh:
-                _guard(self._publish)
+                self._guard(self._publish)
             fresh = self._wait(max(0.0, due - self._clock()))  # True: von update() oder stop() geweckt
             self._wake.clear()
+
+    def _guard(self, fn) -> None:
+        """Ein Fehler im Sampler darf den Mess-Thread nicht still beenden; jeder Fehler erscheint einmal, nicht je Takt."""
+        try:
+            fn()
+        except Exception as e:
+            key = (type(e).__name__, str(e))
+            if key not in self._errors and len(self._errors) < 100:  # begrenzt, falls sich der Text ständig ändert
+                self._errors.add(key)
+                traceback.print_exc()
 
     def _publish(self) -> None:
         with self._lock:

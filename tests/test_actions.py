@@ -88,27 +88,45 @@ def test_is_alive(child):
     assert not is_alive(999999, 1)
 
 
-def test_foreign_uses_pkexec_helper(monkeypatch):
+def foreign_proc(root, pid, start, state, ppid=1, cmdline=b"x\0"):
+    """Fremder Prozess (Uid 0) in einem Testbaum; state None: stat fehlt, cmdline None: cmdline fehlt."""
+    d = root / "proc" / str(pid)
+    d.mkdir(parents=True)
+    (d / "status").write_text("Name:\tx\nUid:\t0\t0\t0\t0\n")
+    if state:
+        (d / "stat").write_text(f"{pid} (x y) {state} {ppid} " + "0 " * 17 + f"{start} 0 0\n")
+    if cmdline is not None:
+        (d / "cmdline").write_bytes(cmdline)
+
+
+@pytest.fixture
+def foreign(tmp_path):
+    """Lebender fremder Prozess 4242 mit Startzeit 77; der Testbaum als root."""
+    foreign_proc(tmp_path, 4242, 77, "S")
+    return str(tmp_path)
+
+
+def test_foreign_uses_pkexec_helper(monkeypatch, foreign):
     monkeypatch.setattr(sys, "executable", "/venv/bin/python")
     calls = []
-    assert terminate(1, start_of(1), False, run=fake(calls, 126)) == "denied"
+    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 126)) == "denied"
     argv, kw = calls[0]
-    assert argv == ["/usr/bin/pkexec", "/usr/bin/python3", "-I", HELPER, "1", str(start_of(1)), "TERM"]
+    assert argv == ["/usr/bin/pkexec", "/usr/bin/python3", "-I", HELPER, "4242", "77", "TERM"]
     assert os.path.isabs(argv[3]) and kw["timeout"] == 120 and "shell" not in kw
     calls.clear()
-    terminate(1, start_of(1), True, run=fake(calls, 0))
+    terminate(4242, 77, True, root=foreign, run=fake(calls, 0))
     assert calls[0][0][-1] == "KILL"
 
 
 @pytest.mark.parametrize("rc,want", [(0, "sent"), (3, "mismatch"), (4, "gone"), (5, "zombie"), (6, "kernel"),
                                      (126, "denied"), (127, "denied"), (2, "error"), (1, "error")])
-def test_exit_code_mapping(rc, want):
-    assert terminate(1, start_of(1), False, run=fake([], rc)) == want
+def test_exit_code_mapping(rc, want, foreign):
+    assert terminate(4242, 77, False, root=foreign, run=fake([], rc)) == want
 
 
 @pytest.mark.parametrize("exc", [subprocess.TimeoutExpired("pkexec", 120), FileNotFoundError("pkexec")])
-def test_pkexec_failures_are_error(exc):
-    assert terminate(1, start_of(1), False, run=fake([], exc=exc)) == "error"
+def test_pkexec_failures_are_error(exc, foreign):
+    assert terminate(4242, 77, False, root=foreign, run=fake([], exc=exc)) == "error"
 
 
 def test_foreign_wrong_start_is_mismatch_without_prompt():
@@ -116,14 +134,6 @@ def test_foreign_wrong_start_is_mismatch_without_prompt():
     assert terminate(1, start_of(1) + 1, False, run=fake(calls)) == "mismatch"
     assert terminate(1, 0, True, run=fake(calls)) == "mismatch"
     assert calls == []  # veraltete oder falsche Startzeit: nie ein Passwortdialog
-
-
-def foreign_proc(root, pid, start, state):
-    d = root / "proc" / str(pid)
-    d.mkdir(parents=True)
-    (d / "status").write_text("Name:\tx\nUid:\t0\t0\t0\t0\n")
-    if state:
-        (d / "stat").write_text(f"{pid} (x y) {state} 1 " + "0 " * 17 + f"{start} 0 0\n")
 
 
 @pytest.mark.parametrize("state,want", [("Z", "zombie"), ("X", "zombie"), (None, "gone")])
@@ -134,11 +144,30 @@ def test_foreign_dead_target_needs_no_prompt(tmp_path, state, want):
     assert calls == []
 
 
-def test_foreign_live_target_goes_to_pkexec(tmp_path):
-    foreign_proc(tmp_path, 4242, 77, "S")
+def test_foreign_live_target_goes_to_pkexec(foreign):
     calls = []
-    assert terminate(4242, 77, False, root=str(tmp_path), run=fake(calls, 0)) == "sent"
+    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 0)) == "sent"
     assert len(calls) == 1
+
+
+@pytest.mark.parametrize("force", [False, True])
+def test_pid1_is_kernel_without_prompt(force):
+    calls = []
+    assert terminate(1, start_of(1), force, run=fake(calls)) == "kernel"
+    assert calls == [] and is_alive(1, start_of(1))
+
+
+@pytest.mark.parametrize("ppid,cmdline,want,prompts", [
+    (2, b"", "kernel", 0), (0, b"", "kernel", 0),     # Kernel-Thread: verweigert der Helfer ohnehin
+    (2, None, "gone", 0),                             # cmdline schon weg
+    (2, b"sleep\0", "sent", 1), (1, b"", "sent", 1),  # wie im Helfer: nur ppid 0/2 UND leere cmdline
+])
+def test_kernel_thread_needs_no_prompt(tmp_path, ppid, cmdline, want, prompts):
+    foreign_proc(tmp_path, 4243, 77, "S", ppid=ppid, cmdline=cmdline)
+    calls = []
+    assert terminate(4243, 77, True, root=str(tmp_path), run=fake(calls, 0)) == want
+    assert len(calls) == prompts
+    assert is_alive(4243, 77, str(tmp_path)) is (want != "gone")
 
 
 def helper(*args):
@@ -259,6 +288,6 @@ def test_own_permission_error_is_denied(child, monkeypatch):
     assert terminate(child.pid, start_of(child.pid), False) == "denied"
 
 
-def test_guard_blocks_real_pkexec():
+def test_guard_blocks_real_pkexec(foreign):
     with pytest.raises(AssertionError):
-        terminate(1, start_of(1), False)
+        terminate(4242, 77, False, root=foreign)

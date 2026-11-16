@@ -54,6 +54,7 @@ class Shell:
         self._app = Gtk.Application(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
         self._app.connect("startup", self._startup)
         self._app.connect("command-line", self._command_line)
+        self._app.connect("activate", lambda _app: self._win.present())  # gapplication launch, D-Bus Activate
         self._app.connect("shutdown", self._shutdown)
 
     def run(self) -> int:
@@ -164,7 +165,8 @@ class Shell:
 
     def _decide_policy(self, _view, decision, kind) -> bool:
         if kind == WebKit.PolicyDecisionType.NAVIGATION_ACTION:
-            ok = ui_file(decision.get_navigation_action().get_request().get_uri(), UI_DIR) is not None
+            found = ui_file(decision.get_navigation_action().get_request().get_uri(), UI_DIR)
+            ok = found is not None and found[1] == "text/html"  # navigiert wird nur zu Seiten
         elif kind == WebKit.PolicyDecisionType.RESPONSE:  # nicht darstellbar hieße Download
             ok = decision.is_mime_type_supported() and ui_file(decision.get_request().get_uri(), UI_DIR) is not None
         else:  # neue Fenster
@@ -179,8 +181,8 @@ class Shell:
     def _terminate(self, pid: int, start: int, force: bool) -> None:
         if self._terminating:
             return  # still verwerfen: die Seite zeigt erst das Ergebnis des laufenden Auftrags
-        self._terminating = True
         threading.Thread(target=self._terminate_thread, args=(pid, start, force), daemon=True).start()
+        self._terminating = True  # erst nach erfolgreichem start(), sonst bliebe das Tor für immer zu
 
     def _terminate_thread(self, pid: int, start: int, force: bool) -> None:  # pkexec blockiert bis zu 120 s
         # shortcut: orbitop bricht ein offenes pkexec beim Beenden nicht selbst ab. Unter GNOME verwirft polkit die
