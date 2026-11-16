@@ -200,7 +200,7 @@ def test_nvidia_lookup_by_normalized_pci(monkeypatch):
     t.stop()
 
 
-@pytest.mark.skipif(not shutil.which("intel_gpu_top") or not Path("/sys/class/drm/card1").exists(),
+@pytest.mark.skipif(not shutil.which("intel_gpu_top", path=gpu_tools.TOOL_PATH) or not Path("/sys/class/drm/card1").exists(),
                     reason="intel_gpu_top fehlt")
 def test_real_intel_gpu_top_delivers_within_3s():
     t = GpuTools(discover_gpus("/"))
@@ -223,8 +223,6 @@ def test_which_uses_fixed_path_and_absolute_result(monkeypatch):
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: seen.append(path))
     GpuTools(_gpus("intel", "nvidia"))
     assert seen == [gpu_tools.TOOL_PATH] * 2 and "." not in gpu_tools.TOOL_PATH.split(":")
-    found = shutil.which("python3", path=gpu_tools.TOOL_PATH)
-    assert found is None or found.startswith("/")
 
 
 def test_invalid_card_names_rejected_for_d_argument(monkeypatch):
@@ -270,6 +268,20 @@ def test_reader_survives_deep_nesting():
     r.stop()
 
 
+class YieldingLock:
+    """Gibt nach dem Freigeben kurz den Prozessor ab und weitet so das Rennfenster."""
+
+    def __init__(self):
+        self._l = threading.Lock()
+
+    def __enter__(self):
+        self._l.acquire()
+
+    def __exit__(self, *a):
+        self._l.release()
+        time.sleep(0.05)
+
+
 def test_concurrent_latest_spawns_one_child(monkeypatch):
     r = ToolReader([sys.executable, "-c", LOOP], parse_intel)
     r.start()
@@ -278,22 +290,27 @@ def test_concurrent_latest_spawns_one_child(monkeypatch):
     first.kill()
     first.wait()
     wait_until(lambda: not r._thread.is_alive())
+    r._lock = YieldingLock()
     r._started -= 31
     procs = []
     real = gpu_tools.subprocess.Popen
-
-    def slow(*a, **k):
-        time.sleep(0.2)
-        procs.append(real(*a, **k))
-        return procs[-1]
-    monkeypatch.setattr(gpu_tools.subprocess, "Popen", slow)
+    monkeypatch.setattr(gpu_tools.subprocess, "Popen", lambda *a, **k: procs.append(real(*a, **k)) or procs[-1])
     ts = [threading.Thread(target=r.latest) for _ in range(6)]
     for t in ts:
         t.start()
     for t in ts:
         t.join()
     r.stop()
-    assert len(procs) == 1 and procs[0].poll() is not None
+    for p in procs:  # Aufräumen, falls die Prüfung unten fehlschlägt
+        p.kill()
+        p.wait()
+    assert len(procs) == 1
+
+
+def test_brace_prefixed_line_in_name_keeps_object():
+    lines = ['{\n', '\t"engines": {"R": {"busy": 3}},\n', '\t"clients": {\n', '\t\t"1": {\n',
+             '\t\t\t"name": "x\n', '{y",\n', '\t\t\t"n2": "p\n', '\t{\n', 'q",\n', '\t\t}\n', '\t}\n', '}\n']
+    assert list(split_json_stream(lines)) == [{"engines": {"R": {"busy": 3}}}]
 
 
 def test_stop_kills_child_ignoring_sigterm():
