@@ -123,7 +123,6 @@
   "tile.mem": "Arbeitsspeicher",
   "tile.net": "Netzwerk",
   "tile.power": "Leistung",
-  "tile.power_aside": "CPU-Paket",
   "tile.temp": "Temperaturen",
   "tile.temp_aside": "heißester Sensor",
   "verdict.busy_iounknown": "Dauerlast, E/A nicht prüfbar. Er rechnet seit {since} ununterbrochen auf einem Kern. Ob er liest oder schreibt, konnte nicht geprüft werden, weil es ein fremder Prozess ist. Das kann eine Endlosschleife sein oder eine lange Berechnung. Erwartest du gerade, dass er so lange rechnet?",

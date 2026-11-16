@@ -51,7 +51,7 @@ def _sum(vals):
 
 
 def _pct(part, whole):
-    return 100.0 * part / whole if whole else None
+    return 100.0 * part / whole if part is not None and whole else None
 
 
 def _nice(v: float) -> float:
@@ -130,6 +130,8 @@ class Sampler:
         self._s: dict = {}  # letzte Messwerte je Quelle
 
     def _has_busy(self, info, scanner, now) -> bool:
+        # shortcut: ein beim Start ohne Busy-Quelle entschiedener GPU bleibt bei der Takt-Kurve; sauber wäre, beim ersten
+        # Busy-Wert einmal auf Busy zu wechseln und diesen Puffer zurückzusetzen.
         if info.driver in ("i915", "xe", "nvidia"):
             return True  # Werkzeug oder DRM-fdinfo
         if info.driver == "amdgpu":
@@ -156,33 +158,47 @@ class Sampler:
 
     # ---- Tick ----
     def tick_system(self) -> None:
+        """Jeder Abschnitt läuft für sich: ein Fehler in einem lässt die anderen und den Puffer-Takt unberührt."""
         now = self._clock()
-        s = self._s = {}
-        cpu = s["cpu"] = _safe(self._cpu.read, now)
-        mem = s["mem"] = _safe(read_memory, self._root)
-        sens = s["sens"] = _safe(read_sensors, self._root)
-        rapl = _safe(self._rapl.read, now) or {}
-        batt = s["batt"] = _safe(read_battery, self._root)
-        s["nets"] = _safe(self._net.read, now, default=[])
-        s["disks"] = _safe(self._disk.read, now, default=[])
+        self._s = {"cpu": None, "mem": None, "sens": None, "batt": None, "nets": [], "disks": [], "gpus": [],
+                   "pkg": None, "rapl": {}, "pwr": None, "pwr_name": ("key", CPU_KEY), "temps": [], "fans": []}
+        for section in (self._tick_sensors, self._tick_cpu, self._tick_mem, self._tick_gpus, self._tick_power,
+                        self._tick_temps,
+                        self._tick_fans, self._tick_net, self._tick_disks):
+            _safe(section, now)
+        self._end_tick()
+
+    def _tick_sensors(self, now) -> None:
+        self._s["sens"] = _safe(read_sensors, self._root)
+        self._s["batt"] = _safe(read_battery, self._root)
+
+    def _tick_cpu(self, now) -> None:
+        cpu = self._s["cpu"] = _safe(self._cpu.read, now)
         self._push("cpu", cpu and cpu.total)
         for i, t in enumerate(cpu.threads if cpu else []):
             self._push(f"t{i}", t, THREAD_POINTS)
+
+    def _tick_mem(self, now) -> None:
+        mem = self._s["mem"] = _safe(read_memory, self._root)
         self._push("mem", mem and _pct(mem.used, mem.total))
         self._push("swap", mem and _pct(mem.swap_used, mem.swap_total))
-        s["gpus"] = []
-        pkg_tool = None
+
+    def _tick_gpus(self, now) -> None:
         for g in self._gpus:
             smp = _safe(g.read, now)
-            s["gpus"].append((g, smp))
+            self._s["gpus"].append((g, smp))
             if smp is not None:
                 v = smp.busy if self._busy_gpu[g.info.card] else _pct(smp.freq_mhz, smp.freq_max_mhz)
                 self._push("gpu:" + g.info.card, v)
-            if g.info.vendor == "intel" and pkg_tool is None:
-                pkg_tool = (_safe(self._tools.intel, g.info.card) or {}).get("pkg_w")
+
+    def _tick_power(self, now) -> None:
+        s = self._s
+        sens, batt = s["sens"], s["batt"]
+        rapl = s["rapl"] = _safe(self._rapl.read, now) or {}
+        pkg_tool = next((_safe(self._tools.intel, g.info.card) or {} for g, _ in s["gpus"]
+                         if g.info.vendor == "intel"), {}).get("pkg_w")
         pkg = rapl.get("package", rapl.get("package-0"))
-        pkg = pkg_tool if pkg is None else pkg
-        s["pkg"], s["rapl"] = pkg, rapl
+        pkg = s["pkg"] = pkg_tool if pkg is None else pkg
         # Quelle der Hauptleistung: (Wert, Name der Kurve); Reihenfolge ist Vertrag
         hw = sens.hwmon_power[0] if sens and sens.hwmon_power else (None, None)
         s["pwr"], s["pwr_name"] = next(
@@ -190,23 +206,34 @@ class Sampler:
                                  (hw[1], ("label", hw[0]))) if v is not None),
             (None, ("key", "kv.battery") if batt else ("key", CPU_KEY)))
         self._push("power", s["pwr"])
+
+    def _tick_temps(self, now) -> None:
+        sens = self._s["sens"]
         # (Puffer, Name der Kurve, Wert); der Puffer folgt der eindeutigen Beschriftung, nicht der Listenposition
         temps = [("temp:#cpu", ("key", CPU_KEY), sens.cpu_temp)] if sens and sens.cpu_temp is not None else []
         if sens:
             temps += [(f"temp:{lb}", ("key", CHIPSET_KEY) if t.chip.startswith("pch_") else ("label", lb), t.value)
                       for t, lb in zip(sens.temps, _unique([t.label for t in sens.temps]))]
-        s["temps"] = temps
-        s["fans"] = list(zip(_unique([f.label for f in sens.fans]), sens.fans)) if sens else []
+        self._s["temps"] = temps
         for buf, _, v in temps:
             self._push(buf, v)
-        for k, f in s["fans"]:
+
+    def _tick_fans(self, now) -> None:
+        sens = self._s["sens"]
+        self._s["fans"] = list(zip(_unique([f.label for f in sens.fans]), sens.fans)) if sens else []
+        for k, f in self._s["fans"]:
             self._push("fan:" + k, f.rpm)
-        self._push("rx", _sum(d.rx_bps for d in s["nets"]))
-        self._push("tx", _sum(d.tx_bps for d in s["nets"]))
-        self._push("read", _sum(d.read_bps for d in s["disks"]))
-        self._push("write", _sum(d.write_bps for d in s["disks"]))
-        self._disk_temps(s["disks"], sens)
-        self._end_tick()
+
+    def _tick_net(self, now) -> None:
+        nets = self._s["nets"] = _safe(self._net.read, now, default=[])
+        self._push("rx", _sum(d.rx_bps for d in nets))
+        self._push("tx", _sum(d.tx_bps for d in nets))
+
+    def _tick_disks(self, now) -> None:
+        disks = self._s["disks"] = _safe(self._disk.read, now, default=[])
+        self._push("read", _sum(d.read_bps for d in disks))
+        self._push("write", _sum(d.write_bps for d in disks))
+        self._disk_temps(disks, self._s["sens"])
 
     def _disk_temps(self, disks, sens) -> None:
         """Disk.temp_c: Chip nvme/drivetemp, dessen device-Pfad zum Laufwerk gehört (Werte des selben Ticks aus read_sensors).
@@ -219,9 +246,10 @@ class Sampler:
                 chips.setdefault(t.hwmon, t)
         nvme = [t for t in chips.values() if t.chip == "nvme"]
         nvme_disks = [d for d in disks if d.name.startswith("nvme")]
+        by_device = {os.path.realpath(h + "/device"): t for h, t in chips.items()}
         for d in disks:
             real = os.path.realpath(sysfs.path(self._root, "/sys/block/", d.name, "/device"))
-            t = next((t for h, t in chips.items() if os.path.realpath(h + "/device") == real), None)
+            t = by_device.get(real)
             if t is None and len(nvme_disks) == 1 and len(nvme) == 1 and d is nvme_disks[0]:
                 t = nvme[0]
             d.temp_c = t.value if t else None

@@ -115,19 +115,22 @@ def _cpu_temp(root: str, chips: list[_Chip]) -> tuple[float | None, set[str]]:
     return (max(vals) if vals else None), set()
 
 
-def _temp_rank(t: Temp) -> tuple[int, int]:
-    if t.chip == "nvme":
-        return (0, 0 if t.label.endswith("Composite") else 1)
+def _temp_rank(t: Temp, primary: set[int]) -> int:
+    """Gruppen: erster Sensor je nvme-Chip, drivetemp, pch_*, alles übrige (auch die weiteren nvme-Sensoren)."""
+    if t.chip == "nvme" and id(t) in primary:
+        return 0
     if t.chip == "drivetemp":
-        return (1, 0)
-    return (2, 0) if t.chip.startswith("pch_") else (3, 0)
+        return 1
+    return 2 if t.chip.startswith("pch_") else 3
 
 
 def read_sensors(root: str) -> SensorValues:
     chips = _chips(root)
     cpu, used = _cpu_temp(root, chips)
     temps = [t for c in chips if c.name not in used | GPU_CHIPS for t in c.temps]
-    temps.sort(key=_temp_rank)  # stabil: hwmon-Reihenfolge bleibt innerhalb der Gruppe
+    primary = {id(next((t for t in c.temps if t.label.endswith("Composite")), c.temps[0]))
+               for c in chips if c.name == "nvme" and c.temps}
+    temps.sort(key=lambda t: _temp_rank(t, primary))  # stabil: hwmon-Reihenfolge bleibt innerhalb der Gruppe
     fans, power = [], []
     for c in chips:
         for n, f in _files(c.dir, "fan", "input"):

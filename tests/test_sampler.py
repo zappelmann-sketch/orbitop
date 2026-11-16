@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 import itertools
+import os
 import json
 import subprocess
 import sys
@@ -632,3 +633,121 @@ def test_dump_fixture_root_starts_no_tools():
     # Mit Fixture-Baum liefert keine Werkzeug-Quelle Werte: kein pkg_w, also bleibt der RAPL-Hinweis stehen
     tick = json.loads(dump("--ticks", "5").stdout)
     assert tick["hints"] == ["hint.rapl_noperm"]
+
+
+# ---- Fix-Runde 3 ----
+def test_gpu_without_freq_source_does_not_stop_the_tick(tree_copy):
+    root = tree_copy(ARM)
+    (Path(root) / "sys/class/devfreq/v3d/cur_freq").unlink()
+    s = run(root, ticks=4)
+    assert s._n == 4
+    snap = s.snapshot(OVERVIEW)
+    assert {"cpu", "temp", "net", "disk"} <= set(kinds(snap))
+    assert all(len(x["values"]) == 4 for t in snap["tiles"] for x in t["series"])
+
+
+def test_failing_section_does_not_stop_the_others(monkeypatch):
+    s = Sampler(AMD, tools=NoTools(), clock=fake_clock(), uid=1000)
+
+    def boom(now):
+        raise RuntimeError("x")
+    monkeypatch.setattr(s, "_tick_gpus", boom)
+    for _ in range(3):
+        s.tick_system()
+    snap = s.snapshot(OVERVIEW)
+    assert s._n == 3 and "gpu" in snap["missing"]
+    assert {"cpu", "mem", "temp", "fan", "net", "disk"} <= set(kinds(snap))
+    assert len(tile(snap, "net")["series"][0]["values"]) == 3
+
+
+# 3b: GPU-Nummern zählen nur Karten mit Kachel
+def test_gpu_ids_skip_gpus_without_tile(monkeypatch):
+    monkeypatch.setattr(sampler_mod, "discover_gpus", lambda root: discover_gpus(root)[::-1])  # nvidia ohne Werte zuerst
+    snap = run(AMD).snapshot(OVERVIEW)
+    assert [t["id"] for t in snap["tiles"] if t["kind"] == "gpu"] == ["gpu0"]
+
+
+# N7: Fixture-Baum startet keine echten Werkzeuge (hostunabhängig)
+def test_dump_fixture_root_spawns_no_tool(monkeypatch):
+    import importlib.util
+    from orbitop import gpu_tools
+    spec = importlib.util.spec_from_file_location("dump_snapshot", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    started = []
+    monkeypatch.setattr(gpu_tools.ToolReader, "start", lambda self: started.append(self._cmd))
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda name, path=None: "/usr/bin/" + name)
+    monkeypatch.setattr(gpu_tools, "_has_capability", lambda p: True)
+    mod.main(["--root", INTEL, "--ticks", "1"])
+    assert started == []
+
+
+# 15c: rx-Kurve summiert alle Geräte
+def test_rx_series_sums_all_devices(monkeypatch):
+    devs = [NetDev("a", 100.0, 1.0, 0, 0, True), NetDev("b", 50.0, 2.0, 0, 0, True)]
+    s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
+    monkeypatch.setattr(s._net, "read", lambda now: devs)
+    s.tick_system()
+    series = {x["key"]: x["values"] for x in tile(s.snapshot(OVERVIEW), "net")["series"]}
+    assert series == {"series.rx": [150.0], "series.tx": [3.0]}
+
+
+# X1: Laufwerkstemperatur ist der erste Sensor (Composite), nicht der letzte
+def test_disk_temp_is_composite_not_last_sensor(tree_copy):
+    root = tree_copy(AMD)
+    h = Path(root) / "sys/class/hwmon/hwmon2"
+    for f in h.glob("temp*"):
+        f.unlink()
+    (h / "temp1_input").write_text("41000\n")
+    (h / "temp1_label").write_text("Composite\n")
+    (h / "temp2_input").write_text("63000\n")
+    (h / "temp2_label").write_text("Sensor 1\n")
+    assert disk_temps(root)["nvme0n1"] == 41.0
+
+
+# X3: devfreq-GPU mit fdinfo-Clients bekommt die Busy-Kurve
+def test_devfreq_gpu_with_fdinfo_clients_gets_busy_series(tree_copy):
+    root = tree_copy(ARM)
+    assert tile(run(root).snapshot(OVERVIEW), "gpu0")["series"][0]["key"] == "kv.clock"
+    make_proc(Path(root), 200)
+    d = Path(root) / "proc/200"
+    (d / "fd").mkdir()
+    (d / "fd/3").symlink_to("/dev/dri/card0")
+    (d / "fdinfo").mkdir()
+    (d / "fdinfo/3").write_text("drm-driver: v3d\ndrm-client-id: 1\ndrm-engine-render: 100 ns\n")
+    assert tile(run(root).snapshot(OVERVIEW), "gpu0")["series"][0]["key"] == "series.used"
+
+
+# X6 / X21 / X22: Temperaturen vollständig, eindeutig, mit Füllung nur bei der ersten Kurve
+def test_temps_complete_unique_and_fill_flags(patched):
+    temps = [Temp("Sensor", 1.0, "a"), Temp("Sensor", 2.0, "b"), Temp("Sensor", 3.0, "c"),
+             Temp("Sensor", 4.0, "d"), Temp("pch", 5.0, "pch_x"), Temp("Other", 6.0, "e")]
+    s = patched(read_sensors=sens(cpu=50.0, temps=temps))
+    t = tile(s.snapshot(OVERVIEW), "temp")
+    assert [x["fill"] for x in t["series"]] == [True, False, False]
+    names = [x.get("key") or x["label"] for x in t["series"]] + [k.get("k") or k["l"] for k in t["kv"]]
+    assert names == ["series.cpu_package", "Sensor", "Sensor 2", "Sensor 3", "Sensor 4", "series.chipset", "Other"]
+    values = [x["values"][-1] for x in t["series"]] + [k["v"]["v"] for k in t["kv"]]
+    assert values == [50.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0]
+
+
+def test_disk_temps_built_once_per_tick(monkeypatch, tree_copy):
+    root = tree_copy(AMD)
+    s = Sampler(root, tools=NoTools(), clock=fake_clock(), uid=1000)
+    s.tick_system()
+    calls = []
+    real = os.path.realpath
+    monkeypatch.setattr(sampler_mod.os.path, "realpath", lambda p: (calls.append(p), real(p))[1])
+    s.tick_system()
+    chip_calls = [c for c in calls if "/hwmon/" in c]
+    assert len(chip_calls) == len(set(chip_calls)) == 2  # nvme und drivetemp, je einmal
+
+
+def test_dead_locale_key_removed():
+    from orbitop.i18n import load_texts
+    assert "tile.power_aside" not in load_texts("en") and "kv.battery_ac" not in load_texts("en")
+
+
+@pytest.mark.parametrize("part,whole,want", [(None, 100, None), (5, None, None), (5, 0, None), (50, 200, 25.0), (0, 10, 0.0)])
+def test_pct_is_none_safe(part, whole, want):
+    assert sampler_mod._pct(part, whole) == want

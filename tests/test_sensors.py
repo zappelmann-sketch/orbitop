@@ -338,3 +338,15 @@ def test_rapl_counter_reset_is_gap(intel_copy):
     assert r.read(1.0) is None
     _zone(intel_copy, "intel-rapl:0", 2_000_000, mx=1_000_000_000)
     assert r.read(2.0)["package-0"] == pytest.approx(1.0)
+
+
+def test_temps_only_first_nvme_sensor_ranks_first(tmp_path):
+    root = str(tmp_path)
+    _hw(root, 0, "nvme", {"temp1_input": 40000, "temp1_label": "Composite", "temp2_input": 41000,
+                          "temp2_label": "Sensor 1"})
+    _hw(root, 1, "drivetemp", {"temp1_input": 42000})
+    _hw(root, 2, "pch_cannonlake", {"temp1_input": 43000})
+    _hw(root, 3, "zzz", {"temp1_input": 44000})
+    assert [(t.chip, t.label) for t in read_sensors(root).temps] == [
+        ("nvme", "Composite"), ("drivetemp", "drivetemp 1"), ("pch_cannonlake", "pch_cannonlake 1"),
+        ("nvme", "Sensor 1"), ("zzz", "zzz 1")]

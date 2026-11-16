@@ -123,7 +123,6 @@
   "tile.mem": "Memory",
   "tile.net": "Network",
   "tile.power": "Power",
-  "tile.power_aside": "CPU package",
   "tile.temp": "Temperatures",
   "tile.temp_aside": "hottest sensor",
   "verdict.busy_iounknown": "Constant load, I/O could not be checked. It has been computing non-stop on one core for {since}. Whether it reads or writes could not be checked, because it is a foreign process. That can be an endless loop or a long calculation. Are you expecting it to compute for this long?",
