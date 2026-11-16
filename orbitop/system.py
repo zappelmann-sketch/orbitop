@@ -126,6 +126,7 @@ class NetDev:
     rx_total: int
     tx_total: int
     up: bool
+    speed: int | None = None  # Mbit/s laut /sys/class/net/<if>/speed; None bei WLAN, gezogenem Kabel, unlesbar
 
 
 @dataclass
@@ -204,7 +205,9 @@ class NetReader:
             rx, tx = cur[name]
             p = prev.get(name, (None, None))
             state = sysfs.read_str(sysfs.path(self._root, "/sys/class/net/", name, "/operstate"))
-            devs.append(NetDev(name, _rate(p[0], rx, dt), _rate(p[1], tx, dt), rx, tx, state == "up"))
+            speed = sysfs.read_int(sysfs.path(self._root, "/sys/class/net/", name, "/speed"))
+            devs.append(NetDev(name, _rate(p[0], rx, dt), _rate(p[1], tx, dt), rx, tx, state == "up",
+                               speed if speed and speed > 0 else None))
         return devs
 
 

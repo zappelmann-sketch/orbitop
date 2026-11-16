@@ -80,7 +80,7 @@ def test_amd_gpu_tile_and_nvsmi_hint():
 
 def test_amd_disk_temperatures_by_device_path():
     snap = run(AMD).snapshot(OVERVIEW)
-    d = {x["name"]: x["values"][4] for x in tile(snap, "disk")["devices"]}
+    d = {x["name"]: x["values"][3] for x in tile(snap, "disk")["devices"]["rows"]}
     assert d["nvme0n1"]["v"] is not None and d["sda"]["v"] is not None
     assert d["nvme0n1"]["v"] != d["sda"]["v"]
 
@@ -219,9 +219,12 @@ def validate_tick(snap, texts):
             assert ("k" in kv) != ("l" in kv) and set(kv) == {"v", "k" if "k" in kv else "l"}
             assert "k" not in kv or kv["k"] in texts
             val_ok(kv["v"], texts)
-        for d in t["devices"] or []:
-            assert isinstance(d["name"], str)
-            assert all(num_ok(n) is None for n in d["values"])
+        assert type(t["warn"]) is bool
+        if t["devices"] is not None:
+            assert set(t["devices"]) == {"cols", "rows"} and all(c in texts for c in t["devices"]["cols"])
+            for d in t["devices"]["rows"]:
+                assert isinstance(d["name"], str) and len(d["values"]) == len(t["devices"]["cols"])
+                assert all(n is None or num_ok(n) is None for n in d["values"])
         assert t["threads"] is None or all(len(x) <= 60 for x in t["threads"])
 
 
@@ -253,7 +256,7 @@ def test_dump_snapshot_js(tmp_path):
 
 # ---- Fix-Runde 2: Befunde und Mutanten ----
 from orbitop.sensors import Battery, Fan, SensorValues, Temp, read_sensors  # noqa: E402
-from orbitop.system import NetDev  # noqa: E402
+from orbitop.system import Disk, NetDev, NetReader  # noqa: E402
 
 
 def fake_clock():
@@ -435,7 +438,8 @@ def test_snapshot_floats_have_two_decimals_at_most():
 
 # 10 / 11: Laufwerkstemperatur
 def disk_temps(root):
-    return {d["name"]: d["values"][4]["v"] for d in tile(run(root).snapshot(OVERVIEW), "disk")["devices"]}
+    rows = tile(run(root).snapshot(OVERVIEW), "disk")["devices"]["rows"]
+    return {d["name"]: (d["values"][3] or {}).get("v") for d in rows}
 
 
 def test_single_nvme_fallback_when_device_link_broken(tree_copy):
@@ -499,7 +503,7 @@ def test_net_sums_over_devices(monkeypatch):
     assert t["main"] == {"v": 150.0, "u": "B/s", "p": "↓"} and t["aside"] == {"v": 10.0, "u": "B/s", "p": "↑"}
     since = next(k for k in t["kv"] if k["k"] == "kv.since_boot")["v"]
     assert [n["v"] for n in since] == [3000, 300]
-    assert [d["values"][0]["v"] for d in t["devices"]] == [100.0, 50.0]
+    assert [d["values"][0]["v"] for d in t["devices"]["rows"]] == [100.0, 50.0]
 
 
 # 18: close
@@ -522,11 +526,11 @@ def test_close_stops_only_own_tools(monkeypatch):
 
 
 # 19 / 20: seg für Lüfter und Temperatur
-def test_fan_seg_uses_max_rpm_then_window_max(patched):
-    s = patched(read_sensors=sens(fans=[Fan("f", 2000.0, 4000.0)]))
-    assert tile(s.snapshot(OVERVIEW), "fan")["seg"] == 50
-    s = patched(read_sensors=sens(fans=[Fan("f", 2000.0, None)]))
-    assert tile(s.snapshot(OVERVIEW), "fan")["seg"] == 100  # Fenstermaximum = aktueller Wert
+def test_fan_seg_uses_max_rpm_then_scale_top(patched):
+    t = tile(patched(read_sensors=sens(fans=[Fan("f", 2000.0, 4000.0)])).snapshot(OVERVIEW), "fan")
+    assert t["seg"] == 50 and t["warn"] is True
+    t = tile(patched(read_sensors=sens(fans=[Fan("f", 3000.0, None)])).snapshot(OVERVIEW), "fan")
+    assert t["seg"] == 60 and t["warn"] is False  # Skala _nice(3000) = 5000, nicht das Fenstermaximum
 
 
 def test_temp_seg_uses_crit_else_100(tree_copy):
@@ -767,3 +771,89 @@ def test_dead_locale_key_removed():
 @pytest.mark.parametrize("part,whole,want", [(None, 100, None), (5, None, None), (5, 0, None), (50, 200, 25.0), (0, 10, 0.0)])
 def test_pct_is_none_safe(part, whole, want):
     assert sampler_mod._pct(part, whole) == want
+
+
+# ---- Task 14, Fix-Runde 1: warn, Segmente relativ zur Skala, Geräte-Tabelle, Anonymisieren ----
+def test_warn_only_with_absolute_reference():
+    snap = run(INTEL, ticks=4, tools=NoTools(pkg_w=7.5)).snapshot(OVERVIEW)
+    assert {t["id"]: t["warn"] for t in snap["tiles"]} == {
+        "cpu": True, "gpu0": True, "mem": True, "power": False, "temp": True, "fan": True, "net": False, "disk": False}
+    assert tile(snap, "power")["seg"] == 75  # 7,5 W auf der Skala _nice(7,5) = 10, nicht 100 % des Fenstermaximums
+
+
+def net_seg(monkeypatch, *ticks):
+    s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
+    seq = iter(ticks)
+    monkeypatch.setattr(s._net, "read", lambda now: next(seq))
+    for _ in ticks:
+        s.tick_system()
+    t = tile(s.snapshot(OVERVIEW), "net")
+    return t["seg"], t["warn"]
+
+
+def test_net_seg_relative_without_link_speed(monkeypatch):
+    ticks = [NetDev("a", 1500.0, 1.0, 0, 0, True)], [NetDev("a", 600.0, 1.0, 0, 0, True)]
+    assert net_seg(monkeypatch, *ticks) == (30, False)  # Skala _nice(1500) = 2000
+
+
+def test_net_seg_absolute_with_link_speed_of_every_active_device(monkeypatch):
+    fast = NetDev("a", 1.25e6, 1.0, 0, 0, True, 100)  # 100 Mbit/s = 12,5 MB/s
+    assert net_seg(monkeypatch, [fast]) == (10, True)
+    down = NetDev("b", 0.0, 0.0, 0, 0, False)
+    assert net_seg(monkeypatch, [fast, down]) == (10, True)  # inaktive Geräte zählen nicht
+    wifi = NetDev("c", 0.0, 0.0, 0, 0, True)  # aktiv, ohne Speed: Bezug unbekannt
+    assert net_seg(monkeypatch, [fast, wifi]) == (62.5, False)
+
+
+def test_disk_seg_relative_to_scale_top(monkeypatch):
+    s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
+    monkeypatch.setattr(s._disk, "read", lambda now: [Disk("sda", "", 3000.0, 0.0, None, None, None)])
+    s.tick_system()
+    t = tile(s.snapshot(OVERVIEW), "disk")
+    assert (t["seg"], t["warn"]) == (60, False)
+
+
+def test_device_tables_have_columns_and_null_cells(monkeypatch):
+    s = Sampler(VM, tools=NoTools(), clock=fake_clock(), uid=1000)
+    monkeypatch.setattr(s._net, "read", lambda now: [NetDev("a", 100.0, None, 0, 0, True)])
+    monkeypatch.setattr(s._disk, "read", lambda now: [Disk("sda", "M", 5.0, None, 10, 40, None),
+                                                      Disk("sdb", "N", None, 1.0, None, None, None)])
+    s.tick_system()
+    snap = s.snapshot(OVERVIEW)
+    assert tile(snap, "net")["devices"] == {
+        "cols": ["series.rx", "series.tx"], "rows": [{"name": "a", "values": [{"v": 100.0, "u": "B/s"}, None]}]}
+    assert tile(snap, "disk")["devices"] == {
+        "cols": ["series.read", "series.write", "kv.used", "kv.temperature"],
+        "rows": [{"name": "sda", "values": [{"v": 5.0, "u": "B/s"}, None, {"v": 10, "u": "B", "of": 40}, None]},
+                 {"name": "sdb", "values": [None, {"v": 1.0, "u": "B/s"}, None, None]}]}
+
+
+def test_net_reader_reads_link_speed(tree_copy):
+    root = tree_copy(VM)
+    speed = Path(root) / "sys/class/net/ens3/speed"
+    speed.write_text("1000\n")
+    assert [d.speed for d in NetReader(root).read(1.0)] == [1000]
+    speed.write_text("-1\n")  # Kabel gezogen
+    assert [d.speed for d in NetReader(root).read(1.0)] == [None]
+    speed.unlink()  # WLAN: Lesen scheitert
+    assert [d.speed for d in NetReader(root).read(1.0)] == [None]
+
+
+def load_dump():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("dump_snapshot", SCRIPT)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def test_anonymize_replaces_every_name_field():
+    secret = "geheimname"
+    brief = {"pid": 5, "start": 9, "name": secret, "cpu": 1.0, "rss": 1}
+    row = {**brief, "args": secret + " --flag", "user": secret}
+    tick = {"top": {"cpu": [dict(brief)], "mem": dict(brief)}, "procs": [dict(row)],
+            "detail": {**row, "cmdline": secret + " --flag", "parent": secret}}
+    out = load_dump().anonymize(tick)
+    assert secret not in json.dumps(out)
+    assert out["top"]["cpu"][0]["name"] == out["detail"]["parent"] == "proc-1"
+    assert out["detail"]["user"] == "user" and out["procs"][0]["args"] == ""

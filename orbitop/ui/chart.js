@@ -56,18 +56,19 @@ function drawArea(canvas, series, opts) {
       run.push((off + j) * step, y(v));
     });
     if (s.fill) {
-      const g = ctx.createLinearGradient(0, 0, 0, h);
-      g.addColorStop(0, color + "80");
-      g.addColorStop(1, color + "08");
-      ctx.fillStyle = g;
-      ctx.beginPath();
       for (const r of runs) {
+        let top = h; // Verlauf von der Kurvenoberkante bis zur Grundlinie, wie im Entwurf (SVG objectBoundingBox)
+        for (let k = 1; k < r.length; k += 2) top = Math.min(top, r[k]);
+        const g = ctx.createLinearGradient(0, top, 0, h);
+        g.addColorStop(0, color + "80");
+        g.addColorStop(1, color + "08");
+        ctx.fillStyle = g;
+        ctx.beginPath();
         ctx.moveTo(r[0], h);
         for (let k = 0; k < r.length; k += 2) ctx.lineTo(r[k], r[k + 1]);
         ctx.lineTo(r[r.length - 2], h);
-        ctx.closePath();
+        ctx.fill();
       }
-      ctx.fill();
     }
     ctx.beginPath();
     for (const r of runs) {
@@ -99,9 +100,9 @@ function drawArea(canvas, series, opts) {
   }
 }
 
-/** 20 Segmente zu je 5 %; die oberhalb von 80 % leuchten bernsteinfarben. */
-function drawSegments(el, pct) {
+/** 20 Segmente zu je 5 %; mit warn (absolute Obergrenze) leuchten die oberhalb von 80 % bernsteinfarben. */
+function drawSegments(el, pct, warn) {
   if (el.childElementCount !== 20) el.replaceChildren(...Array.from({ length: 20 }, () => document.createElement("b")));
   const on = Math.round(Math.min(Math.max(pct || 0, 0), 100) / 5);
-  for (let i = 0; i < 20; i++) el.children[i].className = i >= on ? "" : i >= 16 ? "hot" : "on";
+  for (let i = 0; i < 20; i++) el.children[i].className = i >= on ? "" : warn && i >= 16 ? "hot" : "on";
 }

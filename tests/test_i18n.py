@@ -86,6 +86,7 @@ def test_required_keys_exist():
 def test_key_placeholders():
     en = json_of("en")
     assert placeholders(en["footer.missing"]) == {"list"}
+    assert placeholders(en["cap.rate"]) == {"unit"}
     assert placeholders(en["about.version"]) == {"version"}
     assert placeholders(en["verdict.zombie"]) == {"parent"}
     assert {"name", "pid"} <= placeholders(en["confirm.terminate_text"]) & placeholders(en["confirm.kill_text"])
@@ -165,3 +166,8 @@ def test_kill_dialog_has_own_labels():
         d = json_of(lang)
         assert d["confirm.title_kill"] != d["confirm.title"]
         assert d["confirm.yes_kill"] != d["confirm.yes"]
+
+
+def test_every_tile_kind_has_missing_text():
+    from orbitop.sampler import KINDS
+    assert {f"missing.{k}" for k in KINDS} <= set(json_of("en"))

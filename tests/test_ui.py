@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-CHROME = shutil.which("google-chrome") or shutil.which("chromium")
+CHROME = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
 PAGE = Path(__file__).parent / "ui" / "check.html"
 
 

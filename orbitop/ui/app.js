@@ -16,6 +16,13 @@ const TABS = ["overview", "procs"];
 const BYTES = ["B", "KB", "MB", "GB", "TB"];
 const DIGITS = { GHz: 1, W: 1 }; // sonst ganze Zahlen; Bytes unter 10 mit einer Nachkommastelle
 
+/** 1024er-Stufe für big; eine Stufe höher, wenn die Rundung 1024 ergäbe (1023,7 B/s -> 1 KB/s). */
+function byteStep(big) {
+  let e = 0;
+  while (e < BYTES.length - 1 && Math.round(big / 1024 ** e) >= 1024) e++;
+  return e;
+}
+
 const state = { lang: "en", texts: {}, tab: "overview", last: null, briefs: [] };
 const ui = { labels: [] };
 const tiles = new Map(); // Kachel-id -> Elemente
@@ -44,12 +51,10 @@ function number(v, lang, min, max, group) {
 /** Num -> Text: Bytes in 1024er-Stufen, „v / of Einheit“, Präfix p, Dezimalzeichen nach Sprache, null als „–“. */
 function fmt(num, lang) {
   if (!num || num.v == null) return "–";
-  const u = num.u, of = num.of == null ? null : num.of;
+  const u = num.u, of = num.of;
   let unit = u, scale = 1;
   if (u === "B" || u === "B/s") {
-    const big = Math.max(Math.abs(num.v), Math.abs(of || 0));
-    let e = 0;
-    while (e < BYTES.length - 1 && big >= 1024 ** (e + 1)) e++;
+    const e = byteStep(Math.max(Math.abs(num.v), Math.abs(of || 0)));
     scale = 1024 ** e;
     unit = BYTES[e] + u.slice(1);
   } else if (u === "rpm") {
@@ -188,6 +193,13 @@ function plot(parent, cls, cap) {
   return el("canvas", "", box);
 }
 
+/** Beschriftung folgt der ersten Kurve: Takt statt Auslastung, Einheit der Skala bei Raten. */
+function caption(t) {
+  const s = t.series[0];
+  const key = s && s.key === "kv.clock" ? "cap.clock" : CAPS[t.kind] || "cap.usage";
+  return fill(key, { unit: s && s.u === "B/s" ? BYTES[byteStep(s.max)] + "/s" : "" });
+}
+
 function makeTile(t) {
   const root = el("div", "tile");
   const colors = colorsOf(t);
@@ -199,10 +211,11 @@ function makeTile(t) {
   const v = {
     root, colors, kind: el("span", "", title), name: el("span", "nm", title), main: el("div", "v", left),
     aside: el("div", "s aside", head), seg: el("div", "seg", inner),
-    canvas: plot(inner, "plot", text(CAPS[t.kind] || "cap.usage")),
+    canvas: plot(inner, "plot", ""),
     threads: el("div", "", inner), threadEls: [], legend: el("div", "lg", inner), legendSig: null,
-    kv: el("div", "kv", inner), dev: el("div", "kv dev", inner),
+    kv: el("div", "kv", inner), dev: el("table", "dev", inner), devShape: null,
   };
+  v.cap = v.canvas.previousSibling;
   v.threads.hidden = true; // nur die CPU-Kachel zeigt Threads
   tiles.set(t.id, v);
   return v;
@@ -234,6 +247,31 @@ function updateThreads(v, threads) {
   });
 }
 
+/** Geräte als Tabelle: Kopf aus cols (übersetzt), je Gerät eine Zeile, null als „–“. */
+function updateDevices(v, devices) {
+  const cols = devices ? devices.cols : [], rows = devices ? devices.rows : [];
+  const shape = cols.join("\n") + "|" + rows.length;
+  if (v.devShape !== shape) {
+    v.devShape = shape;
+    v.dev.replaceChildren();
+    const head = el("tr", "", el("thead", "", v.dev));
+    el("th", "", head);
+    for (const c of cols) el("th", "", head, text(c)).scope = "col";
+    const body = el("tbody", "", v.dev);
+    for (let i = 0; i < rows.length; i++) {
+      const tr = el("tr", "", body);
+      el("th", "nm", tr).scope = "row";
+      for (let j = 0; j < cols.length; j++) el("td", "", tr);
+    }
+    v.dev.hidden = !rows.length;
+  }
+  rows.forEach((r, i) => {
+    const cells = v.dev.tBodies[0].rows[i].cells;
+    setText(cells[0], String(r.name));
+    for (let j = 0; j < cols.length; j++) setText(cells[j + 1], fmt(r.values[j], state.lang));
+  });
+}
+
 function updateTile(v, t) {
   const name = t.name ? shortName(String(t.name)) : "";
   setText(v.kind, text("tile." + t.kind) + (name ? " · " : ""));
@@ -241,7 +279,8 @@ function updateTile(v, t) {
   v.name.title = t.name ? String(t.name) : "";
   setText(v.main, fmt(t.main, state.lang));
   setText(v.aside, t.aside == null ? "" : show(t.aside));
-  drawSegments(v.seg, t.seg);
+  drawSegments(v.seg, t.seg, t.warn);
+  setText(v.cap, caption(t));
   drawArea(v.canvas, t.series, { color: v.colors[0], color2: v.colors[1], color3: v.colors[2],
                                  gridSeconds: GRID_SECONDS, points: POINTS });
   if (t.kind === "cpu") updateThreads(v, t.threads);
@@ -257,8 +296,7 @@ function updateTile(v, t) {
     v.legend.hidden = !names.length;
   }
   pairs(v.kv, (t.kv || []).map((r) => ["k" in r ? text(r.k) : String(r.l), show(r.v)]));
-  pairs(v.dev, (t.devices || []).map((d) => [String(d.name),
-    d.values.filter((n) => n.v != null).map((n) => fmt(n, state.lang)).join(" · ")]));
+  updateDevices(v, t.devices);
 }
 
 function renderTiles(list) {

@@ -29,6 +29,11 @@ def _num(v, u, of=None, p=None):
     return n
 
 
+def _opt(v, u, of=None):
+    """Zelle der Geräte-Tabelle: fehlender Wert ist null („–“), kein Num mit v=None."""
+    return None if v is None else _num(v, u, of)
+
+
 def _kv(k, v):
     return {"k": k, "v": v}
 
@@ -272,25 +277,26 @@ class Sampler:
         wmax = max((v for s in vals for v in s if v is not None), default=0.0)
         top = 100.0 if unit == "%" else max(100.0, 1.1 * wmax) if unit == "°C" else _nice(wmax)
         return [{name[0]: name[1], "fill": f, "max": top, "u": unit, "values": v}
-                for (name, _, f), v in zip(specs, vals)], wmax
+                for (name, _, f), v in zip(specs, vals)]
 
     @staticmethod
-    def _tile(kind, id, name, main, aside, seg, series, kv, devices=None, threads=None):
+    def _tile(kind, id, name, main, aside, seg, series, kv, warn, devices=None, threads=None):
+        """warn: seg hat eine absolute Obergrenze, Bernstein ab 80 % ist dann eine echte Warnung."""
         return {"id": id, "kind": kind, "name": name, "main": main, "aside": aside, "seg": seg,
-                "series": series, "threads": threads, "kv": kv, "devices": devices}
+                "series": series, "threads": threads, "kv": kv, "devices": devices, "warn": warn}
 
     def _cpu_tile(self):
         c = self._s["cpu"]
         if c is None:
             return None
-        series, _ = self._plot("%", (("key", "series.used"), "cpu", True))
+        series = self._plot("%", (("key", "series.used"), "cpu", True))
         temp = self._s["sens"].cpu_temp if self._s["sens"] else None
         kv = [_kv("kv.temperature", _num(temp, "°C"))] if temp is not None else []
         n_proc, n_thr = self._table.counts()
         if n_proc:
             kv.append(_kv("kv.procs_threads", _num(n_proc, "", n_thr)))
         return self._tile("cpu", "cpu", c.model, _num(c.total, "%"), _num(c.freq_ghz, "GHz"),
-                          _seg(c.total, 100), series, kv,
+                          _seg(c.total, 100), series, kv, True,
                           threads=[list(self._bufs.get(f"t{i}", ())) for i in range(len(c.threads))])
 
     def _gpu_tile(self, g, smp):
@@ -299,7 +305,7 @@ class Sampler:
                                             smp.temp_c, smp.vram_used, smp.vram_total)):
             return None
         busy = self._busy_gpu[g.info.card]
-        series, _ = self._plot("%", (("key", "series.used" if busy else "kv.clock"), card, True))
+        series = self._plot("%", (("key", "series.used" if busy else "kv.clock"), card, True))
         main = smp.busy if busy else _pct(smp.freq_mhz, smp.freq_max_mhz)
         kv = [_kv("kv.clock", _num(smp.freq_mhz, "MHz"))] if smp.freq_mhz is not None else []
         if smp.power_w is not None:
@@ -311,7 +317,7 @@ class Sampler:
         elif g.info.vendor == "intel":
             kv.append(_kv("kv.memory", _tk("kv.shared_with_ram")))
         return self._tile("gpu", "gpu", g.name, _num(main, "%"), _num(smp.freq_mhz, "MHz", smp.freq_max_mhz),
-                          _seg(main, 100), series, kv)
+                          _seg(main, 100), series, kv, True)
 
     def _mem_tile(self):
         m = self._s["mem"]
@@ -319,12 +325,13 @@ class Sampler:
             return None
         specs = [(("key", "series.used"), "mem", True)] + (
             [(("key", "series.swap"), "swap", False)] if m.swap_total else [])
-        series, _ = self._plot("%", *specs)
+        series = self._plot("%", *specs)
         used = _pct(m.used, m.total)
         kv = [_kv("kv.available", _num(m.available, "B"))]
         if m.swap_total:
             kv.append(_kv("kv.swap", _num(m.swap_used, "B", m.swap_total)))
-        return self._tile("mem", "mem", "", _num(used, "%"), _num(m.used, "B", m.total), _seg(used, 100), series, kv)
+        return self._tile("mem", "mem", "", _num(used, "%"), _num(m.used, "B", m.total), _seg(used, 100), series, kv,
+                          True)
 
     def _power_tile(self):
         s = self._s
@@ -332,7 +339,7 @@ class Sampler:
         if s["pwr"] is None and batt is None and gpu_w is None:
             return None
         name = s["pwr_name"]
-        series, wmax = self._plot("W", (name, "power", True))
+        series = self._plot("W", (name, "power", True))
         kv = []
         core = s["rapl"].get("core")
         if core is not None:
@@ -343,47 +350,53 @@ class Sampler:
             state = _tk("kv.on_ac") if batt.on_ac else _num(batt.discharge_w, "W") if batt.discharge_w is not None else None
             kv.append(_kv("kv.battery", [_num(batt.percent, "%")] + ([state] if state else [])))
         return self._tile("power", "power", "", _num(s["pwr"], "W"), _tk(name[1]) if name[0] == "key" else _tl(name[1]),
-                          _seg(s["pwr"], wmax), series, kv)
+                          _seg(s["pwr"], series[0]["max"]), series, kv, False)
 
     def _temp_tile(self):
         temps = self._s["temps"]
         if not temps:
             return None
-        series, _ = self._plot("°C", *[(name, buf, i == 0) for i, (buf, name, _) in enumerate(temps[:3])])
+        series = self._plot("°C", *[(name, buf, i == 0) for i, (buf, name, _) in enumerate(temps[:3])])
         hottest = max(v for _, _, v in temps)
         return self._tile("temp", "temp", "", _num(hottest, "°C"), _tk("tile.temp_aside"),
                           _seg(hottest, self._crit or 100), series,
-                          [(_kv if name[0] == "key" else _kl)(name[1], _num(v, "°C")) for _, name, v in temps[3:]])
+                          [(_kv if name[0] == "key" else _kl)(name[1], _num(v, "°C")) for _, name, v in temps[3:]],
+                          True)
 
     def _fan_tile(self):
         fans = self._s["fans"]
         if not fans:
             return None
-        series, wmax = self._plot("rpm", *[(("label", k), "fan:" + k, i == 0) for i, (k, _) in enumerate(fans[:3])])
+        series = self._plot("rpm", *[(("label", k), "fan:" + k, i == 0) for i, (k, _) in enumerate(fans[:3])])
         first = [v for v in self._bufs["fan:" + fans[0][0]] if v is not None]
         kv = [_kv("kv.fan_min", _num(min(first), "rpm")), _kv("kv.fan_max", _num(max(first), "rpm"))]
         return self._tile("fan", "fan", "", _num(fans[0][1].rpm, "rpm"), _tl(fans[0][0]),
-                          _seg(fans[0][1].rpm, fans[0][1].max_rpm or wmax), series, kv)
+                          _seg(fans[0][1].rpm, fans[0][1].max_rpm or series[0]["max"]), series, kv,
+                          bool(fans[0][1].max_rpm))
 
     def _net_tile(self):
         devs = self._s["nets"]
         if not devs:
             return None
-        series, wmax = self._plot("B/s", (("key", "series.rx"), "rx", True), (("key", "series.tx"), "tx", False))
+        series = self._plot("B/s", (("key", "series.rx"), "rx", True), (("key", "series.tx"), "tx", False))
         rx, tx = _sum(d.rx_bps for d in devs), _sum(d.tx_bps for d in devs)
         up = [d.name for d in devs if d.up]
         kv = [_kv("kv.interface", _tl(up[0]))] if len(up) == 1 else []
         kv.append(_kv("kv.since_boot", [_num(sum(d.rx_total for d in devs), "B", p="↓"),
                                         _num(sum(d.tx_total for d in devs), "B", p="↑")]))
+        # Absolut nur, wenn jedes aktive Gerät seine Link-Geschwindigkeit kennt (Mbit/s -> B/s), sonst relativ zur Skala
+        link = sum(d.speed for d in devs if d.up) * 125000 if up and all(d.speed for d in devs if d.up) else None
         return self._tile("net", "net", up[0] if len(up) == 1 else "", _num(rx, "B/s", p="↓"),
-                          _num(tx, "B/s", p="↑"), _seg(rx, wmax), series, kv,
-                          [{"name": d.name, "values": [_num(d.rx_bps, "B/s"), _num(d.tx_bps, "B/s")]} for d in devs])
+                          _num(tx, "B/s", p="↑"), _seg(rx, link or series[0]["max"]), series, kv, link is not None,
+                          {"cols": ["series.rx", "series.tx"],
+                           "rows": [{"name": d.name, "values": [_opt(d.rx_bps, "B/s"), _opt(d.tx_bps, "B/s")]}
+                                    for d in devs]})
 
     def _disk_tile(self):
         disks = self._s["disks"]
         if not disks:
             return None
-        series, wmax = self._plot("B/s", (("key", "series.read"), "read", True), (("key", "series.write"), "write", False))
+        series = self._plot("B/s", (("key", "series.read"), "read", True), (("key", "series.write"), "write", False))
         rd, wr = _sum(d.read_bps for d in disks), _sum(d.write_bps for d in disks)
         kv = [_kv("kv.write", _num(wr, "B/s"))]
         used, size = _sum(d.used for d in disks), _sum(d.size for d in disks)
@@ -394,10 +407,11 @@ class Sampler:
             kv.append(_kv("kv.temperature", _num(temp, "°C")))
         one = disks[0] if len(disks) == 1 else None
         return self._tile("disk", "disk", (one.model or one.name) if one else "", _num(rd, "B/s"),
-                          _tk("series.read"), _seg(rd, wmax), series, kv,
-                          [{"name": d.name, "values": [_num(d.read_bps, "B/s"), _num(d.write_bps, "B/s"),
-                                                       _num(d.used, "B"), _num(d.size, "B"),
-                                                       _num(d.temp_c, "°C")]} for d in disks])
+                          _tk("series.read"), _seg(rd, series[0]["max"]), series, kv, False,
+                          {"cols": ["series.read", "series.write", "kv.used", "kv.temperature"],
+                           "rows": [{"name": d.name, "values": [_opt(d.read_bps, "B/s"), _opt(d.write_bps, "B/s"),
+                                                                _opt(d.used, "B", d.size), _opt(d.temp_c, "°C")]}
+                                    for d in disks]})
 
     def _tiles(self) -> list[dict]:
         out = [_safe(self._cpu_tile)]
