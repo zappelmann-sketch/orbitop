@@ -32,7 +32,7 @@ class RawProc:
     vctx: int
     nvctx: int
     io: int | None  # rchar + wchar, None wenn nicht lesbar
-    args: str = ""
+    args: str
 
 
 def _read(p: str) -> str | None:
@@ -42,7 +42,10 @@ def _read(p: str) -> str | None:
     except OSError:
         return None
     try:
-        return os.read(fd, 65536).decode("utf-8", errors="replace")
+        chunks = []
+        while chunk := os.read(fd, 65536):  # status kann bei vielen Gruppen > 64 KiB werden
+            chunks.append(chunk)
+        return b"".join(chunks).decode("utf-8", errors="replace")
     except OSError:
         return None
     finally:
@@ -85,7 +88,9 @@ def _clean(s: str) -> str:
 
 
 def _read_cmdline(p: str) -> tuple[str, str]:
-    """(cmdline, args). args trennt bei der ersten NUL, ohne NUL (setproctitle) beim ersten Leerzeichen."""
+    """(cmdline, args). args: alles nach der ersten NUL; ohne NUL (setproctitle-Titel) nach dem ersten Leerzeichen.
+    shortcut: ein einzelnes argv mit Leerzeichen und ohne NUL (Wine "C:\\Program Files\\x.exe") wird wie ein
+    Titel geteilt; sauber erst, wenn /proc/<pid>/exe oder comm zum Unterscheiden herangezogen wird."""
     try:
         with open(p, "rb") as f:
             raw = f.read(CMDLINE_MAX * 4)
@@ -123,6 +128,8 @@ def scan(root: str, cmdlines: dict | None = None,
         except (ValueError, IndexError):
             continue
         key = (int(n), s["start"])
+        # shortcut: ein exec auf ein Programm mit gleichem comm behält die alte cmdline (comm ist das einzige
+        # Exec-Signal); sauber erst, wenn zusätzlich /proc/<pid>/exe verglichen wird.
         c = cmdlines.get(key)
         if c is None or c[0] != s["name"]:
             c = cmdlines[key] = (s["name"], *_read_cmdline(base + "/cmdline"))
@@ -195,9 +202,8 @@ class ProcTable:
     def _row(self, e: _Entry, now: float) -> dict:
         r = e.raw
         state, since = classify(e.state, now)
-        args = r.args
         return {"pid": r.pid, "start": r.start, "name": r.name,
-                "args": args if len(args) <= ARGS_MAX else args[:ARGS_MAX - 1] + "…",
+                "args": r.args if len(r.args) <= ARGS_MAX else r.args[:ARGS_MAX - 1] + "…",
                 "user": self._user(r.uid), "own": r.uid == self.uid, "cpu": e.cpu,
                 "spark": list(e.history)[-SPARK:], "rss": r.rss, "io": e.io_rate,
                 "state": state, "since": since}

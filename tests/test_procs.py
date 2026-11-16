@@ -73,10 +73,13 @@ def test_scan_io_none_for_foreign(tmp_path):
     assert scan(str(tmp_path))[(100, 98765)].io is None
 
 
-def test_scan_kernel_thread_and_zombie_have_bracket_name(tmp_path):
+def test_scan_brackets_only_kernel_threads(tmp_path):
     make_proc(tmp_path, 2, comm="kthreadd", cmdline=b"", io=None, ppid=0)
-    r = scan(str(tmp_path))[(2, 98765)]
-    assert r.name == "[kthreadd]" and r.cmdline == ""
+    make_proc(tmp_path, 3, comm="kworker/0:1", cmdline=b"", ppid=2)
+    make_proc(tmp_path, 1, comm="systemd", cmdline=b"/sbin/init\0", ppid=0)
+    r = scan(str(tmp_path))
+    assert r[(2, 98765)].name == "[kthreadd]" and r[(2, 98765)].cmdline == ""
+    assert r[(3, 98765)].name == "[kworker/0:1]" and r[(1, 98765)].name == "systemd"
 
 
 def test_scan_user_process_with_empty_cmdline_gets_no_brackets(tmp_path):
@@ -85,9 +88,9 @@ def test_scan_user_process_with_empty_cmdline_gets_no_brackets(tmp_path):
 
 
 def test_scan_name_and_cmdline_sanitized(tmp_path):
-    make_proc(tmp_path, 100, comm="a\x1b[1m\n\u202eX\u2066", cmdline="x\u202e\x85y\0z".encode())
+    make_proc(tmp_path, 100, comm="a\x1b[1m\n\u202eX\u2066", cmdline="x\u202e\x85y\0z\x1b".encode())
     r = scan(str(tmp_path))[(100, 98765)]
-    assert r.name == "a?[1m??X?" and r.cmdline == "x??y z" and r.args == "z"
+    assert r.name == "a?[1m??X?" and r.cmdline == "x??y z?" and r.args == "z?"
 
 
 def test_scan_args_split_nul_or_space(tmp_path):
@@ -114,6 +117,15 @@ def test_scan_uses_real_uid_and_large_status(tmp_path):
         "\nvoluntary_ctxt_switches:\t30\nnonvoluntary_ctxt_switches:\t4\n")
     r = scan(str(tmp_path))[(100, 98765)]
     assert (r.uid, r.vctx, r.nvctx) == (1000, 30, 4)
+
+
+def test_scan_status_over_64kib_with_ctxt_lines_at_end(tmp_path):
+    make_proc(tmp_path, 100)
+    (tmp_path / "proc" / "100" / "status").write_text(
+        "Name:\tx\nUid:\t1000\t0\t0\t0\nGroups:" + " 1" * 40000 +
+        "\nvoluntary_ctxt_switches:\t30\nnonvoluntary_ctxt_switches:\t4\n")
+    assert (tmp_path / "proc" / "100" / "status").stat().st_size > 65536
+    assert (100, 98765) in scan(str(tmp_path))
 
 
 def test_scan_non_ascii_digit_pid_with_stat_skipped(tmp_path):
@@ -214,7 +226,7 @@ def test_rows_and_detail_shape(tmp_path):
     assert d["parent"] == "init" and d["own"] is False and d["user"] == "4242424"
     assert d["vctx"] == 10 and d["nvctx"] == 2 and d["io"] == 1000
     assert len(d["args"]) == 120 and d["args"].endswith("…") and d["cmdline"].startswith("/bin/p yy")
-    assert d["started"] == 1000000 and t.detail(1, 5, 2.0)["started"] == 1000000 + 0
+    assert d["started"] == 1000000 and t.detail(1, 5, 2.0)["started"] == 1000000
     assert t.detail(10, 99, 2.0) is None
     assert t.rows(2.0)[0]["own"] is True and t.rows(2.0)[1]["own"] is False
 
