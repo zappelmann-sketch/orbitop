@@ -25,9 +25,10 @@ def test_link_name_dangling(tmp_path):
 
 
 def test_glob_natural_order_survives_superscript_digits(tmp_path):
-    for n in ("hwmon²", "hwmon1"):
+    for n in ("hwmon2", "hwmon1²", "hwmon10"):
         (tmp_path / n).mkdir()
-    assert len(sysfs.glob(str(tmp_path), "/hwmon*")) == 2
+    names = [p.rsplit("/", 1)[1] for p in sysfs.glob(str(tmp_path), "/hwmon*")]
+    assert names == ["hwmon1²", "hwmon2", "hwmon10"]
 
 
 def test_glob_root_with_brackets(tmp_path):
