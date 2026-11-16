@@ -1,0 +1,90 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Oxanium:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  .k4 { --bg:#07090b; --panel:#10161a; --ink:#e9f6ff; --mut:#6f8b98; --amber:#ffb54a;
+        position:relative; border-radius:10px; padding:16px; background:linear-gradient(180deg,#0c1115,#06080a); color:var(--ink); font-family:Oxanium,system-ui,sans-serif; font-size:13px; }
+  .k4 .hdr { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
+  .k4 .brand { font-family:Orbitron,sans-serif; font-weight:700; letter-spacing:.2em; font-size:12px; color:var(--ink); }
+  .k4 .tabs { display:flex; gap:6px; margin:0 auto; }
+  .k4 .tab { padding:4px 20px; letter-spacing:.16em; text-transform:uppercase; font-weight:600; font-size:11.5px; color:var(--mut); background:#141b20;
+             clip-path:polygon(9px 0,100% 0,calc(100% - 9px) 100%,0 100%); }
+  .k4 .tab.on { background:#4fd8ff; color:#04161d; box-shadow:0 0 18px #4fd8ff; }
+  .k4 .s { color:var(--mut); font-size:11.5px; font-variant-numeric:tabular-nums; }
+  .k4 .strip { display:flex; gap:8px; align-items:center; margin-bottom:12px; padding:7px 14px; background:#10161a;
+               clip-path:polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,0 100%); border-left:2px solid var(--amber); }
+  .k4 .strip .lbl { letter-spacing:.14em; text-transform:uppercase; font-size:11px; color:var(--amber); font-weight:600; }
+  .k4 .chip { padding:3px 12px; background:#1a232a; font-variant-numeric:tabular-nums; clip-path:polygon(6px 0,100% 0,calc(100% - 6px) 100%,0 100%); }
+  .k4 .chip b { color:#fff; font-weight:600; }
+  .k4 .grid { display:grid; grid-template-columns:repeat(4,1fr); gap:12px; }
+  /* Rahmen = äußere Fläche mit Farbverlauf, innen 1px kleiner – beide mit abgeschrägten Ecken */
+  .k4 .tile { --c:#4fd8ff; padding:1px; background:linear-gradient(135deg, var(--c) 0%, color-mix(in srgb, var(--c) 30%, transparent) 30%, rgba(255,255,255,.06) 60%, color-mix(in srgb, var(--c) 35%, transparent) 100%);
+              clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px)); }
+  .k4 .in { background:linear-gradient(180deg,#121a1f,#0b1013); padding:11px 13px 13px; display:flex; flex-direction:column; gap:7px; height:100%;
+            clip-path:polygon(0 0,calc(100% - 17.5px) 0,100% 17.5px,100% 100%,17.5px 100%,0 calc(100% - 17.5px)); }
+  .k4 .head { display:flex; justify-content:space-between; align-items:flex-end; }
+  .k4 .t { font-weight:600; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:color-mix(in srgb, var(--c) 70%, #dfefff); }
+  .k4 .v { font-family:Orbitron,sans-serif; font-weight:700; font-size:22px; line-height:1.1; color:#f2fbff; text-shadow:0 0 14px color-mix(in srgb, var(--c) 55%, transparent); }
+  .k4 .seg { display:flex; gap:2px; } .k4 .seg b { flex:1; height:6px; background:#1a2329; }
+  .k4 .seg b.on { background:var(--c); box-shadow:0 0 6px color-mix(in srgb, var(--c) 70%, transparent); }
+  .k4 .seg b.hot { background:var(--amber); box-shadow:0 0 6px rgba(255,181,74,.7); }
+  .k4 .plot { position:relative; overflow:hidden; background:repeating-linear-gradient(0deg, rgba(120,200,255,.035) 0 2px, transparent 2px 4px), #070b0d;
+              border-left:2px solid color-mix(in srgb, var(--c) 65%, transparent); }
+  .k4 .plot svg { display:block; width:100%; }
+  .k4 .cap { position:absolute; left:7px; top:3px; font-size:10px; color:var(--mut); letter-spacing:.06em; z-index:1; }
+  .k4 .cores { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }
+  .k4 .kv { display:grid; grid-template-columns:auto 1fr; gap:2px 10px; font-size:12px; font-variant-numeric:tabular-nums; }
+  .k4 .kv span:nth-child(odd) { color:var(--mut); }
+  .k4 .lg { display:flex; gap:10px; font-size:11px; color:#b9cad4; flex-wrap:wrap; }
+  .k4 .lg i { display:inline-block; width:10px; height:3px; vertical-align:middle; margin-right:4px; box-shadow:0 0 5px currentColor; }
+</style>
+
+<h2>Entwurf 4: Raumstation-Konsole mit Cockpit-Schrift und -Farben</h2>
+<p class="subtitle">Aufbau aus C: abgeschrägte Ecken, Segmentanzeige über jedem Verlauf, feine Rasterlinien. Dazu aus A die Schrift (Orbitron für Zahlen, Oxanium für Text), die Leuchtkurven und eine eigene Farbe je Bereich. Die Segmente werden ab 80 % bernsteinfarben. Alle Werte sind <b>Beispielwerte</b>.</p>
+
+<div class="k4">
+  <div class="hdr"><span class="brand">SYSTEMSTATUS</span><div class="tabs"><span class="tab on">Übersicht</span><span class="tab">Prozesse</span></div><span class="s">Takt 1 s · Fenster 5 Min</span></div>
+  <div class="strip"><span class="lbl">Höchste Last</span>
+    <span class="chip"><b>python3</b> 98 % CPU</span><span class="chip"><b>firefox</b> 22 % CPU</span><span class="chip"><b>code</b> 1,9 GB RAM</span>
+    <span class="s" style="margin-left:auto">Klick → Reiter „Prozesse“</span></div>
+  <div class="grid" id="g4"></div>
+</div>
+
+<script>
+(function(){
+  function series(seed, base, amp, n, rise){ let x=seed, out=[]; for(let i=0;i<n;i++){ x=(x*9301+49297)%233280; const r=x/233280;
+      const load = i>n*(rise??0.55) ? amp : amp*0.22; out.push(Math.max(1,Math.min(99, base + load*(0.55+0.45*r) + Math.sin(i/6+seed)*4))); } return out; }
+  let gid=0;
+  function plot(lines, h, cap, nv){
+    const w=300, step=w/(lines[0].v.length-1), Y=v=>(h-1-(v/100)*(h-6));
+    const gc='rgba(120,200,255,.09)';
+    let g=''; for(let k=1;k<5;k++){ const y=(h*k/5).toFixed(1); g+=`<line x1="0" x2="${w}" y1="${y}" y2="${y}" stroke="${gc}" vector-effect="non-scaling-stroke"/>`; }
+    nv=nv??10; for(let k=1;k<nv;k++){ const x=(w*k/nv).toFixed(1); g+=`<line y1="0" y2="${h}" x1="${x}" x2="${x}" stroke="${gc}" vector-effect="non-scaling-stroke"/>`; }
+    let defs='', body='', dots='';
+    lines.forEach((l,li)=>{ const id='g'+(gid++); const pts=l.v.map((v,i)=>`${(i*step).toFixed(1)} ${Y(v).toFixed(1)}`);
+      if(l.fill!==false){ defs+=`<linearGradient id="${id}" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="${l.c}" stop-opacity="0.5"/><stop offset="1" stop-color="${l.c}" stop-opacity="0.03"/></linearGradient>`;
+        body+=`<path d="M0 ${h} L${pts.join(' L')} L${w} ${h} Z" fill="url(#${id})"/>`; }
+      body+=`<path d="M${pts.join(' L')}" fill="none" stroke="${l.c}" stroke-opacity=".5" stroke-width="6" vector-effect="non-scaling-stroke" style="filter:blur(3px)"/>`;
+      body+=`<path d="M${pts.join(' L')}" fill="none" stroke="${l.c}" stroke-width="${l.sw??1.8}" vector-effect="non-scaling-stroke" stroke-linejoin="round"/>`;
+      if(li===0 && h>40){ const yp=(Y(l.v[l.v.length-1])/h*100).toFixed(1); dots+=`<i style="position:absolute;right:-3px;top:calc(${yp}% - 3px);width:7px;height:7px;border-radius:50%;background:#fff;box-shadow:0 0 6px 2px ${l.c}"></i>`; }
+    });
+    return `<div class="plot">${cap?`<span class="cap">${cap}</span>`:''}<svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="height:${h}px"><defs>${defs}</defs>${g}${body}</svg>${dots}</div>`;
+  }
+  const kv=a=>`<div class="kv">${a.map(p=>`<span>${p[0]}</span><span>${p[1]}</span>`).join('')}</div>`;
+  const lg=a=>`<div class="lg">${a.map(p=>`<span style="color:${p[1]}"><i style="background:${p[1]}"></i><span style="color:#b9cad4">${p[0]}</span></span>`).join('')}</div>`;
+  const seg=(pct)=>{ const on=Math.round(pct/5); return `<div class="seg">${Array.from({length:20},(_,i)=>`<b class="${i<on?(i>=16?'hot':'on'):''}"></b>`).join('')}</div>`; };
+  const tile=(c,t,v,s,pct,inner)=>`<div class="tile" style="--c:${c}"><div class="in"><div class="head"><div><div class="t">${t}</div><div class="v">${v}</div></div><div class="s" style="text-align:right">${s}</div></div>${seg(pct)}${inner}</div></div>`;
+  const C={cpu:'#4fd8ff',gpu:'#c48bff',ram:'#3dffa8',pwr:'#ffd84f',tmp:'#ff5f7a',fan:'#ff7ad9',net:'#5b8cff',dsk:'#2ff0d0',or:'#ffb347'};
+  const H=92, N=90;
+  const cores=[0,1,2,3].map(k=>plot([{v:series(50+k*7,8,70+k*5,40),c:C.cpu,sw:1.3}],32,'T'+k,4)).join('');
+  document.getElementById('g4').innerHTML = [
+    tile(C.cpu,'CPU · i7-7600U','87 %','3,4 GHz',87, plot([{v:series(3,10,75,N),c:C.cpu}],H,'AUSLASTUNG · 5 MIN')+`<div class="cores">${cores}</div>`+kv([['Temperatur','78 °C'],['Prozesse / Threads','312 / 1.904']])),
+    tile(C.gpu,'Grafik · HD 620','41 %','950 / 1150 MHz',41, plot([{v:series(5,5,40,N),c:C.gpu}],H,'AUSLASTUNG · 5 MIN')+kv([['Takt','950 MHz'],['Leistung','2,1 W'],['Speicher','geteilt mit RAM']])),
+    tile(C.ram,'Arbeitsspeicher','70 %','9,8 / 14 GB',70, plot([{v:series(7,52,18,N,0.4),c:C.ram},{v:series(9,4,2,N),c:C.or,fill:false,sw:1.3}],H,'BELEGUNG · 5 MIN')+lg([['Belegt',C.ram],['Swap',C.or]])+kv([['Verfügbar','4,2 GB'],['Swap','0,4 / 2 GB']])),
+    tile(C.pwr,'Leistung','18,6 W','CPU-Paket',62, plot([{v:series(11,10,48,N),c:C.pwr}],H,'WATT · 5 MIN')+kv([['CPU-Kerne','11,4 W'],['Grafik','2,1 W'],['Akku','80 % · Netzbetrieb']])),
+    tile(C.tmp,'Temperaturen','78 °C','heißester Sensor',78, plot([{v:series(13,48,32,N),c:C.tmp},{v:series(17,42,8,N),c:C.ram,fill:false,sw:1.3},{v:series(19,44,6,N),c:C.gpu,fill:false,sw:1.3}],H,'°C · 5 MIN')+lg([['CPU-Paket',C.tmp],['NVMe',C.ram],['Chipsatz',C.gpu]])+kv([['WLAN-Modul','37 °C'],['Gehäuse (Dell)','52 °C']])),
+    tile(C.fan,'Lüfter','4800 U/min','Dell-Lüfter',85, plot([{v:series(23,30,45,N),c:C.fan}],H,'U/MIN · 5 MIN')+kv([['Minimum (5 Min)','2100 U/min'],['Maximum (5 Min)','4900 U/min']])),
+    tile(C.net,'Netzwerk · WLAN','↓ 4,2 MB/s','↑ 0,3 MB/s',35, plot([{v:series(29,4,42,N),c:C.net},{v:series(31,2,8,N),c:C.or,fill:false,sw:1.3}],H,'MB/S · 5 MIN')+lg([['Empfangen',C.net],['Senden',C.or]])+kv([['Schnittstelle','wlp2s0'],['Seit Start','↓ 3,1 GB · ↑ 420 MB']])),
+    tile(C.dsk,'Datenträger · NVMe','120 MB/s','Lesen',61, plot([{v:series(37,3,30,N),c:C.dsk},{v:series(41,2,14,N),c:C.or,fill:false,sw:1.3}],H,'MB/S · 5 MIN')+lg([['Lesen',C.dsk],['Schreiben',C.or]])+kv([['Schreiben','35 MB/s'],['Belegt','582 / 954 GB (61 %)'],['Temperatur','47 °C']])),
+  ].join('');
+})();
+</script>

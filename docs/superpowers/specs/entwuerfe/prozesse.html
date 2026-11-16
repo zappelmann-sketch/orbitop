@@ -1,0 +1,125 @@
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Oxanium:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  .k4 { --ink:#e9f6ff; --mut:#6f8b98; --amber:#ffb54a; --red:#ff5f7a; --cyan:#4fd8ff; --green:#3dffa8;
+        border-radius:10px; padding:16px; background:linear-gradient(180deg,#0c1115,#06080a); color:var(--ink); font-family:Oxanium,system-ui,sans-serif; font-size:13px; }
+  .k4 .hdr { display:flex; align-items:center; gap:14px; margin-bottom:12px; }
+  .k4 .brand { font-family:Orbitron,sans-serif; font-weight:700; letter-spacing:.2em; font-size:12px; }
+  .k4 .tabs { display:flex; gap:6px; margin:0 auto; }
+  .k4 .tab { padding:4px 20px; letter-spacing:.16em; text-transform:uppercase; font-weight:600; font-size:11.5px; color:var(--mut); background:#141b20; clip-path:polygon(9px 0,100% 0,calc(100% - 9px) 100%,0 100%); }
+  .k4 .tab.on { background:var(--cyan); color:#04161d; box-shadow:0 0 18px var(--cyan); }
+  .k4 .s { color:var(--mut); font-size:11.5px; font-variant-numeric:tabular-nums; }
+  .k4 .cols { display:grid; grid-template-columns: 1.55fr 1fr; gap:12px; }
+  .k4 .frame { --c:#4fd8ff; padding:1px; background:linear-gradient(135deg, var(--c) 0%, color-mix(in srgb, var(--c) 30%, transparent) 30%, rgba(255,255,255,.06) 60%, color-mix(in srgb, var(--c) 35%, transparent) 100%);
+               clip-path:polygon(0 0,calc(100% - 18px) 0,100% 18px,100% 100%,18px 100%,0 calc(100% - 18px)); }
+  .k4 .in { background:linear-gradient(180deg,#121a1f,#0b1013); padding:12px 14px 14px; height:100%; clip-path:polygon(0 0,calc(100% - 17.5px) 0,100% 17.5px,100% 100%,17.5px 100%,0 calc(100% - 17.5px)); }
+  .k4 .t { font-weight:600; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:color-mix(in srgb, var(--c) 70%, #dfefff); }
+  .k4 .bar2 { display:flex; gap:10px; align-items:center; margin-bottom:8px; }
+  .k4 .search { flex:1; background:#070b0d; border-left:2px solid var(--cyan); padding:5px 10px; color:var(--mut); }
+  .k4 .seg3 { display:flex; gap:4px; } .k4 .seg3 span { padding:3px 10px; background:#141b20; color:var(--mut); font-size:11px; letter-spacing:.08em; clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%); }
+  .k4 .seg3 span.on { background:#24323b; color:var(--ink); }
+  .k4 table { width:100%; border-collapse:collapse; font-variant-numeric:tabular-nums; }
+  .k4 th { text-align:left; font-weight:500; font-size:10.5px; letter-spacing:.12em; text-transform:uppercase; color:var(--mut); padding:5px 6px; border-bottom:1px solid #1f2a31; }
+  .k4 th.r, .k4 td.r { text-align:right; }
+  .k4 td { padding:6px; border-bottom:1px solid #141c21; white-space:nowrap; }
+  .k4 tr.sel td { background:rgba(79,216,255,.10); }
+  .k4 tr.sel td:first-child { box-shadow:inset 2px 0 0 var(--cyan); }
+  .k4 .nm b { font-weight:600; } .k4 .nm .s { margin-left:6px; }
+  .k4 .st { display:inline-flex; align-items:center; gap:6px; padding:2px 9px 2px 7px; font-size:11.5px; clip-path:polygon(5px 0,100% 0,calc(100% - 5px) 100%,0 100%); }
+  .k4 .st svg { width:12px; height:12px; }
+  .k4 .ok   { background:rgba(61,255,168,.10); color:#8dffcb; }
+  .k4 .idle { background:#162027; color:#9fb4bf; }
+  .k4 .warn { background:rgba(255,181,74,.14); color:#ffc977; }
+  .k4 .bad  { background:rgba(255,95,122,.16); color:#ff9aac; }
+  .k4 .stop { background:rgba(196,139,255,.14); color:#d8b8ff; }
+  .k4 .spark { display:inline-block; vertical-align:middle; }
+  .k4 .big { font-family:Orbitron,sans-serif; font-weight:700; font-size:19px; text-shadow:0 0 14px rgba(79,216,255,.5); }
+  .k4 .kv { display:grid; grid-template-columns:auto 1fr; gap:3px 12px; font-size:12px; font-variant-numeric:tabular-nums; margin:8px 0; }
+  .k4 .kv span:nth-child(odd) { color:var(--mut); }
+  .k4 .plot { position:relative; overflow:hidden; background:repeating-linear-gradient(0deg, rgba(120,200,255,.035) 0 2px, transparent 2px 4px), #070b0d; border-left:2px solid rgba(79,216,255,.6); margin-bottom:6px; }
+  .k4 .plot svg { display:block; width:100%; } .k4 .cap { position:absolute; left:7px; top:3px; font-size:10px; color:var(--mut); letter-spacing:.06em; }
+  .k4 .verdict { padding:9px 11px; background:rgba(255,181,74,.08); border-left:2px solid var(--amber); margin:8px 0; line-height:1.45; }
+  .k4 .verdict b { color:#ffc977; }
+  .k4 .ev { margin:6px 0 0; padding:0; list-style:none; font-size:12px; line-height:1.6; }
+  .k4 .ev li::before { content:"▸ "; color:var(--mut); }
+  .k4 .btns { display:flex; gap:8px; margin-top:10px; }
+  .k4 .btn { padding:6px 16px; font-weight:600; letter-spacing:.08em; font-size:12px; clip-path:polygon(8px 0,100% 0,calc(100% - 8px) 100%,0 100%); }
+  .k4 .btn.term { background:#2a2014; color:var(--amber); box-shadow:inset 0 0 0 1px rgba(255,181,74,.5); }
+  .k4 .btn.kill { background:#2a1218; color:var(--red); box-shadow:inset 0 0 0 1px rgba(255,95,122,.5); }
+  .legend { display:grid; grid-template-columns:auto 1fr; gap:10px 16px; margin-top:12px; font-size:14px; line-height:1.45; background:#0b1013; color:#d6e4ec; padding:16px 18px; border-radius:10px; font-family:Oxanium,system-ui,sans-serif; }
+  .legend b { color:#fff; } .legend i { color:#ffc977; font-style:normal; }
+</style>
+
+<h2>Entwurf 5: Reiter „Prozesse“</h2>
+<p class="subtitle">Du hast in der Übersicht auf <b>python3</b> geklickt. Der Reiter springt zu diesem Prozess und markiert ihn. Links steht die Liste, nach CPU sortiert, rechts der Befund zum gewählten Prozess. Alle Prozesse und Werte sind <b>Beispielwerte</b>.</p>
+
+<div class="k4">
+  <div class="hdr"><span class="brand">SYSTEMSTATUS</span><div class="tabs"><span class="tab">Übersicht</span><span class="tab on">Prozesse</span></div><span class="s">312 Prozesse</span></div>
+  <div class="cols">
+    <div class="frame"><div class="in">
+      <div class="bar2"><div class="search">Prozess suchen …</div><div class="seg3"><span class="on">Alle</span><span>Nur meine</span><span>Auffällige</span></div></div>
+      <table>
+        <thead><tr><th>Prozess</th><th class="r">CPU</th><th>Letzte 60 s</th><th class="r">RAM</th><th class="r">E/A</th><th>Zustand</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div></div>
+    <div class="frame"><div class="in">
+      <div class="t">Gewählter Prozess</div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-top:2px"><div class="big">python3</div><div class="s">PID 48211 · Benutzer alice</div></div>
+      <div class="s" style="margin:2px 0 8px">python3 train.py --epochs 50</div>
+      <div id="dplot"></div>
+      <div class="kv">
+        <span>CPU</span><span>98 % (ein voller Kern)</span>
+        <span>RAM</span><span>1,2 GB · seit 4 Min unverändert</span>
+        <span>Lesen / Schreiben</span><span>0 B/s seit 4 Min 12 s</span>
+        <span>Threads</span><span>1</span>
+        <span>Kontextwechsel</span><span>freiwillig 0/s · erzwungen 210/s</span>
+        <span>Läuft seit</span><span>13:02 (38 Min)</span>
+      </div>
+      <div class="verdict"><b>Dauerlast ohne Lebenszeichen nach außen.</b> Er rechnet seit 4 Minuten ununterbrochen auf einem Kern, liest und schreibt nichts und wartet auf nichts. Das passt zu einer Endlosschleife, <b>aber genauso zu einer langen Berechnung</b>. Von außen ist das nicht zu unterscheiden. Erwartest du gerade, dass er so lange rechnet?</div>
+      <div class="btns"><span class="btn term">Beenden</span><span class="btn kill">Sofort beenden</span></div>
+      <div class="s" style="margin-top:6px">„Beenden“ bittet den Prozess, sich sauber zu schließen. Hilft das nach 5 s nicht, wird „Sofort beenden“ hervorgehoben. Beides fragt vorher nach.</div>
+    </div></div>
+  </div>
+</div>
+
+<h3 style="margin-top:22px">Was die Zustände bedeuten</h3>
+<div class="legend" id="leg"></div>
+
+<script>
+(function(){
+  const I={ ok:'<svg viewBox="0 0 12 12"><path d="M2 6.5l2.5 2.5L10 3.5" stroke="currentColor" stroke-width="1.8" fill="none"/></svg>',
+            idle:'<svg viewBox="0 0 12 12"><circle cx="6" cy="6" r="3" fill="none" stroke="currentColor" stroke-width="1.5"/></svg>',
+            warn:'<svg viewBox="0 0 12 12"><path d="M6 1.5l5 9H1z" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M6 5v2.5" stroke="currentColor" stroke-width="1.5"/></svg>',
+            bad:'<svg viewBox="0 0 12 12"><path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" stroke-width="1.8"/></svg>',
+            stop:'<svg viewBox="0 0 12 12"><path d="M4 2.5v7M8 2.5v7" stroke="currentColor" stroke-width="1.8"/></svg>' };
+  const st=(k,txt)=>`<span class="st ${k}">${I[k]}${txt}</span>`;
+  function ser(seed,base,amp,n){ let x=seed,o=[]; for(let i=0;i<n;i++){ x=(x*9301+49297)%233280; o.push(Math.max(0,Math.min(100,base+amp*(x/233280-0.3)))); } return o; }
+  function spark(v,c){ const w=90,h=18,st=w/(v.length-1); const p=v.map((y,i)=>`${(i*st).toFixed(1)} ${(h-1-y/100*(h-3)).toFixed(1)}`).join(' L');
+     return `<svg class="spark" width="${w}" height="${h}"><path d="M0 ${h} L${p} L${w} ${h}Z" fill="${c}" opacity=".25"/><path d="M${p}" fill="none" stroke="${c}" stroke-width="1.4"/></svg>`; }
+  const rows=[
+    ['python3','train.py','98 %',ser(3,96,6,30),'#ffb54a','1,2 GB','0 B/s',st('warn','Dauerlast, keine E/A'),true],
+    ['firefox','','22 %',ser(5,20,30,30),'#4fd8ff','2,4 GB','1,1 MB/s',st('ok','arbeitet')],
+    ['code','','7 %',ser(7,6,14,30),'#4fd8ff','1,9 GB','40 KB/s',st('ok','arbeitet')],
+    ['gnome-shell','','6 %',ser(9,5,10,30),'#4fd8ff','410 MB','0 B/s',st('ok','arbeitet')],
+    ['rsync','backup','0 %',ser(11,0,2,30),'#ff5f7a','24 MB','0 B/s',st('bad','hängt im Kernel · 2 Min')],
+    ['claude','','2 %',ser(13,2,4,30),'#4fd8ff','620 MB','8 KB/s',st('idle','wartet')],
+    ['sleep','','0 %',ser(15,0,0,30),'#c48bff','1 MB','0 B/s',st('stop','angehalten')],
+    ['defunct','&lt;zombie&gt;','0 %',ser(17,0,0,30),'#6f8b98','0 B','0 B/s',st('idle','Zombie')],
+  ];
+  document.getElementById('rows').innerHTML = rows.map(r=>`<tr class="${r[8]?'sel':''}"><td class="nm"><b>${r[0]}</b>${r[1]?`<span class="s">${r[1]}</span>`:''}</td><td class="r">${r[2]}</td><td>${spark(r[3],r[4])}</td><td class="r">${r[5]}</td><td class="r">${r[6]}</td><td>${r[7]}</td></tr>`).join('');
+  // Detailverlauf
+  const v=[], N=90; let x=5; for(let i=0;i<N;i++){ x=(x*9301+49297)%233280; v.push(i<N*0.18? 15+20*(x/233280) : 95+4*(x/233280)); }
+  const w=300,h=70,stp=w/(N-1), pts=v.map((y,i)=>`${(i*stp).toFixed(1)} ${(h-1-y/100*(h-6)).toFixed(1)}`);
+  document.getElementById('dplot').innerHTML = `<div class="plot"><span class="cap">CPU DIESES PROZESSES · 5 MIN</span><svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" style="height:${h}px"><defs><linearGradient id="dp" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#4fd8ff" stop-opacity=".5"/><stop offset="1" stop-color="#4fd8ff" stop-opacity=".03"/></linearGradient></defs><path d="M0 ${h} L${pts.join(' L')} L${w} ${h}Z" fill="url(#dp)"/><path d="M${pts.join(' L')}" fill="none" stroke="#4fd8ff" stroke-opacity=".5" stroke-width="6" vector-effect="non-scaling-stroke" style="filter:blur(3px)"/><path d="M${pts.join(' L')}" fill="none" stroke="#4fd8ff" stroke-width="1.8" vector-effect="non-scaling-stroke"/></svg></div>`;
+  const L=[
+    [st('ok','arbeitet'),'Rechnet oder liest und schreibt, und die Werte ändern sich. Normal.'],
+    [st('idle','wartet'),'Schläft und wartet auf Eingabe, Netz oder Zeitgeber. Normal. <i>Grenze:</i> Ein Programm, das sich intern selbst blockiert hat (Deadlock), sieht von außen genauso aus. Bei Fensterprogrammen meldet GNOME das selbst mit „reagiert nicht“.'],
+    [st('warn','Dauerlast, keine E/A'),'Seit über 2 Minuten fast 100 % eines Kerns, ohne Lesen, Schreiben oder Warten. <b>Hinweis, kein Urteil:</b> Das kann eine Endlosschleife sein oder eine lange Berechnung.'],
+    [st('bad','hängt im Kernel'),'Steckt seit über 10 s in einer Kernel-Operation fest, meist Festplatte, USB oder Netzlaufwerk. Das ist ein echtes Hängen. Selbst „Sofort beenden“ greift erst, wenn der Kernel ihn loslässt.'],
+    [st('stop','angehalten'),'Wurde pausiert, etwa mit Strg+Z. Lässt sich fortsetzen.'],
+    [st('idle','Zombie'),'Ist schon beendet, nur der Eintrag ist übrig. Beenden geht nicht, er verschwindet mit seinem Elternprozess.'],
+  ];
+  document.getElementById('leg').innerHTML = L.map(r=>`<div class="k4" style="padding:0;background:none">${r[0]}</div><div>${r[1]}</div>`).join('');
+})();
+</script>
