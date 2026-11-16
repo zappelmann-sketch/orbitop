@@ -230,3 +230,111 @@ def test_battery_skips_device_scope(intel_copy):
     _w(d, "AAmouse/scope", "Device")
     _w(d, "AAmouse/capacity", 5)
     assert read_battery(intel_copy).percent == 80
+
+
+def _clean(root):
+    shutil.rmtree(f"{root}/sys/class/hwmon")
+    shutil.rmtree(f"{root}/sys/class/thermal", ignore_errors=True)
+
+
+def _zone_t(root, n, typ, temp):
+    _w(root, f"sys/class/thermal/thermal_zone{n}/type", typ)
+    _w(root, f"sys/class/thermal/thermal_zone{n}/temp", temp)
+
+
+def test_coretemp_package_not_max(intel_copy):
+    _hw(intel_copy, 7, "coretemp", {"temp1_input": 60000, "temp1_label": "Package id 0",
+                                    "temp2_input": 99000, "temp2_label": "Core 0"})
+    assert read_sensors(intel_copy).cpu_temp == pytest.approx(60.0)
+
+
+def _cpu(tmp_path, chip, files):
+    root = str(tmp_path)
+    _hw(root, 0, chip, files)
+    return read_sensors(root)
+
+
+@pytest.mark.parametrize("chip", ["k10temp", "zenpower"])
+def test_amd_cpu_labels(tmp_path, chip):
+    v = _cpu(tmp_path, chip, {"temp1_input": 40000, "temp1_label": "Tdie", "temp2_input": 70000,
+                              "temp2_label": "Tctl", "temp3_input": 90000, "temp3_label": "Tccd1"})
+    assert v.cpu_temp == pytest.approx(70.0) and v.temps == []
+
+
+@pytest.mark.parametrize("chip", ["k10temp", "zenpower"])
+def test_amd_tdie_without_tctl(tmp_path, chip):
+    v = _cpu(tmp_path, chip, {"temp1_input": 40000, "temp1_label": "Tccd1", "temp2_input": 55000,
+                              "temp2_label": "Tdie"})
+    assert v.cpu_temp == pytest.approx(55.0)
+
+
+@pytest.mark.parametrize("label_files", [{}, {"temp1_label": "Whatever"}])
+def test_amd_temp1_fallback(tmp_path, label_files):
+    v = _cpu(tmp_path, "k10temp", {"temp1_input": 41000, "temp2_input": 80000,
+                                   "temp2_label": "Tccd1", **label_files})
+    assert v.cpu_temp == pytest.approx(41.0)
+
+
+@pytest.mark.parametrize("chip", ["k8temp", "via_cputemp", "macsmc_hwmon"])
+def test_max_chips(tmp_path, chip):
+    v = _cpu(tmp_path, chip, {"temp1_input": 41000, "temp2_input": 66000})
+    assert v.cpu_temp == pytest.approx(66.0) and v.temps == []
+
+
+def test_thermal_zone_type_match_not_max(tmp_path):
+    root = str(tmp_path)
+    _zone_t(root, 0, "gpu-thermal", 90000)
+    _zone_t(root, 1, "cpu-thermal", 50000)
+    _zone_t(root, 2, "x86_pkg_temp", 55000)
+    _zone_t(root, 3, "acpitz", 99000)
+    assert read_sensors(root).cpu_temp == pytest.approx(55.0)
+
+
+def test_temps_composite_not_first_index(tmp_path):
+    root = str(tmp_path)
+    _hw(root, 0, "nvme", {"temp1_input": 30000, "temp1_label": "Sensor 1", "temp2_input": 31000,
+                          "temp2_label": "Sensor 2", "temp3_input": 40000, "temp3_label": "Composite"})
+    assert [t.label for t in read_sensors(root).temps] == ["Composite", "Sensor 1", "Sensor 2"]
+
+
+def test_temps_chip_order_amd():
+    chips = [t.chip for t in read_sensors(AMD).temps]
+    assert "k10temp" not in chips
+    firsts = list(dict.fromkeys(chips))
+    assert firsts[:2] == ["nvme", "drivetemp"]
+    assert firsts[2:] and "amdgpu" not in firsts
+
+
+def test_temps_chip_order_pch_before_drivetemp(tmp_path):
+    root = str(tmp_path)
+    _hw(root, 0, "pch_cannonlake", {"temp1_input": 40000})
+    _hw(root, 1, "zzz", {"temp1_input": 41000})
+    _hw(root, 2, "drivetemp", {"temp1_input": 42000})
+    _hw(root, 3, "nvme", {"temp1_input": 43000})
+    assert [t.chip for t in read_sensors(root).temps] == ["nvme", "drivetemp", "pch_cannonlake", "zzz"]
+
+
+def test_renumbered_coretemp_gone_falls_back_to_zone(intel_copy):
+    shutil.rmtree(f"{intel_copy}/sys/class/hwmon/hwmon7")
+    shutil.rmtree(f"{intel_copy}/sys/class/thermal", ignore_errors=True)
+    _zone_t(intel_copy, 0, "x86_pkg_temp", 61000)
+    _zone_t(intel_copy, 1, "gpu-thermal", 99000)
+    assert read_sensors(intel_copy).cpu_temp == pytest.approx(61.0)
+
+
+def test_stray_hwmon_files_ignored(intel_copy):
+    d = f"{intel_copy}/sys/class/hwmon/hwmon5"
+    for n in ("temp_input", "fan_input", "power_input", "tempX_input"):
+        _w(d, n, 1000)
+    v = read_sensors(intel_copy)
+    assert len(v.fans) == 1 and v.hwmon_power == []
+
+
+def test_rapl_counter_reset_is_gap(intel_copy):
+    _zone(intel_copy, "intel-rapl:0", 500_000_000, mx=1_000_000_000)
+    r = RaplReader(intel_copy)
+    r.read(0)
+    _zone(intel_copy, "intel-rapl:0", 1_000_000, mx=1_000_000_000)
+    assert r.read(1.0) is None
+    _zone(intel_copy, "intel-rapl:0", 2_000_000, mx=1_000_000_000)
+    assert r.read(2.0)["package-0"] == pytest.approx(1.0)

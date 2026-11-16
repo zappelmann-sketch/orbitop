@@ -47,10 +47,19 @@ class _Chip:
     name: str
     dir: str
     temps: list[Temp]
+    first: Temp | None  # temp1, unabhängig vom Label
 
 
-def _index(p: str) -> str:
-    return re.search(r"(\d+)_[a-z]+$", p).group(1)
+def _files(d: str, kind: str, suffix: str):
+    """(Index, Pfad) für <kind><n>_<suffix>; Dateien ohne Zahl werden übersprungen."""
+    for f in sysfs.glob(d, f"/{kind}*_{suffix}"):
+        m = re.fullmatch(rf"{kind}(\d+)_{suffix}", os.path.basename(f))
+        if m:
+            yield m.group(1), f
+
+
+def _temp_ok(c: float) -> bool:
+    return TEMP_MIN <= c < TEMP_MAX
 
 
 def _chips(root: str) -> list[_Chip]:
@@ -59,15 +68,16 @@ def _chips(root: str) -> list[_Chip]:
         name = sysfs.read_str(d + "/name")
         if not name:
             continue
-        temps = []
-        for f in sysfs.glob(d, "/temp*_input"):
+        temps, first = [], None
+        for n, f in _files(d, "temp", "input"):
             v = sysfs.read_float(f)
-            if v is None or not TEMP_MIN <= v / 1000 < TEMP_MAX:
+            if v is None or not _temp_ok(v / 1000):
                 continue
-            n = _index(f)
             label = sysfs.read_str(f"{d}/temp{n}_label") or f"{name} {n}"
             temps.append(Temp(label, v / 1000, name))
-        chips.append(_Chip(name, d, temps))
+            if n == "1":
+                first = temps[-1]
+        chips.append(_Chip(name, d, temps, first))
     return chips
 
 
@@ -83,11 +93,15 @@ def _cpu_temp(root: str, chips: list[_Chip]) -> tuple[float | None, set[str]]:
     if v is not None:
         return v, {"coretemp"}
     for chip_name in ("k10temp", "zenpower"):
-        ts = [t for c in chips if c.name == chip_name for t in c.temps]
-        for want in ("Tctl", "Tdie", f"{chip_name} 1"):
+        cs = [c for c in chips if c.name == chip_name]
+        ts = [t for c in cs for t in c.temps]
+        for want in ("Tctl", "Tdie"):
             for t in ts:
                 if t.label == want:
                     return t.value, {chip_name}
+        for c in cs:
+            if c.first:
+                return c.first.value, {chip_name}
     v = _tmax(chips, "k8temp", "via_cputemp", "macsmc_hwmon")
     if v is not None:
         return v, {"k8temp", "via_cputemp", "macsmc_hwmon"}
@@ -95,7 +109,7 @@ def _cpu_temp(root: str, chips: list[_Chip]) -> tuple[float | None, set[str]]:
     for z in sysfs.glob(root, "/sys/class/thermal/thermal_zone*"):
         typ = sysfs.read_str(z + "/type")
         t = sysfs.read_float(z + "/temp")
-        if typ and _THERMAL_CPU.search(typ) and t is not None and TEMP_MIN <= t / 1000 < TEMP_MAX:
+        if typ and _THERMAL_CPU.search(typ) and t is not None and _temp_ok(t / 1000):
             vals.append(t / 1000)
     return (max(vals) if vals else None), set()
 
@@ -115,18 +129,16 @@ def read_sensors(root: str) -> SensorValues:
     temps.sort(key=_temp_rank)  # stabil: hwmon-Reihenfolge bleibt innerhalb der Gruppe
     fans, power = [], []
     for c in chips:
-        for f in sysfs.glob(c.dir, "/fan*_input"):
+        for n, f in _files(c.dir, "fan", "input"):
             rpm = sysfs.read_float(f)
             if rpm is None or rpm < 0:
                 continue
-            n = _index(f)
             fans.append(Fan(sysfs.read_str(f"{c.dir}/fan{n}_label") or f"{c.name} {n}", rpm,
                             sysfs.read_float(f"{c.dir}/fan{n}_max")))
         if c.name in GPU_CHIPS:
             continue  # GPU-Leistung gehört zur GPU-Kachel
         seen = set()
-        for f in sysfs.glob(c.dir, "/power*_input") + sysfs.glob(c.dir, "/power*_average"):
-            n = _index(f)
+        for n, f in [*_files(c.dir, "power", "input"), *_files(c.dir, "power", "average")]:
             w = sysfs.read_float(f)
             if n in seen or w is None or w < 0:
                 continue
@@ -161,9 +173,9 @@ class RaplReader:
             delta = e - prev[z]
             if delta < 0:
                 mx = sysfs.read_int(z + "/max_energy_range_uj")
-                if not mx or mx < prev[z]:
+                delta += mx or 0
+                if not mx or delta >= mx / 2:  # Zähler-Reset statt Überlauf
                     continue
-                delta += mx
             out[names[z]] = out.get(names[z], 0.0) + delta / dt / 1e6
         if not out:
             return None
