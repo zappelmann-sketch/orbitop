@@ -307,8 +307,8 @@ def test_temps_chip_order_amd():
 
 def test_temps_chip_order_pch_before_drivetemp(tmp_path):
     root = str(tmp_path)
-    _hw(root, 0, "pch_cannonlake", {"temp1_input": 40000})
-    _hw(root, 1, "zzz", {"temp1_input": 41000})
+    _hw(root, 0, "zzz", {"temp1_input": 41000})
+    _hw(root, 1, "pch_cannonlake", {"temp1_input": 40000})
     _hw(root, 2, "drivetemp", {"temp1_input": 42000})
     _hw(root, 3, "nvme", {"temp1_input": 43000})
     assert [t.chip for t in read_sensors(root).temps] == ["nvme", "drivetemp", "pch_cannonlake", "zzz"]

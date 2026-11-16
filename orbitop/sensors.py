@@ -174,6 +174,8 @@ class RaplReader:
             if delta < 0:
                 mx = sysfs.read_int(z + "/max_energy_range_uj")
                 delta += mx or 0
+                # shortcut: a reset landing in the first half of the range after a wrap is
+                # indistinguishable from a wrap; upgrade if real wraps get dropped
                 if not mx or delta >= mx / 2:  # Zähler-Reset statt Überlauf
                     continue
             out[names[z]] = out.get(names[z], 0.0) + delta / dt / 1e6
