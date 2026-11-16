@@ -16,6 +16,7 @@
 - Lizenz GPL-3.0-or-later. Kopf jeder Quelldatei: `# SPDX-License-Identifier: GPL-3.0-or-later` und `# Copyright © 2026 zappelmann-sketch` (in JS und CSS als Kommentar).
 - Git-Identität nur im Repository setzen: `user.name zappelmann-sketch`, `user.email 235797375+zappelmann-sketch@users.noreply.github.com`. **Nie** eine private Mail-Adresse. Jede Commit-Nachricht endet mit `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
 - Code muss unter Python 3.12 laufen, also keine Sprachmittel ab 3.13. **Kein psutil**, keine Pakete außer `python3-gi`, `gir1.2-gtk-4.0` und `gir1.2-webkit-6.0`. Optional sind `intel-gpu-tools` und `nvidia-smi`.
+- KI-Anweisungen und -Einstellungen (`CLAUDE.md`, `CLAUDE.local.md`, `.claude/`, `.mcp.json`) stehen in `.gitignore` und werden nie committet (Vorgabe des Users).
 - Kein Netzwerkzugriff, kein Port, die WebView lädt nur Dateien unter `orbitop/ui/`.
 - Alle sichtbaren Texte stammen aus `orbitop/locale/{en,de}.json`. Ausnahme ist der Markenname `ORBITOP`. Die deutschen Texte werden wörtlich aus den Entwürfen übernommen.
 - Taktung: System-Kacheln alle 1 s mit 300 Punkten (5 min). Prozesse alle 2 s, 150 Punkte Verlauf, 30 Punkte Mini-Verlauf. Prozesse werden auch bei ausgeblendetem Fenster erhoben.
@@ -780,11 +781,11 @@ def test_install_script_shellcheck(): assert run(["shellcheck", "scripts/install
 ### Task 18: Dokumentation, Abnahme und Abschluss
 
 **Files:**
-- Create: `README.md`, `CLAUDE.md`
+- Create: `README.md` (committet), `CLAUDE.md` (**nur lokal**: per `.gitignore` ausgeschlossen, nie committen; Vorgabe des Users)
 
 **Interfaces:**
 - `README.md` auf Englisch mit kurzem deutschem Abschnitt: was orbitop ist, Screenshot (`docs/screenshot.png` aus der App), Voraussetzungen, Installation aus dem Repository (`setup-privileges.sh`, `install-user.sh`), Lizenz, Schriften-Lizenz, Hinweis zu `--allow-rapl` und seinem Risiko.
-- `CLAUDE.md` auf Deutsch, mit dem Pflichtkopf aus `/init`:
+- `CLAUDE.md` auf Deutsch, mit dem Pflichtkopf aus `/init`, **bleibt lokal** (steht in `.gitignore`):
   - Testbefehle: `pytest -q`, einzelner Test mit `pytest tests/test_x.py::name`.
   - App starten: `bin/orbitop` und `ORBITOP_SNAPSHOT`.
   - Demo-Seite und Sichtprüfung mit headless Chrome.
@@ -797,6 +798,6 @@ def test_install_script_shellcheck(): assert run(["shellcheck", "scripts/install
 - [ ] **Step 2:** `pytest -q` → alles grün, Ausgabe festhalten.
 - [ ] **Step 3: Abnahme durch den User.** orbitop über die GNOME-Übersicht starten, dann abmelden und wieder anmelden: orbitop läuft ausgeblendet, und beim Öffnen ist der Verlauf schon gefüllt. Den User beide Reiter prüfen lassen.
 - [ ] **Step 4: Erst nach ausdrücklichem OK des Users** `~/.config/autostart/io.missioncenter.MissionCenter.desktop` entfernen. Mission Center selbst bleibt installiert.
-- [ ] **Step 5: Commit** `docs: README und CLAUDE.md`
+- [ ] **Step 5: Commit** `docs: README` (die CLAUDE.md nicht; `git status --ignored` zeigt sie als ignoriert)
 - [ ] **Step 6: Security-Audit des gesamten Zweigs** mit dem Skill `security-audit` und ein abschließendes Code-Review. Jeden Befund gegenprüfen, Schwachstellen beheben, `pytest -q` erneut grün.
 - [ ] **Step 7:** mit superpowers:finishing-a-development-branch den Zweig `stufe-1` abschließen.
