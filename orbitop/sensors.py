@@ -102,15 +102,15 @@ def _chips(root: str, held: dict, now: float) -> list[_Chip]:
         name = sysfs.read_str(d + "/name")
         if not name:
             continue
-        real, old = os.path.realpath(d), held.get(d)  # der Klassen-Symlink zeigt in den Gerätebaum: kein SMM-Aufruf
-        if old and old[1] == real and old[2].name == name and 0 <= now - old[0] < SLOW_EVERY_S:
-            keep[d] = old
-            chips.append(old[2])
+        if name not in SLOW_CHIPS:
+            chips.append(_read_chip(d, name))
             continue
-        chip = _read_chip(d, name)
-        if name in SLOW_CHIPS:
-            keep[d] = (now, real, chip)
-        chips.append(chip)
+        real, old = os.path.realpath(d), held.get(d)  # der Klassen-Symlink zeigt in den Gerätebaum: kein SMM-Aufruf
+        if old and old[1] == real and 0 <= now - old[0] < SLOW_EVERY_S:
+            keep[d] = old
+        else:
+            keep[d] = (now, real, _read_chip(d, name))
+        chips.append(keep[d][2])
     held.clear()
     held.update(keep)  # verschwundene Verzeichnisse fallen heraus
     return chips
