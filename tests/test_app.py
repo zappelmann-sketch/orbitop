@@ -265,7 +265,7 @@ class Clock:
 class FakeSampler:
     def __init__(self, clock=None, cost=0.108, snap=None):
         self.clock, self.cost, self.snap = clock, cost, snap
-        self.calls, self.views, self.shr = [], [], []
+        self.calls, self.views, self.shr, self.resends = [], [], [], []
 
     def _spend(self, cost):
         if self.clock:
@@ -284,7 +284,8 @@ class FakeSampler:
         self.views.append(dict(view))
         return self.snap if self.snap is not None else {"type": "tick", "view": view}
 
-    def snapshot_json(self, view):
+    def snapshot_json(self, view, resend=True):
+        self.resends.append(resend)
         return encode(self.snapshot(view))
 
     def sys_times(self):
@@ -389,6 +390,30 @@ def test_worker_stops_snapshots_when_hidden():
         assert w.update(visible=True, ready=True)
         assert w.update(visible=False) is False
     assert run_fake(s, clock, 2, setup) == [] and s.views == []
+
+
+def test_worker_resends_procs_after_ready_and_view():
+    """Volle Prozessliste nach jedem ready und view und nach einem nicht gesendeten Tick, sonst darf sie fehlen."""
+    s, posts = FakeSampler(), []
+    w = Worker(s, posts.append)
+    w.update(visible=True, ready=True)
+    w._publish()
+    w._publish()
+    w.update(view={"tab": "procs", "pid": None, "start": None})
+    w._publish()
+    w._publish()
+    w.update(visible=False)
+    w.update(visible=True)  # nur sichtbar: die Seite hat ihre Liste noch
+    w._publish()
+    w.update(ready=False)
+    w.update(ready=True)
+    w._publish()
+    assert s.resends == [True, False, True, False, False, True]
+    s.snap = {"v": float("nan")}  # encode wirft ValueError: nichts gesendet
+    w._publish()
+    s.snap = None
+    w._publish()
+    assert s.resends[6:] == [False, True] and len(posts) == 7
 
 
 def test_worker_publishes_once_per_tick_despite_early_wakeups():

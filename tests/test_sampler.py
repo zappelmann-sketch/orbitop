@@ -972,6 +972,24 @@ def test_snapshot_json_byte_identical_and_rows_once_per_process_tick(with_procs)
     assert len(built) == 1 + 2  # einmal je Prozess-Takt; dazu die zwei snapshot() mit procs zum Vergleich
 
 
+def test_snapshot_json_sends_unchanged_procs_once(with_procs):
+    """resend=False: Die Liste steht nur im Tick, wenn sie sich seit der zuletzt gelieferten geändert hat."""
+    from orbitop.app import encode
+    s = run(with_procs)
+    first = json.loads(s.snapshot_json(PROCS, resend=False))
+    assert first["procs"] and "procs_same" not in first
+    again = json.loads(s.snapshot_json(PROCS, resend=False))
+    assert again.pop("procs") is None and again.pop("procs_same") is True
+    assert again == {k: v for k, v in first.items() if k != "procs"}
+    assert s.snapshot_json(PROCS) == encode(s.snapshot(PROCS))  # resend=True: volle Liste
+    s.tick_procs()
+    new = json.loads(s.snapshot_json(PROCS, resend=False))
+    assert new["procs"] and "procs_same" not in new
+    for _ in range(2):
+        over = json.loads(s.snapshot_json(OVERVIEW, resend=False))
+        assert over["procs"] is None and "procs_same" not in over
+
+
 def test_selection_never_unset_during_snapshot(with_procs):
     """Der Prozess-Thread liest table.selected ohne Sperre: Während eines Schnappschusses mit gültiger Auswahl darf es
     nie kurz None sein, sonst fehlt dem gewählten Prozess ein status-Lesen."""

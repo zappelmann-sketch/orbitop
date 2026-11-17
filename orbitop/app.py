@@ -115,9 +115,12 @@ class Worker:
 
     def __init__(self, sampler, post, clock=time.monotonic, wait=None):
         self._sampler, self._post, self._clock = sampler, post, clock
-        self._lock = threading.Lock()  # schützt _visible, _ready, _view und _errors
+        self._lock = threading.Lock()  # schützt _visible, _ready, _view, _resend und _errors
         self._visible = self._ready = False
         self._view = {"tab": "overview", "pid": None, "start": None}
+        # True: nächster Tick mit voller Prozessliste; sonst darf eine unveränderte fehlen, denn WebKit parst je Tick
+        # das ganze Literal (~170 KB)
+        self._resend = True
         self._stop, self._wake = threading.Event(), threading.Event()
         self._wait = wait or self._wake.wait
         self._errors: set[tuple[str, str]] = set()  # schon gemeldete Fehler (Typ, Text)
@@ -133,6 +136,8 @@ class Worker:
                 self._ready = ready
             if view is not None:
                 self._view = view
+            if ready is not None or view is not None:  # neue Seite oder neue Ansicht: die volle Liste
+                self._resend = True
             live = self._visible and self._ready
         if live:
             self._wake.set()
@@ -199,10 +204,12 @@ class Worker:
         with self._lock:
             if not (self._visible and self._ready):
                 return
-            view = self._view
+            view, resend, self._resend = self._view, self._resend, False
         try:
-            text = self._sampler.snapshot_json(view)
+            text = self._sampler.snapshot_json(view, resend=resend)
         except (TypeError, ValueError):  # nie ein ungültiges JS-Literal senden
+            with self._lock:  # die Seite wartet nie auf eine Liste, die sie nicht bekam
+                self._resend = True
             return
         self._post(text)
 

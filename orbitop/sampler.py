@@ -453,12 +453,17 @@ class Sampler:
                 snap["procs"] = self._rows()
             return snap
 
-    def snapshot_json(self, view: dict) -> str:
-        """Gleich encode(snapshot(view)), Byte für Byte. Die Prozessliste ändert sich nur je Prozess-Takt (2 s): ihre
-        Zeilen werden dann einmal gebaut und kodiert und in den 1-s-Schnappschüssen dazwischen nur eingesetzt."""
+    def snapshot_json(self, view: dict, resend: bool = True) -> str:
+        """Mit resend gleich encode(snapshot(view)), Byte für Byte. Die Prozessliste ändert sich nur je Prozess-Takt
+        (2 s): ihre Zeilen werden dann einmal gebaut und kodiert und in den 1-s-Schnappschüssen dazwischen nur
+        eingesetzt. Ohne resend steht im Prozess-Reiter statt einer schon gelieferten Liste "procs": null,
+        "procs_same": true; die Seite behält dann ihre."""
         with self._procs_lock:
             snap = self._snapshot(view)
             if snap["procs"] is not _PROCS:
+                return encode(snap)
+            if not resend and self._rows_json[0] == self._procs_n:  # _rows_json entsteht nur mit einer gelieferten Liste
+                snap["procs"], snap["procs_same"] = None, True
                 return encode(snap)
             if self._rows_json[0] != self._procs_n:
                 self._rows_json = (self._procs_n, encode(self._rows()))

@@ -78,6 +78,23 @@ document.addEventListener("DOMContentLoaded", () => {
     series: [{ key: "series.read", fill: true, max: 5000, u: "B/s", values: [1] }], threads: null, kv: [], devices: null };
   const top = { cpu: [{ pid: 42, start: 7, name: evil, cpu: 98.4, rss: 1 }], mem: { pid: 43, start: 8, name: "b", cpu: 0, rss: 2 * G } };
   const tick = (tiles, extra) => ({ type: "tick", tiles, missing: [], hints: [], top, procs: null, detail: null, ...extra });
+
+  // ---- procs_same als allererster Tick im Prozess-Reiter: noch keine Liste, Stand wie bei procs: null ----
+  $$(".tab")[1].click();
+  const procsState = () => $(".hdr .s").textContent + "|" + $(".ptable").outerHTML; // was eine Liste ändern würde
+  const noList = procsState();
+  let threw = null;
+  try {
+    receive(tick([], { procs_same: true }));
+  } catch (e) {
+    threw = String(e);
+  }
+  const afterSame = procsState();
+  receive(tick([]));
+  eq(threw + "/" + (afterSame === noList) + "/" + (procsState() === noList), "null/true/true",
+     "procs_same ohne Liste: keine Ausnahme, Stand wie bei procs: null");
+  $$(".tab")[0].click();
+
   receive(tick([cpu([[1, 2], [3, 4], [5], [6]]), net, gpu, disk], { missing: ["fan"], hints: [evil, "constructor"] }));
   eq($$("img").length, 0, "kein HTML aus Namen");
   eq($(".tile .nm").textContent, evil, "Kachelname");
@@ -700,6 +717,20 @@ document.addEventListener("DOMContentLoaded", () => {
   eq(find("needle"), "alpha", "Suche in den Argumenten");
   eq(find(""), "alpha,Gamma,beta,chip", "leere Suche zeigt alle");
 
+  // ---- procs_same: Python lässt die unveränderte Liste weg, die Seite behält ihre ----
+  receive(ptick(base, full(base[3])));
+  const listState = () => rows().length + "|" + [...rows()[0].children].map((td) => td.textContent).join("/") + "|" +
+    $(".hdr .s").textContent;
+  const listBefore = listState();
+  receive(tick([], { procs_same: true, detail: full(base[3], { threads: 5 }) }));
+  eq(listState(), listBefore, "procs_same: Zeilen und Kopfzeile bleiben");
+  eq($(".detail .big").textContent + "/" + $(".detail .kv").children[7].textContent + "/" + $(".detail .dbody").hidden,
+     "chip/5/false", "procs_same: Detail sichtbar, neues Detail gezeichnet");
+  filters[1].click();
+  eq(names(), "alpha,Gamma,chip", "procs_same: Filter auf der behaltenen Liste");
+  filters[0].click();
+  eq(find("gAM") + "/" + find(""), "Gamma/alpha,Gamma,beta,chip", "procs_same: Suche auf der behaltenen Liste");
+
   // ---- Auswahl per Klick bleibt über Ticks, Zeilen werden wiederverwendet ----
   const alphaTr = rows()[0];
   alphaTr.click();
@@ -952,6 +983,8 @@ document.addEventListener("DOMContentLoaded", () => {
   scroller.dispatchEvent(new Event("scroll"));
   eq(placed("v150") && placed("v160") && !rows().some((t) => vname(t) === "v001"), true, "nach dem Rollen: Zeilen an ihrem Platz");
   eq(placed("v000"), true, "gewählte Zeile (Tab-Halt) bleibt an ihrem Platz im DOM");
+  const above = rows().filter((t) => rowTop(t) + pitch <= scroller.scrollTop + 0.5).length;
+  eq(above <= 7, true, `oben höchstens 6 Pufferzeilen und die gewählte (${above})`);
   const edge = rows().at(-1), after = "v" + String(Number(vname(edge).slice(1)) + 1).padStart(3, "0");
   edge.focus();
   edge.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));

@@ -1313,6 +1313,8 @@ window.orbitop = {
       hdrInfo();
     } else if (msg.type === "tick") {
       const prev = state.last;
+      // Python lässt die unveränderte Liste weg: dasselbe Array behalten, equal() endet dann bei a === b
+      if (msg.procs_same === true) msg.procs = prev && Array.isArray(prev.procs) ? prev.procs : null;
       state.last = msg;
       state.n++;
       renderFooter(msg.missing, msg.hints);
