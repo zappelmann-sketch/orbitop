@@ -514,9 +514,9 @@ function buildProcs() {
     }
   });
   thead.addEventListener("pointerdown", (e) => {
-    state.noClick = false;
     const th = e.target.closest("th"), grip = e.target.closest(".grip");
     if (th) startDrag(e, grip ? "width" : "move", grip || th, th);
+    state.noClick = false; // erst danach: endet dabei ein hängender Zug, gilt trotzdem der Klick dieses Drückens
   });
   thead.addEventListener("click", (e) => { // nach dem Umordnen sortiert der Klick des Loslassens nicht
     if (!state.noClick) return;
@@ -764,6 +764,10 @@ function saveLayout() {
 }
 
 function sendLayout() {
+  if (state.drag) { // nie mitten im Ziehen: dragEnd sendet dann den neuesten Stand
+    state.drag.owe = true;
+    return;
+  }
   state.saving = false;
   state.savedAt = performance.now();
   post(layoutMessage());
@@ -775,10 +779,12 @@ function colWidth(th) {
   return parseFloat(ui.colgroup.children[ui.ths.indexOf(th)].style.width);
 }
 
-/** mark bekommt beim Ziehen die Klasse on; th: Kopf (Breite, Umordnen), sonst der Trenner. */
+/** mark bekommt beim Ziehen die Klasse on; th: Kopf (Breite, Umordnen), sonst der Trenner. old: Stand für pointercancel. */
 function startDrag(e, kind, mark, th) {
+  if (state.drag) dragEnd({ pointerId: state.drag.pointer }); // hängender Zug (Loslassen verloren): endet wie losgelassen
   state.drag = { kind, mark, id: th && th.dataset.col, pointer: e.pointerId, x: e.clientX, moved: false, to: null,
-                 w: th ? colWidth(th) : ui.list.getBoundingClientRect().width };
+                 owe: false, w: th ? colWidth(th) : ui.list.getBoundingClientRect().width,
+                 old: kind === "split" ? state.layout.split : { ...state.layout.widths } };
   document.body.dataset.drag = kind; // keine Textauswahl, Mauszeiger bleibt
 }
 
@@ -786,7 +792,7 @@ function dragMove(e) {
   const d = state.drag, dx = d && e.clientX - d.x;
   if (!d || e.pointerId !== d.pointer) return;
   if (!(e.buttons & 1)) return dragEnd(e); // nur mit der Haupttaste; auch wenn ihr Loslassen verloren ging
-  if (d.kind === "move" && !d.moved && Math.abs(dx) < 6) return; // unter 6 px: Klick
+  if (!d.moved && Math.abs(dx) < 6) return; // unter 6 px: ein Klick, auch an Griff und Trenner
   d.moved = true;
   d.mark.classList.add("on");
   if (d.kind === "width") setWidth(d.id, d.w + dx);
@@ -805,7 +811,8 @@ function dropAt(d, x) {
   ui.drop.hidden = false;
 }
 
-/** Breite und Trenner melden; Umordnen legt vor der sichtbaren Spalte an der Marke ab, sonst hinter der letzten. */
+/** Breite und Trenner melden; Umordnen legt vor der sichtbaren Spalte an der Marke ab, sonst hinter der letzten.
+ * pointercancel nimmt den Zug zurück. Eine im Ziehen zurückgehaltene Meldung geht jetzt, einmal mit dem neuesten Stand. */
 function dragEnd(e) {
   const d = state.drag;
   if (!d || e.pointerId !== d.pointer) return;
@@ -813,14 +820,19 @@ function dragEnd(e) {
   delete document.body.dataset.drag;
   d.mark.classList.remove("on");
   ui.drop.hidden = true;
-  if (!d.moved) return;
-  if (d.kind !== "move") {
+  if (e.type === "pointercancel") {
+    if (d.kind === "split") state.layout.split = d.old;
+    else if (d.kind === "width") state.layout.widths = d.old;
+    sizeCols();
+    showSplit();
+  } else if (d.moved && d.kind !== "move") {
     saveLayout();
-    return;
+  } else if (d.moved) {
+    state.noClick = true;
+    const vis = ui.ths.map((t) => t.dataset.col), i = vis.indexOf(d.id), n = vis.length;
+    if (d.to !== i && d.to !== i + 1) placeColumn(d.id, vis[Math.min(d.to, n - 1)], d.to === n);
   }
-  state.noClick = true;
-  const vis = ui.ths.map((t) => t.dataset.col), i = vis.indexOf(d.id), n = vis.length;
-  if (d.to !== i && d.to !== i + 1) placeColumn(d.id, vis[Math.min(d.to, n - 1)], d.to === n);
+  if (d.owe) sendLayout(); // state.saving stand noch: saveLayout oben hat nichts gesendet
 }
 
 // ---- Spaltenmenü (Rechtsklick, Menütaste oder Umschalt+F10 auf einem Kopf) ----

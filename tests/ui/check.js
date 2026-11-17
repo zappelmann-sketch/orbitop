@@ -562,6 +562,31 @@ document.addEventListener("DOMContentLoaded", () => {
      "Alt+→ +16 px, Alt+← zweimal −32 px, bei 40 px bleibt es");
   eq(key(hb("cpu"), "ArrowLeft", { altKey: true }), false, "Alt+← geht nicht im Verlauf zurück");
   eq(reported(() => alt("ArrowRight")) + "/" + JSON.parse(layouts().at(-1)).widths.cpu, "1/56", "Tastenänderung meldet das Layout");
+  // Ein wartender Zeitgeber meldet nicht mitten im Ziehen; am Ende genau eine Meldung mit dem neuesten Stand
+  alt("ArrowRight");
+  alt("ArrowRight"); // die zweite schnelle Taste wartet auf einen Zeitgeber
+  const waiting = timers.length, n0 = layouts().length, x0 = grip("cpu").getBoundingClientRect().left + 1;
+  pointer(grip("cpu"), "pointerdown", x0);
+  pointer(grip("cpu"), "pointermove", x0 + 30, { buttons: 1 });
+  flush(); // der Zeitgeber läuft mitten im Ziehen ab
+  const midDrag = layouts().length - n0;
+  pointer(grip("cpu"), "pointerup", x0 + 30);
+  flush();
+  eq([waiting, midDrag, layouts().length - n0, JSON.parse(layouts().at(-1)).widths.cpu].join("/"), "1/0/1/118",
+     "wartende Meldung erst am Ende des Ziehens, genau eine, neuester Stand");
+  // Totzone auch am Griff: ein Klick mit kleinem Zittern ändert und speichert keine Breite
+  dblclick(grip("cpu"));
+  eq(reported(() => drag(grip("process"), 3)) + "/" + JSON.stringify(layoutMessage().widths), "0/{}",
+     "Griff: unter 6 px keine Breite, keine Meldung");
+  // pointercancel nimmt Breite und Trenner zurück, ohne Meldung
+  const cancelled = (node, dx) => reported(() => {
+    const x = node.getBoundingClientRect().left + 1;
+    pointer(node, "pointerdown", x);
+    pointer(node, "pointermove", x + dx, { buttons: 1 });
+    pointer(node, "pointercancel", x + dx);
+  });
+  eq(cancelled(grip("cpu"), 30) + "/" + colW("cpu") + "/" + JSON.stringify(layoutMessage().widths) + "/" + grip("cpu").classList.contains("on"),
+     "0/52/{}/false", "pointercancel am Griff: Breite vom Drücken, keine Meldung");
 
   // ---- Reihenfolge: Kopf waagerecht ziehen, erst ab 6 px; der Klick danach sortiert nicht ----
   applyLayout(null);
@@ -592,6 +617,34 @@ document.addEventListener("DOMContentLoaded", () => {
      "nach einem Ziehen ohne Klick sortieren der nächste Klick und Enter");
   hb("cpu").click();
   eq(th("cpu").getAttribute("aria-sort"), "descending", "wieder CPU absteigend");
+  const order0 = ids();
+  eq(cancelled(hb("cpu"), r60.left + r60.width * 0.75 - hb("cpu").getBoundingClientRect().left - 1) + "/" + ids() + "/" +
+     $(".drop").hidden, "0/" + order0 + "/true", "pointercancel beim Umordnen: nichts verschoben, keine Meldung");
+  // Ein neuer Druck beendet einen hängenden Zug (Loslassen verloren, ohne Bewegung danach) und räumt ihn ab
+  const hx = hb("cpu").getBoundingClientRect().left + 1, rx = hb("ram").getBoundingClientRect().left + 1;
+  pointer(hb("cpu"), "pointerdown", hx);
+  pointer(hb("cpu"), "pointermove", hx + 10, { buttons: 1 }); // Marke an der eigenen Grenze: nichts zu verschieben
+  const shown = !$(".drop").hidden;
+  pointer(hb("ram"), "pointerdown", rx);
+  const cleared = [$(".drop").hidden, th("cpu").classList.contains("on"), document.body.dataset.drag].join();
+  pointer(hb("ram"), "pointerup", rx);
+  hb("ram").click();
+  eq([shown, cleared, ids() === order0, th("ram").getAttribute("aria-sort")].join("/"), "true/true,false,move/true/descending",
+     "neuer Druck räumt ein hängendes Umordnen ab, sein eigener Klick sortiert");
+  const gx0 = grip("cpu").getBoundingClientRect().left + 1;
+  pointer(grip("cpu"), "pointerdown", gx0);
+  pointer(grip("cpu"), "pointermove", gx0 + 30, { buttons: 1 });
+  let atPress = "";
+  const stuck = reported(() => { // die Meldung des beendeten Zugs kommt sofort oder, falls sie warten muss, am Ende
+    pointer(sep, "pointerdown", sep.getBoundingClientRect().left + 1);
+    atPress = [colW("cpu"), grip("cpu").classList.contains("on"), document.body.dataset.drag].join();
+    pointer(sep, "pointerup", 0);
+  });
+  eq(atPress + "/" + stuck + "/" + JSON.parse(layouts().at(-1)).widths.cpu, "82,false,split/1/82",
+     "neuer Druck am Trenner beendet den hängenden Breitenzug, eine Meldung");
+  dblclick(grip("cpu"));
+  applyLayout(null);
+  hb("cpu").click();
 
   // ---- Trenner zwischen Liste und Detail ----
   applyLayout(null);
@@ -617,6 +670,9 @@ document.addEventListener("DOMContentLoaded", () => {
   eq((Math.abs(detailW() - 0.2 * (listW() + detailW())) <= 1 && layoutMessage().split === 0.8) + "/" + sep.getAttribute("aria-valuenow"),
      "true/80", "ganz nach rechts: höchstens 0,8");
   eq(reported(() => dblclick(sep)) + "/" + (Math.abs(listW() / detailW() - 1.55) < 0.02), "1/true", "Doppelklick: wieder 1,55 : 1, gemeldet");
+  const lw0 = listW();
+  eq(cancelled(sep, -200) + "/" + (Math.abs(listW() - lw0) <= 0.5) + "/" + (layoutMessage().split === DEFAULT_SPLIT), "0/true/true",
+     "pointercancel am Trenner: Anteil vom Drücken, keine Meldung");
   document.body.style.width = "1150px"; // gespeicherter Wert passt nicht ins schmalere Fenster
   applyLayout({ ...layoutMessage(), split: 0.8 });
   eq(Math.round(detailW()) >= 300 && layoutMessage().split === 0.8, true, "schmaler: Detail ≥ 300 px, gespeicherter Wert bleibt");
