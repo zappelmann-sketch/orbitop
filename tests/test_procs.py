@@ -208,6 +208,18 @@ def test_d_state_becomes_kernel_hang_then_resets():
     assert t.rows(14.0)[0]["state"] == "waiting"
 
 
+@pytest.mark.parametrize("ticks,io", [(20, 4_000_000), (20, None), (0, 4_000_000)])
+def test_d_state_with_progress_is_never_kernel_hang(ticks, io):
+    """Gedrosseltes Schreiben (USB-Stick, NFS): jede Stichprobe D, aber CPU-Ticks oder E/A wachsen weiter."""
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    for i in range(7):
+        t.update({(10, 1): raw(state="D", ticks=i * ticks, io=None if io is None else i * io)}, i * 2.0)
+    assert t.rows(12.0)[0]["state"] == "working"
+    for i in range(7, 14):  # ab jetzt ohne Fortschritt: die Uhr beginnt erst hier
+        t.update({(10, 1): raw(state="D", ticks=6 * ticks, io=None if io is None else 6 * io)}, i * 2.0)
+    assert t.rows(26.0)[0]["state"] == "kernel_hang" and t.rows(26.0)[0]["since"] == 12
+
+
 def test_pid_reuse_gets_fresh_history_and_dead_removed():
     t = ProcTable(clk_tck=CLK, uid=1000)
     t.update({(10, 1): raw(start=1), (11, 1): raw(pid=11)}, 0)

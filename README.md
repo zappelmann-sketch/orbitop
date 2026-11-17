@@ -12,7 +12,7 @@ The screenshot shows the overview tab with demo data (`tests/ui/demo.html`), not
 
 ## Process states are a hint, not a verdict
 
-The process tab classifies each process (working, waiting, busy without I/O, stopped, zombie, stuck in the kernel). This is a heuristic from `/proc`, and orbitop says so: for example, "busy, no I/O" (at least 90 % of a core for two minutes, almost no voluntary context switches, no I/O bytes) cannot be told apart from a long computation from the outside. "Stuck in the kernel" means state D for more than 10 s; even "kill now" only takes effect once the kernel releases the process. Before a signal is sent, PID and start time are checked again so a recycled PID is never hit, and processes of other users are terminated only through `pkexec`.
+The process tab classifies each process (working, waiting, busy without I/O, stopped, zombie, stuck in the kernel). This is a heuristic from `/proc`, and orbitop says so: for example, "busy, no I/O" (at least 90 % of a core for two minutes, almost no voluntary context switches, no I/O bytes) cannot be told apart from a long computation from the outside. "Stuck in the kernel" means state D for more than 10 s without progress (no CPU time and no I/O in between); even "kill now" only takes effect once the kernel releases the process. Before a signal is sent, PID and start time are checked again so a recycled PID is never hit, and processes of other users are terminated only through `pkexec`.
 
 ## Requirements
 

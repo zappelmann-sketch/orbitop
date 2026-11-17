@@ -104,7 +104,7 @@ Stufe 1 muss nur so gebaut sein, dass Stufe 2 nichts umbauen muss (siehe „Für
    - **wartet:** schläft, Zustand S ohne Aktivität. Grenze: Ein interner Deadlock sieht genauso aus, Fensterprogramme meldet der Desktop selbst als „reagiert nicht“.
    - **Dauerlast, keine E/A:** eigener Prozess, mindestens 2 Minuten lang ≥ 90 % eines Kerns, keine Lese- oder Schreibbytes, praktisch keine freiwilligen Kontextwechsel. Gelb, mit dem Hinweis „Endlosschleife oder lange Berechnung, von außen nicht unterscheidbar“.
    - **Dauerlast, E/A unbekannt:** dasselbe bei fremden Prozessen, deren E/A nicht lesbar ist (siehe „Nach dem Builder-Check entschieden“).
-   - **hängt im Kernel:** Zustand D seit über 10 s. Rot. Hinweis, dass auch „Sofort beenden“ erst greift, wenn der Kernel den Prozess freigibt.
+   - **hängt im Kernel:** Zustand D seit über 10 s, ohne Fortschritt: Zwischen zwei Stichproben wachsen weder die CPU-Ticks noch die E/A-Bytes (Schlussprüfung 2026-11-17, I1; gedrosseltes Schreiben auf USB oder NFS schläft sonst bei jeder Stichprobe in D). Rot. Hinweis, dass auch „Sofort beenden“ erst greift, wenn der Kernel den Prozess freigibt.
    - **angehalten:** Zustand T/t.
    - **Zombie:** Zustand Z. Er lässt sich nicht beenden, der Elternprozess wird genannt.
 5. **Beenden:**

@@ -232,7 +232,11 @@ class ProcTable:
             e.history.append(e.cpu)
             s = e.state
             s.state, s.io_known, s.last_cpu, s.last_io_delta = r.state, r.io is not None, e.cpu, io_delta
-            s.d_since = (s.d_since if s.d_since is not None else now) if r.state == "D" else None
+            # Hängen nur ohne Fortschritt: gedrosseltes Schreiben (USB, NFS) schläft bei jeder Stichprobe in D, rechnet
+            # und schreibt aber dazwischen; bei unbekannter E/A zählen nur die CPU-Ticks
+            progressed = valid and (r.ticks > prev.ticks or (io_delta or 0) > 0)
+            stuck = r.state == "D" and not progressed
+            s.d_since = (s.d_since if s.d_since is not None else now) if stuck else None
             # Einstufung mit der Obergrenze dieses Takts: alle Wechsel seit dem letzten Lesen durch sein dt. Über die ganze
             # status-Lücke gemittelt könnte ein Takt mit mehr als 1/s als Dauerlast zählen (zu früh gemeldet).
             busy = valid and ctx_ok and is_busy_sample(e.cpu, (r.vctx - prev.vctx) / dt, io_delta)
