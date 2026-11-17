@@ -279,17 +279,43 @@ Der Zweig heißt `prozess-spalten` und beginnt auf `main` `1c86566`.
 
 ## Messung Eigenlast (2026-11-17)
 
-Verfahren wie in Stufe 1 (`scripts/measure-load.py --pid <orbitop> --seconds 60`, Prozessbaum, Fenster 1600×1000, Skalierung 1,25): „kurz“ = 60 s nach 60 s Aufwärmen, „Dauer“ = 60 s nach 5 Minuten. „Alle Spalten“ = Layout mit allen 15 Spalten sichtbar. Jede Lage in eigener Instanz mit eigenem `XDG_CONFIG_HOME` und eigener D-Bus-Sitzung. Lastmittel (1 min) vor den Läufen 0,16 bis 1,59. Die Standardauswahl schwankt stark zwischen den Läufen (8,1 bis 14,9 %), alle Spalten kaum (9,0 bis 9,1 %).
+Verfahren wie in Stufe 1 (`scripts/measure-load.py --pid <orbitop> --seconds 60`, Prozessbaum, Fenster 1600×1000, Skalierung 1,25): „kurz“ = 60 s nach 60 s Aufwärmen, „Dauer“ = 60 s nach 5 Minuten. „Alle Spalten“ = Layout mit allen 15 Spalten sichtbar. Jede Lage in eigener Instanz mit eigenem `XDG_CONFIG_HOME` und eigener D-Bus-Sitzung, die Lagen abwechselnd in zwei Runden. Lastmittel (1 min) dabei 0,12 bis 1,62.
 
 CPU in % eines Kerns, in Klammern PSS in MB:
 
 | Stand | Ausgeblendet | Übersicht kurz | Prozesse Standard kurz | Prozesse alle Spalten kurz | Prozesse alle Spalten Dauer |
 |---|---|---|---|---|---|
 | Stufe 1 (8f29d08) | 2,77 (169) | 7,93 (250) | 8,16 (245) | – | – |
-| Vor Task 5 (8b5664b) | 2,75 (133) | 7,89 (201) | 11,96 (197); 8,61 (192) | 10,59 (195) | 10,51 (202) |
-| Hebel 3: 6 statt 12 Pufferzeilen (328ccd6) | – | – | 12,73 (198); 14,88 (194); 12,78 (198); 8,13 (191) | 9,00 (195); 9,05 (194) | 9,68 (198) |
+| Stufe 1 (1c86566), am selben Abend zum Vergleich | – | – | 7,85 (191); 7,68 (191) | – | – |
+| Hebel 3: 6 statt 12 Pufferzeilen (328ccd6) | 2,76 (134); 2,83 (133) | 7,26 (192); 7,18 (196) | 8,15 (191); 8,11 (193) | 9,11 (198); 9,11 (194) | 9,61 (199); 9,48 (199) |
 | **Budget (User)** | **≤ 3** | **≤ 9** | **≤ 9** | **≤ 9** | **≤ 9**; PSS **< 275** |
 
-Aufteilung (Hebel 3, alle Spalten Dauer): WebKit-Webprozess 4,63 %, orbitop 4,00 %, `intel_gpu_top` 1,05 %. Vor Task 5, alle Spalten Dauer: 5,36 / 4,06 / 1,08 %. Standardauswahl (8,13-Lauf): orbitop 3,58 %, WebKit 3,51 %, `intel_gpu_top` 1,03 %; in den 12–15-%-Läufen WebKit 5,8–6,9 %, orbitop 4,7–5,0 %.
+Weitere Läufe in einer instrumentierten Kopie (Zähler, siehe unten): Standard 8,10 bis 8,24 % (6 Läufe), alle Spalten 9,10 bis 9,28 % (7 Läufe).
 
-Angewandte Hebel: nur Hebel 3 (`BUFFER_ROWS` 12 → 6; das Zeichnen nur geänderter Zellen war schon so: `setText` und `updateSpark` vergleichen). Die Hebel 1 und 2 (nur Felder eingeblendeter Spalten senden, `statm` nur bei SHR) ändern bei „alle Spalten“ nichts, weil dort nichts ausgeblendet ist; sie wurden nicht umgesetzt.
+Aufteilung je Prozess (Mittel beider Läufe):
+- Ausgeblendet: orbitop 1,78 %, `intel_gpu_top` 1,03 %, WebKit 0 %.
+- Übersicht: WebKit-Webprozess 3,63 %, orbitop 2,51 %, `intel_gpu_top` 1,09 %.
+- Prozesse Standard: orbitop 3,59 %, WebKit 3,52 %, `intel_gpu_top` 1,03 %.
+- Prozesse alle Spalten kurz: WebKit 4,52 %, orbitop 3,56 %, `intel_gpu_top` 1,03 %.
+- Prozesse alle Spalten Dauer: WebKit 4,51 %, orbitop 3,99 %, `intel_gpu_top` 1,06 %. Der Mehrbedarf von orbitop steckt im Thread `orbitop-worker` (2,55 statt 2,1 %): Nach 5 Minuten sind die Verläufe voll und das JSON größer.
+
+Ursache der früheren Schwankung (Standardauswahl 8,1 bis 14,9 %): Eingaben am Messfenster, kein Fehler im Code.
+- Die Mess-Instanz öffnet ihr Fenster mit Tastaturfokus auf dem Arbeitsplatz des Users.
+- Mausbewegungen und Klicks darauf lassen WebKitGTK laufend neue Bilder zusammensetzen (Hover der Zeilen, eingeblendete Rollbalken): bis zu 34 statt 0,5 Bilder je Sekunde.
+- Diese Bilder kosten im GTK-Hauptthread, der im Python-Prozess läuft (0,12 → 3,1 %), und im Compositor-Thread des Webprozesses (0 → 2,2 %). Deshalb steigen orbitop und WebKit beide fast aufs Doppelte, `intel_gpu_top` kaum.
+- Nachweis in einer instrumentierten Kopie:
+  - Ein gestörter Lauf (Standard, 18,47 %): Die Seite meldete zwei Reiterwechsel, die nur ein Klick oder eine Taste auslöst, danach 8 bis 34 Bilder/s.
+  - Ein weiterer (alle Spalten, 13,73 %): 55 Zeigerbewegungen und ein Fokusverlust, gleichzeitig 14 bis 19 Bilder/s.
+  - Alle ungestörten Läufe: keine Eingaben, 0,5 Bilder/s.
+- Ausgeschlossen:
+  - Keine Rückkopplung beim Spaltenbreiten: `sizeCols` läuft nur beim Start, der ResizeObserver höchstens 2× je 10 s, die Breite bleibt gleich, die Rollbalken liegen über dem Inhalt.
+  - Nach dem Start schickt die Seite keine Nachrichten an Python.
+  - `renderProcs` läuft genau alle 2 s, mit gleich vielen neuen Zeilen (40 bis 60 je 10 s) in gestörten wie ungestörten Läufen.
+  - Taktfrequenz und Lastmittel hängen nicht mit den Ausschlägen zusammen. Andere Agenten liefen während der ersten Messungen nicht.
+- „Alle Spalten“ ist genauso betroffen (13,73 % mit Eingaben). Dass im ersten Durchgang fast nur die Standardauswahl ausschlug, lag am Zeitpunkt der Eingaben. Die Läufe des ersten Durchgangs (8b5664b und 328ccd6) mit 11,96 bis 14,88 % (Standard) und 10,51 bis 10,59 % (alle Spalten) zeigen dasselbe Muster und zählen nicht.
+- Gestörte Läufe erkennt man an der Aufteilung je Thread: GTK-Hauptthread von orbitop über 0,3 % oder Compositor-Thread des Webprozesses über 0,15 %. Alle Werte der Tabelle sind ungestört. Während einer Messung das Messfenster nicht berühren.
+
+Hebel:
+- Umgesetzt ist nur Hebel 3 (`BUFFER_ROWS` 12 → 6). Das Zeichnen nur geänderter Zellen war schon so: `setText` und `updateSpark` vergleichen.
+- Hebel 1 und 2 (nur Felder eingeblendeter Spalten senden, `statm` nur bei SHR) braucht die Standardauswahl nicht, sie liegt mit 8,1 % im Budget. Bei „alle Spalten“ wirken sie nicht, weil dort nichts ausgeblendet ist. Sie wurden nicht umgesetzt.
+- „Alle Spalten“ liegt mit 9,11 % (kurz) und 9,5 bis 9,6 % (Dauer) knapp über dem Budget. Nach der STOP-Bedingung von Task 5 bleibt das Aussehen unverändert, der User entscheidet.
