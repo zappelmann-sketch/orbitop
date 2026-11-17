@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 """Hülle ohne Fenster: Handler mit Attrappen für Worker, WebView, Entscheidungen, Thread und GLib-Zeitgeber."""
 import json
+import os
 import signal
 import subprocess
 import sys
@@ -22,9 +23,11 @@ import gi  # noqa: E402
 from gi.repository import GLib, WebKit  # noqa: E402
 
 from orbitop import shell  # noqa: E402
+from orbitop.layout import COLUMNS, DEFAULT_HIDDEN, LayoutFile  # noqa: E402
 
 UI = Path(shell.UI_DIR)
-INIT = '{"type": "init"}'
+INIT = '{"type": "init", "layout": null}'
+L = {"order": list(COLUMNS), "hidden": list(DEFAULT_HIDDEN), "widths": {"cpu": 90}, "split": 0.6}
 
 
 class FakeWorker:
@@ -75,7 +78,7 @@ class Value:
 
 
 @pytest.fixture
-def rig(monkeypatch):
+def rig(monkeypatch, tmp_path):
     log, threads = [], []
 
     class Thread:
@@ -86,7 +89,8 @@ def rig(monkeypatch):
             threads.append(self)
 
     s = shell.Shell(False)
-    s._worker, s._view, s._init = FakeWorker(log), FakeView(), INIT
+    s._worker, s._view = FakeWorker(log), FakeView()
+    s._init_fields, s._layouts = {"type": "init"}, LayoutFile(str(tmp_path / "layout.json"))
     s._sampler = SimpleNamespace(close=lambda: log.append("close"))
     s._app = SimpleNamespace(quit=lambda: log.append("quit"))
     glib = FakeGLib()
@@ -100,6 +104,25 @@ def receive(obj):
 
 
 # ---- Nachrichten ----
+def test_layout_message_saved_once_to_fixed_path(rig, tmp_path):
+    rig.s._on_message(None, Value({"type": "layout", **L, "path": str(tmp_path / "evil")}))
+    rig.s._on_message(None, Value({"type": "layout", **L}))
+    assert json.loads((tmp_path / "layout.json").read_text()) == L and sorted(os.listdir(tmp_path)) == ["layout.json"]
+    assert rig.js == [] and rig.log == []
+
+
+def test_invalid_layout_message_not_saved(rig, tmp_path):
+    rig.s._on_message(None, Value({"type": "layout", **L, "hidden": ["process"]}))
+    assert os.listdir(tmp_path) == [] and rig.js == [] and rig.log == []
+
+
+def test_init_after_layout_carries_current_layout(rig):  # Review Focus 2
+    rig.s._on_message(None, Value({"type": "layout", **L}))
+    rig.s._on_message(None, Value({"type": "ready"}))
+    sent = rig.js[-1].removeprefix("window.orbitop.receive(").removesuffix(")")
+    assert json.loads(sent)["layout"] == L
+
+
 def test_ready_sends_init_when_live(rig):
     rig.s._on_message(None, Value({"type": "ready"}))
     assert rig.log == [("update", {"ready": True})]

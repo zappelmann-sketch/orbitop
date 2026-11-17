@@ -70,7 +70,8 @@ def main(argv=None) -> None:
         tick = anonymize(tick)
     if a.js:
         lang = detect_language(os.environ)
-        init = {"type": "init", "lang": lang, "texts": load_texts(lang), "version": __version__}
+        init = {"type": "init", "lang": lang, "texts": load_texts(lang), "version": __version__,
+                "layout": None}
         print("window.ORBITOP_DEMO = " + json.dumps({"init": init, "tick": tick}, ensure_ascii=False) + ";")
     else:
         print(json.dumps(tick, ensure_ascii=False))

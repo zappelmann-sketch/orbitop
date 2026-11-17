@@ -11,6 +11,7 @@ import traceback
 from urllib.parse import unquote, urlsplit
 
 from orbitop import __version__
+from orbitop.layout import validate
 from orbitop.i18n import detect_language, load_texts
 
 MAX_MESSAGE = 4096
@@ -72,6 +73,9 @@ def parse_message(raw) -> dict | None:
         if tab in ("overview", "procs") and (pid is None or _uint(pid, PID_MAX)) and (
                 start is None or _uint(start, START_MAX)):
             return {"type": "view", "tab": tab, "pid": pid, "start": start}
+    if kind == "layout":
+        layout = validate(m)
+        return {"type": "layout", **layout} if layout else None
     if kind == "terminate":
         pid, start, force = m.get("pid"), m.get("start"), m.get("force")
         if _uint(pid, PID_MAX) and _uint(start, START_MAX) and type(force) is bool:

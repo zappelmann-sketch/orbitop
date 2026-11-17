@@ -83,7 +83,9 @@ class Shell:
         _unix_signal_add()(GLib.PRIORITY_DEFAULT, signal.SIGTERM, app.quit)  # sauber beenden, auch per timeout/kill
         app.hold()  # weiterlaufen, auch ohne sichtbares Fenster
         lang = detect_language(os.environ)
-        self._init = encode({"type": "init", "lang": lang, "texts": load_texts(lang), "version": __version__})
+        self._init_fields = {"type": "init", "lang": lang, "texts": load_texts(lang), "version": __version__}
+        self._layouts = LayoutFile(config_path(os.environ))
+        self._layouts.load()
         env = os.environ.get("ORBITOP_SNAPSHOT")
         self._snapshot = snapshot_path(env)
         if env and not self._snapshot:
@@ -137,12 +139,15 @@ class Shell:
     def _on_visible(self, win, _pspec) -> None:
         visible = win.get_visible() and not win.is_suspended()  # minimiert zählt als ausgeblendet
         if self._worker.update(visible=visible):
-            self._send(self._init)  # der Worker schickt gleich danach einen tick
+            self._send(self._init_message())  # der Worker schickt gleich danach einen tick
         if visible and self._snapshot:
             GLib.timeout_add_seconds(SNAPSHOT_DELAY_S, self._save_snapshot, self._snapshot)
             self._snapshot = None
 
     # ---- Brücke ----
+    def _init_message(self) -> str:
+        return encode({**self._init_fields, "layout": self._layouts.current})  # bei jedem Senden das aktuelle Layout
+
     def _send(self, text: str) -> None:
         """text stammt aus encode(), ist also ein sicheres JS-Literal."""
         self._view.evaluate_javascript(f"window.orbitop.receive({text})", -1, None, None, None, None, None)
@@ -176,9 +181,11 @@ class Shell:
         kind = msg["type"]
         if kind == "ready":
             if self._worker.update(ready=True):
-                self._send(self._init)
+                self._send(self._init_message())
         elif kind == "view":
             self._worker.update(view=msg)
+        elif kind == "layout":
+            self._layouts.save({k: msg[k] for k in ("order", "hidden", "widths", "split")})
         elif kind == "terminate":
             self._terminate(msg["pid"], msg["start"], msg["force"])
         else:

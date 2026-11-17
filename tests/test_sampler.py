@@ -277,6 +277,7 @@ def test_dump_snapshot_js(tmp_path):
     assert out.startswith("window.ORBITOP_DEMO = ") and out.rstrip().endswith("};")
     demo = json.loads(out[len("window.ORBITOP_DEMO = "):].rstrip().removesuffix(";"))
     assert demo["init"]["lang"] == "de" and demo["init"]["version"] and demo["init"]["texts"]["tab.procs"]
+    assert demo["init"]["layout"] is None
     assert demo["tick"]["type"] == "tick" and len(demo["tick"]["tiles"]) == 8
 
 

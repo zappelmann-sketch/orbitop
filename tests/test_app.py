@@ -13,6 +13,9 @@ import pytest
 from orbitop import app
 from orbitop.app import Worker, check_runtime, encode, parse_message, snapshot_path, ui_file
 from orbitop.i18n import load_texts
+from orbitop.layout import COLUMNS, DEFAULT_HIDDEN
+
+L = {"order": list(COLUMNS), "hidden": list(DEFAULT_HIDDEN), "widths": {"cpu": 90}, "split": 0.6}
 
 REPO = Path(__file__).resolve().parent.parent
 UI = REPO / "orbitop" / "ui"
@@ -35,9 +38,16 @@ UI = REPO / "orbitop" / "ui"
      {"type": "terminate", "pid": 4194304, "start": 2**63 - 1, "force": False}),
     ('{"type":"view","tab":"procs","pid":4194304,"start":9223372036854775807}',
      {"type": "view", "tab": "procs", "pid": 4194304, "start": 2**63 - 1}),
+    (json.dumps({"type": "layout", **L, "path": "/etc/passwd"}), {"type": "layout", **L}),
 ])
 def test_parse_message_accepts_contract_shapes(raw, msg):
     assert parse_message(raw) == msg
+
+
+def test_parse_message_layout_rejects_bad_and_oversize():
+    assert parse_message(json.dumps({"type": "layout", **L, "hidden": ["process"]})) is None
+    assert parse_message(json.dumps({"type": "layout", **L, "pad": "x" * 4096})) is None
+    assert parse_message('{"type":"layout","order":[],"hidden":[],"widths":{},"split":NaN}') is None
 
 
 @pytest.mark.parametrize("raw", [
