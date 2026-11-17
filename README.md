@@ -20,7 +20,7 @@ The process tab classifies each process (working, waiting, busy without I/O, sto
 - `python3-gi`, `gir1.2-gtk-4.0`, `gir1.2-webkit-6.0` (Ubuntu package names)
 - Optional: `intel-gpu-tools` (Intel GPU load and package power), `nvidia-smi` (NVIDIA GPUs; it ships with the proprietary driver, e.g. in `nvidia-utils-<version>`)
 
-orbitop checks for GTK 4 and WebKitGTK 6.0 at start and names the missing package.
+orbitop checks for PyGObject, GTK 4 and WebKitGTK 6.0 at start and names the missing package.
 
 ## Install from the repository
 

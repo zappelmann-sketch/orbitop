@@ -10,8 +10,6 @@ import time
 import traceback
 from urllib.parse import unquote, urlsplit
 
-import gi
-
 from orbitop import __version__
 from orbitop.i18n import detect_language, load_texts
 
@@ -25,13 +23,23 @@ MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".js
         ".svg": "image/svg+xml", ".png": "image/png", ".txt": "text/plain"}
 
 
-def check_runtime(require_version=gi.require_version) -> str | None:
-    """Fehlertext in der Systemsprache, wenn GTK 4 oder WebKitGTK 6.0 fehlt, sonst None."""
+def _missing(package: str) -> str:
+    return load_texts(detect_language(os.environ))["error.runtime_missing"].format(package=package)
+
+
+def check_runtime(require_version=None) -> str | None:
+    """Fehlertext in der Systemsprache, wenn PyGObject, GTK 4 oder WebKitGTK 6.0 fehlt, sonst None."""
+    if require_version is None:
+        try:
+            import gi  # erst hier, nie auf Modulebene: sampler importiert encode aus diesem Modul
+        except ImportError:
+            return _missing("python3-gi")
+        require_version = gi.require_version
     for namespace, version, package in RUNTIME:
         try:
             require_version(namespace, version)
         except ValueError:
-            return load_texts(detect_language(os.environ))["error.runtime_missing"].format(package=package)
+            return _missing(package)
     return None
 
 

@@ -188,6 +188,20 @@ def test_check_runtime_ok():
     assert calls == [("Gtk", "4.0"), ("WebKit", "6.0")]
 
 
+def test_check_runtime_reports_missing_pygobject(monkeypatch):
+    _clear_lang(monkeypatch, "en_US.UTF-8")
+    monkeypatch.setitem(sys.modules, "gi", None)  # import gi wirft dann ImportError
+    assert check_runtime() == load_texts("en")["error.runtime_missing"].format(package="python3-gi")
+
+
+@pytest.mark.parametrize("args,rc,out", [(["--version"], 0, "orbitop 0.1.0"), ([], 2, "python3-gi")])
+def test_without_pygobject_no_traceback(tmp_path, args, rc, out):
+    code = (f"import sys; sys.path.insert(0, {str(REPO)!r}); sys.modules['gi'] = None; import orbitop.sampler; "
+            "from orbitop.app import main; sys.exit(main(sys.argv[1:]))")
+    r = subprocess.run([sys.executable, "-I", "-c", code, *args], capture_output=True, text=True, cwd=tmp_path)
+    assert (r.returncode, out in r.stdout + r.stderr, "Traceback" in r.stderr) == (rc, True, False), r.stderr
+
+
 def test_main_exit_2_without_webkit(monkeypatch, capsys):
     monkeypatch.setattr(app, "check_runtime", lambda *a: "Paket fehlt: x")
     assert app.main([]) == 2
