@@ -286,7 +286,20 @@ def test_empty_cmdline_with_other_ppid_not_refused(child, tmp_path):
 def test_helper_has_no_orbitop_import():
     src = Path(HELPER).read_text()
     assert "import orbitop" not in src and "from orbitop" not in src
-    assert src.startswith("#!/usr/bin/python3 -I\n") and os.stat(HELPER).st_mode & 0o777 == 0o755
+    assert src.startswith("#!/usr/bin/python3 -I\n") and os.access(HELPER, os.X_OK)
+
+
+def test_helper_is_executable_in_git():
+    """Der Checkout-Modus hängt von der umask ab (0775 unter Ubuntu); das Repository garantiert nur 100755."""
+    root = os.path.dirname(os.path.dirname(HELPER))
+    try:
+        out = subprocess.run(["git", "ls-files", "-s", "--", HELPER], cwd=root, capture_output=True, text=True,
+                             timeout=10)
+    except (OSError, subprocess.TimeoutExpired):
+        pytest.skip("git nicht verfügbar")
+    if out.returncode != 0 or not out.stdout:
+        pytest.skip("kein Git-Checkout")
+    assert out.stdout.startswith("100755 ")
 
 
 def test_ppid2_with_cmdline_not_refused(child, tmp_path):
