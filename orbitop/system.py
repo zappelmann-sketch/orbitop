@@ -298,8 +298,8 @@ class DiskReader:
         filesystems: dict[str, tuple[str, list[str]]] = {}
         for line in (sysfs.read_str(sysfs.path(self._root, "/proc/mounts")) or "").splitlines():
             f = line.split()
-            # fuse.*: jeder User kann mit fsname=/dev/… einhängen und so die Belegung eines Laufwerks vortäuschen
-            if len(f) < 3 or not f[0].startswith("/dev/") or f[2].startswith("fuse."):
+            # fuse und fuse.*: jeder User kann mit fsname=/dev/… einhängen und so die Belegung eines Laufwerks vortäuschen
+            if len(f) < 3 or not f[0].startswith("/dev/") or f[2] == "fuse" or f[2].startswith("fuse."):
                 continue
             dev = _unescape_mount(f[0])[5:]
             disk = self._resolve(dev, disks)
