@@ -280,6 +280,16 @@ def test_disk_dot_sources_ignored(tmp_path, bad):
     assert sized(root) == {"sda": ONE, "sdb": (None, None)}
 
 
+def test_disk_skips_fuse_mounts_with_device_names(tmp_path):  # fsname=/dev/… legt jeder User mit fusermount an
+    root = str(tmp_path)
+    mk_disks(root, {"sda": ["sda1"], "sdb": ["sdb1"]}, [])
+    mk(root, **{"proc/mounts": "/dev/sda1 /home/u/fake fuse.evil rw 0 0\n/dev/sda1 / ext4 rw 0 0\n"
+                               "/dev/sdb1 /home/u/m fuse.evil rw 0 0\n"})
+    seen = []
+    got = {d.name: (d.used, d.size) for d in DiskReader(root, statvfs=lambda p: seen.append(p) or fake_statvfs(p)).read(0)}
+    assert got == {"sda": ONE, "sdb": (None, None)} and seen == ["/"]
+
+
 def test_disk_luks(tmp_path):
     root = str(tmp_path)
     mk_disks(root, {"nvme0n1": ["nvme0n1p3"]}, [("/dev/mapper/nvme0n1p3_crypt", "/")],

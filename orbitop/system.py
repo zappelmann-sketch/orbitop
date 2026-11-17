@@ -270,6 +270,8 @@ class DiskReader:
             return next((d for d in sorted(disks) if os.path.exists(self._block(d, dev))), None)
         if depth >= _MAX_DM_DEPTH:  # begrenzt auch Zyklen
             return None
+        # shortcut: LVM über mehrere Platten zählt das ganze Dateisystem beim ersten Laufwerk unter slaves/; aufrüsten
+        # (Belegung anteilig oder als eigene Zeile), sobald Rechner mit solchen Volumes unterstützt werden sollen.
         for slave in sysfs.glob(self._root, "/sys/block/" + dm + "/slaves/*"):
             found = self._resolve(os.path.basename(slave), disks, depth + 1)
             if found:
@@ -296,7 +298,8 @@ class DiskReader:
         filesystems: dict[str, tuple[str, list[str]]] = {}
         for line in (sysfs.read_str(sysfs.path(self._root, "/proc/mounts")) or "").splitlines():
             f = line.split()
-            if len(f) < 2 or not f[0].startswith("/dev/"):
+            # fuse.*: jeder User kann mit fsname=/dev/… einhängen und so die Belegung eines Laufwerks vortäuschen
+            if len(f) < 3 or not f[0].startswith("/dev/") or f[2].startswith("fuse."):
                 continue
             dev = _unescape_mount(f[0])[5:]
             disk = self._resolve(dev, disks)
@@ -307,6 +310,8 @@ class DiskReader:
         out: dict[str, tuple[int, int]] = {}
         for disk, points in filesystems.values():
             for point in points:  # Bind-Mounts: der erste lesbare Einhängepunkt zählt
+                # shortcut: statvfs auf fuseblk (ntfs-3g) blockiert bei hängendem FUSE-Dienst den Kachel-Thread und
+                # damit den Schnappschuss; aufrüsten (Belegung außerhalb des Kachel-Threads holen) in Stufe 2.
                 try:
                     st = self._statvfs(point)
                 except OSError:
