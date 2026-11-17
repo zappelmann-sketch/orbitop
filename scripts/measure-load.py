@@ -3,9 +3,10 @@
 # Copyright © 2026 zappelmann-sketch
 """Eigenlast eines Prozessbaums: CPU (utime + stime) von --pid und allen Nachkommen über --seconds, PSS am Ende.
 
-Gezählt wird je (pid, start) der Zuwachs im Fenster; wer erst im Fenster entsteht, zählt ab 0. Abgetastet wird alle
-50 ms über /proc/<pid>/task/<tid>/children. Ausgabe auf stdout: cpu_pct_of_one_core, pss_mb, processes; auf stderr
-die Aufteilung je Prozess."""
+Gezählt wird je (pid, start) der Zuwachs im Fenster; wer erst im Fenster entsteht, zählt ab 0, wer älter ist und
+später auftaucht, ab dem ersten gesehenen Wert. Abgetastet wird alle 50 ms über /proc/<pid>/task/<tid>/children.
+Ausgabe auf stdout: cpu_pct_of_one_core, pss_mb, pss_unreadable (Prozesse ohne lesbares smaps_rollup, in pss_mb nicht
+enthalten), processes; auf stderr die Aufteilung je Prozess ("?" für nicht lesbare PSS)."""
 import argparse
 import os
 import sys
@@ -50,11 +51,12 @@ def _scan(root: int) -> dict[tuple[int, int], tuple[int, str]]:
     return got
 
 
-def _pss_kb(pid: int) -> int:
+def _pss_kb(pid: int) -> int | None:
+    """None: nicht lesbar, etwa ein nicht dumpbarer Prozess (Datei-Capability wie bei intel_gpu_top)."""
     for line in _read(f"/proc/{pid}/smaps_rollup").splitlines():
         if line.startswith("Pss:"):
             return int(line.split()[1])
-    return 0
+    return None
 
 
 def main(argv=None) -> int:
@@ -63,6 +65,7 @@ def main(argv=None) -> int:
     ap.add_argument("--seconds", type=float, required=True)
     a = ap.parse_args(argv)
     t0 = time.monotonic()
+    t0_ticks = float(_read("/proc/uptime").split()[0]) * TICK  # Startzeiten in /proc/<pid>/stat zählen ab dem Booten
     now = _scan(a.pid)
     if not now:
         print(f"measure-load: no process {a.pid}", file=sys.stderr)
@@ -71,15 +74,17 @@ def main(argv=None) -> int:
     while time.monotonic() - t0 < a.seconds:
         time.sleep(STEP_S)
         now = _scan(a.pid)
-        for k, (ticks, comm) in now.items():
-            seen.setdefault(k, [0, 0, comm])[1:] = [ticks, comm]
+        for k, (ticks, comm) in now.items():  # spät entdeckt, aber älter als das Fenster: ab dem ersten Wert
+            seen.setdefault(k, [0 if k[1] >= t0_ticks else ticks, 0, comm])[1:] = [ticks, comm]
     elapsed = time.monotonic() - t0
     pct = {k: 100 * (last - base) / TICK / elapsed for k, (base, last, _) in seen.items()}
     pss = {k: _pss_kb(k[0]) for k in now}  # am Ende lebende Prozesse
     for k in sorted(pct, key=pct.get, reverse=True):
-        print(f"  {k[0]:>7} {seen[k][2]:<20} {pct[k]:6.2f} % {pss.get(k, 0) / 1024:7.1f} MB", file=sys.stderr)
+        mb = "-" if k not in pss else "?" if pss[k] is None else f"{pss[k] / 1024:.1f}"
+        print(f"  {k[0]:>7} {seen[k][2]:<20} {pct[k]:6.2f} % {mb:>7} MB", file=sys.stderr)
     print(f"cpu_pct_of_one_core={sum(pct.values()):.2f}")
-    print(f"pss_mb={sum(pss.values()) / 1024:.1f}")
+    print(f"pss_mb={sum(v for v in pss.values() if v is not None) / 1024:.1f}")
+    print(f"pss_unreadable={sum(v is None for v in pss.values())}")
     print(f"processes={len(seen)}")
     return 0
 
