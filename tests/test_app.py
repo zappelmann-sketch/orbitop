@@ -376,11 +376,6 @@ class Flaky(FakeSampler):
         if self.fail == "tick_system":
             self._maybe()
 
-    def tick_procs(self):
-        super().tick_procs()
-        if self.fail == "tick_procs":
-            self._maybe()
-
     def snapshot(self, view):
         if self.fail == "snapshot":
             self._maybe()
