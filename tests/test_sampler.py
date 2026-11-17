@@ -934,3 +934,20 @@ def test_snapshot_json_byte_identical_and_rows_once_per_process_tick(with_procs)
     for v in views:
         assert s.snapshot_json(v) == encode(s.snapshot(v)), v
     assert len(built) == 1 + 2  # einmal je Prozess-Takt; dazu die zwei snapshot() mit procs zum Vergleich
+
+
+def test_selection_never_unset_during_snapshot(with_procs):
+    """Der Prozess-Thread liest table.selected ohne Sperre: Während eines Schnappschusses mit gültiger Auswahl darf es
+    nie kurz None sein, sonst fehlt dem gewählten Prozess ein status-Lesen."""
+    s = run(with_procs)
+    row = s.snapshot({"tab": "procs", "pid": None, "start": None})["procs"][0]
+    view = {"tab": "procs", "pid": row["pid"], "start": row["start"]}
+    s.snapshot_json(view)
+    seen = []
+    for name in ("rows", "detail", "top_cpu", "top_mem", "counts"):
+        real = getattr(s._table, name)
+        setattr(s._table, name, lambda *a, real=real: (seen.append(s._table.selected), real(*a))[1])
+    s.tick_procs()  # neue Zeilen, damit snapshot_json sie auch baut
+    s.snapshot_json(view)
+    s.snapshot(view)
+    assert seen and set(seen) == {(row["pid"], row["start"])}, seen

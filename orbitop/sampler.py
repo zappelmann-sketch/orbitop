@@ -460,19 +460,18 @@ class Sampler:
 
     def _snapshot(self, view: dict) -> dict:
         view = view if isinstance(view, dict) else {}
+        tab, pid, start = view.get("tab"), view.get("pid"), view.get("start")
+        valid = tab == "procs" and all(isinstance(x, int) and not isinstance(x, bool) for x in (pid, start))
+        # genau einmal zuweisen, vor jedem Lesen der Tabelle: der Prozess-Thread liest selected ohne Sperre
+        self._table.selected = (pid, start) if valid else None
         tiles = _safe(self._tiles, default=[]) if self._s else []
         kinds = {t["kind"] for t in tiles}
         hints = list(_safe(self._tools.hints, default=None) or [])
         # erst nach ein paar Takten: intel_gpu_top liefert pkg_w nicht sofort
         if self._rapl_noperm and self._n > 3 and self._s["pkg"] is None:
             hints.append("hint.rapl_noperm")
-        procs_rows = detail = self._table.selected = None
-        if view.get("tab") == "procs":
-            procs_rows = _PROCS  # setzt snapshot oder snapshot_json ein
-            pid, start = view.get("pid"), view.get("start")
-            if all(isinstance(x, int) and not isinstance(x, bool) for x in (pid, start)):
-                detail = _safe(self._table.detail, pid, start, self._now_procs)
-                self._table.selected = (pid, start)  # der nächste Prozess-Takt liest dessen status
+        procs_rows = _PROCS if tab == "procs" else None  # setzt snapshot oder snapshot_json ein
+        detail = _safe(self._table.detail, pid, start, self._now_procs) if valid else None
         top = {"cpu": _safe(self._table.top_cpu, 3, default=[]), "mem": _safe(self._table.top_mem)}
         return _clean({"type": "tick", "tiles": tiles, "missing": [k for k in KINDS if k not in kinds],
                        "hints": hints, "top": top, "procs": procs_rows, "detail": detail})
