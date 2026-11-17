@@ -6,7 +6,7 @@ GTK 4 window with a WebKitGTK 6.0 view, written in Python (stdlib and PyGObject 
 
 ![orbitop overview tab](docs/screenshot.png)
 
-The screenshot shows the overview tab with anonymized demo data (`tests/ui/demo.html`), not a live system.
+The screenshot shows the overview tab with demo data (`tests/ui/demo.html`), not a live system. Process names, command lines and users are anonymized; hardware names (CPU, interfaces, disks, sensors) come from the reference laptop.
 
 **Status:** stage 1. orbitop is run from a checkout of this repository. There is no `.deb` package and no update channel yet.
 
@@ -27,7 +27,7 @@ orbitop checks for GTK 4 and WebKitGTK 6.0 at start and names the missing packag
 ```sh
 git clone https://github.com/zappelmann-sketch/orbitop.git
 cd orbitop
-sudo bash scripts/setup-privileges.sh --dry-run   # show what would happen
+bash scripts/setup-privileges.sh --dry-run        # show what would happen
 sudo bash scripts/setup-privileges.sh             # install packages, grant privileges
 bash scripts/install-user.sh                      # per-user launcher, icon, autostart
 ```
@@ -48,7 +48,7 @@ Run it with `bin/orbitop`, or from the application menu after `install-user.sh`.
 bash scripts/install-user.sh --uninstall
 ```
 
-removes the launcher, icon and autostart entry. The privileges above are undone as described in the risk notes.
+removes the launcher, icon and autostart entry. The apt packages installed by `setup-privileges.sh` (`gir1.2-webkit-6.0`, `intel-gpu-tools`) stay installed. The privileges above are undone as described in the risk notes.
 
 ## Resource use
 
