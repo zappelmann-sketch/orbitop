@@ -254,7 +254,7 @@ class Clock:
 class FakeSampler:
     def __init__(self, clock=None, cost=0.108, snap=None):
         self.clock, self.cost, self.snap = clock, cost, snap
-        self.calls, self.views = [], []
+        self.calls, self.views, self.shr = [], [], []
 
     def _spend(self, cost):
         if self.clock:
@@ -264,7 +264,8 @@ class FakeSampler:
         self.calls.append(("sys", self.clock.t if self.clock else None))
         self._spend(self.cost(len(self.calls)) if callable(self.cost) else self.cost)
 
-    def tick_procs(self):
+    def tick_procs(self, shr=False):
+        self.shr.append(shr)
         self.calls.append(("procs", self.clock.t if self.clock else None))
         self._spend(0.02)
 
@@ -314,6 +315,22 @@ def run_procs_fake(sampler, clock, n, sleep=lambda timeout: timeout):
         return False
     worker = Worker(sampler, [].append, clock=clock)
     worker.run_procs(wait)
+
+
+@pytest.mark.parametrize("visible,ready,tab,shr", [
+    (True, True, "procs", True), (False, True, "procs", False),
+    (True, False, "procs", False), (True, True, "overview", False)])
+def test_procs_tick_reads_shr_only_when_procs_tab_visible(visible, ready, tab, shr):
+    clock = Clock()
+    s = FakeSampler(clock)
+
+    def wait(timeout):
+        worker.stop()
+        return False
+    worker = Worker(s, [].append, clock=clock)
+    worker.update(visible=visible, ready=ready, view={"tab": tab, "pid": None, "start": None})
+    worker.run_procs(wait)
+    assert s.shr == [shr]
 
 
 def test_procs_tick_every_2_s_drift_free_and_skips_missed():
@@ -418,8 +435,8 @@ def test_procs_tick_survives_exception_and_reports_it_once(capsys):
     clock = Clock()
 
     class Broken(FakeSampler):
-        def tick_procs(self):
-            super().tick_procs()
+        def tick_procs(self, shr=False):
+            super().tick_procs(shr)
             raise RuntimeError("proc kaputt")
     s = Broken(clock)
     run_procs_fake(s, clock, 3)

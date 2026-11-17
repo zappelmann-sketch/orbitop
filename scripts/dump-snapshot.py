@@ -59,7 +59,7 @@ def main(argv=None) -> None:
                 time.sleep(a.interval)
             sampler.tick_system()
             if i % 2 == 0:  # wie der Worker der App: Prozesse jeden zweiten Takt
-                sampler.tick_procs()
+                sampler.tick_procs(shr=a.view == "procs")
         tick = sampler.snapshot({"tab": a.view, "pid": None, "start": None})
         if a.view == "procs" and tick["procs"]:
             top = max(tick["procs"], key=lambda r: r["cpu"])

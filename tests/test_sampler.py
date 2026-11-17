@@ -17,6 +17,7 @@ from tests.roots import AMD, ARM, INTEL, VM
 from tests.test_procs import make_proc
 
 OVERVIEW = {"tab": "overview", "pid": None, "start": None}
+PROCS = {"tab": "procs", "pid": None, "start": None}
 
 
 class NoTools:
@@ -120,7 +121,7 @@ def test_series_gap_stays_none():
 @pytest.fixture
 def with_procs(intel_copy):
     for pid in (10, 11):
-        make_proc(Path(intel_copy), pid)
+        make_proc(Path(intel_copy), pid, statm="1000 321 77 10 0 200 0\n")
     return intel_copy
 
 
@@ -130,6 +131,13 @@ def test_procs_only_in_procs_view(with_procs):
     snap = s.snapshot({"tab": "procs", "pid": None, "start": None})
     assert isinstance(snap["procs"], list) and snap["detail"] is None
     assert snap["top"]["mem"]["rss"] > 0 and tile(snap, "cpu")["kv"][-1] == {"k": "kv.procs_threads", "v": {"v": 2, "u": "", "of": 14}}
+
+
+def test_shr_only_after_procs_tick_with_shr(with_procs):
+    s = run(with_procs)
+    assert {r["shr"] for r in s.snapshot(PROCS)["procs"]} == {None}
+    s.tick_procs(shr=True)
+    assert all(type(r["shr"]) is int and r["shr"] > 0 for r in s.snapshot(PROCS)["procs"])
 
 
 def test_detail_needs_int_pid_and_start(with_procs):
@@ -227,6 +235,10 @@ def validate_tick(snap, texts):
                 assert isinstance(d["name"], str) and len(d["values"]) == len(t["devices"]["cols"])
                 assert all(n is None or num_ok(n) is None for n in d["values"])
         assert t["threads"] is None or all(len(x) <= 60 for x in t["threads"])
+    for r in snap["procs"] or []:
+        assert type(r["pri"]) is int and type(r["nice"]) is int and type(r["virt"]) is int
+        assert r["shr"] is None or type(r["shr"]) is int
+        assert isinstance(r["s"], str) and len(r["s"]) == 1 and type(r["time"]) is float
     d = snap["detail"]
     if d is not None:
         assert type(d["kernel"]) is bool and type(d["ppid"]) is int and isinstance(d["cmdline"], str)
@@ -932,7 +944,7 @@ def test_snapshot_hands_selection_to_status_reading():
 
 def test_tick_procs_passes_status_gate(monkeypatch):
     gates = []
-    monkeypatch.setattr(sampler_mod.procs, "scan", lambda root, cmdlines, want_status=None: gates.append(want_status) or {})
+    monkeypatch.setattr(sampler_mod.procs, "scan", lambda root, cmdlines, want_status=None, want_shr=False: gates.append(want_status) or {})
     Sampler(VM, tools=NoTools(), uid=1000).tick_procs()
     assert len(gates) == 1 and callable(gates[0])
 

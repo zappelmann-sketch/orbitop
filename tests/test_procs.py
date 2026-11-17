@@ -12,13 +12,13 @@ from orbitop.procs import ProcTable, RawProc, parse_stat, scan
 CLK = 100
 
 
-def stat_line(pid, comm="proc", state="S", ppid=1, ticks=(150, 50), threads=7, start=98765, rss=321):
-    return (f"{pid} ({comm}) {state} {ppid} {pid} {pid} 0 -1 4194560 0 0 0 0 {ticks[0]} {ticks[1]} 0 0 20 0 "
-            f"{threads} 0 {start} 0 {rss} 18446744073709551615")
+def stat_line(pid, comm="proc", state="S", ppid=1, ticks=(150, 50), threads=7, start=98765, rss=321, pri=20, nice=0, virt=0):
+    return (f"{pid} ({comm}) {state} {ppid} {pid} {pid} 0 -1 4194560 0 0 0 0 {ticks[0]} {ticks[1]} 0 0 {pri} {nice} "
+            f"{threads} 0 {start} {virt} {rss} 18446744073709551615")
 
 
 def make_proc(root, pid, *, stat=True, status=True, io="rchar: 10\nwchar: 5\n", cmdline=b"/bin/x\0-a\0-b\0",
-              uid=1000, **kw):
+              uid=1000, statm=None, **kw):
     d = root / "proc" / str(pid)
     d.mkdir(parents=True, exist_ok=True)
     if stat:
@@ -28,12 +28,15 @@ def make_proc(root, pid, *, stat=True, status=True, io="rchar: 10\nwchar: 5\n", 
                                   "voluntary_ctxt_switches:\t30\nnonvoluntary_ctxt_switches:\t4\n")
     if io is not None:
         (d / "io").write_text(io)
+    if statm is not None:
+        (d / "statm").write_text(statm)
     (d / "cmdline").write_bytes(cmdline)
 
 
 def raw(pid=10, start=1, ticks=0, io=0, vctx=0, nvctx=0, state="S", name="p", cmdline="/bin/p a", uid=1000,
-        rss=4096, threads=1, ppid=1, args="a"):
-    return RawProc(pid, start, ppid, name, cmdline, uid, state, ticks, rss, threads, vctx, nvctx, io, args)
+        rss=4096, threads=1, ppid=1, args="a", pri=20, nice=0, virt=0, shr=None):
+    return RawProc(pid, start, ppid, name, cmdline, uid, state, ticks, rss, threads, vctx, nvctx, io, args,
+                   pri, nice, virt, shr)
 
 
 def test_parse_stat_comm_with_parens_and_spaces():
@@ -446,3 +449,32 @@ def test_status_skipped_keeps_uid_and_rates():
     t.update({(10, 1): raw(uid=None, vctx=None, nvctx=None)}, 4.0)
     d = t.detail(10, 1, 4.0)
     assert d["user"] == "root" and d["own"] is False and (d["vctx"], d["nvctx"]) == (10.0, 2.0)
+
+
+def test_parse_stat_priority_nice_vsize():
+    d = parse_stat(stat_line(7, pri=39, nice=19, virt=123_456_789))
+    assert (d["pri"], d["nice"], d["virt"]) == (39, 19, 123_456_789)
+    assert parse_stat(stat_line(8, pri=0, nice=-20))["nice"] == -20
+
+
+def test_scan_reads_statm_only_when_wanted(tmp_path, monkeypatch):
+    make_proc(tmp_path, 100, statm="1000 321 77 10 0 200 0\n")
+    seen, real = [], procs._read
+    monkeypatch.setattr(procs, "_read", lambda p: seen.append(p) or real(p))
+    assert scan(str(tmp_path), page_size=4096)[(100, 98765)].shr is None
+    assert not any(p.endswith("/statm") for p in seen)
+    assert scan(str(tmp_path), page_size=4096, want_shr=True)[(100, 98765)].shr == 77 * 4096
+
+
+def test_scan_statm_missing_or_broken_keeps_process(tmp_path):  # verschwindet zwischen stat und statm
+    make_proc(tmp_path, 100)
+    make_proc(tmp_path, 101, statm="kaputt")
+    got = scan(str(tmp_path), want_shr=True)
+    assert sorted(k[0] for k in got) == [100, 101] and {r.shr for r in got.values()} == {None}
+
+
+def test_row_has_top_fields():
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    t.update({(10, 1): raw(ticks=12345, state="R", pri=20, nice=-5, virt=8192, shr=4096)}, 0.0)
+    r = t.rows(0.0)[0]
+    assert (r["pri"], r["nice"], r["virt"], r["shr"], r["s"], r["time"]) == (20, -5, 8192, 4096, "R", 123.45)

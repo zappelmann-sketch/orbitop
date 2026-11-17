@@ -172,7 +172,9 @@ class Worker:
         due = self._clock()
         while not self._stop.is_set():
             if self._clock() >= due:
-                self._guard(self._sampler.tick_procs)
+                with self._lock:
+                    shr = self._visible and self._ready and self._view.get("tab") == "procs"
+                self._guard(lambda: self._sampler.tick_procs(shr=shr))
                 due = self._next(due, PROCS_PERIOD_S)
             wait(max(0.0, due - self._clock()))
 

@@ -276,10 +276,11 @@ class Sampler:
                 t = nvme[0]
             d.temp_c = t.value if t else None
 
-    def tick_procs(self) -> None:
+    def tick_procs(self, shr: bool = False) -> None:
         """Im eigenen Thread (app.Worker). Fehler gehen an den Aufrufer, der jeden einmal meldet."""
         now = self._clock()
-        raw = procs.scan(self._root, self._table.cmdlines, want_status=self._table.wants_status(now))  # kann blockieren
+        raw = procs.scan(self._root, self._table.cmdlines, want_status=self._table.wants_status(now),
+                        want_shr=shr)  # kann blockieren
         with self._procs_lock:
             self._table.update(raw, now)
             self._now_procs = now

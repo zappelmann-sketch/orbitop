@@ -35,6 +35,10 @@ class RawProc:
     nvctx: int | None
     io: int | None  # rchar + wchar, None wenn nicht lesbar
     args: str
+    pri: int = 0
+    nice: int = 0
+    virt: int = 0  # Bytes
+    shr: int | None = None  # Bytes; None, wenn statm nicht gelesen wurde oder nicht lesbar ist
 
 
 def is_kernel_thread(ppid: int, cmdline) -> bool:
@@ -73,7 +77,7 @@ def parse_stat(text: str) -> dict:
     f = text[end + 2:].split()
     return {"name": text[text.index("(") + 1:end], "state": f[0], "ppid": int(f[1]),
             "ticks": int(f[11]) + int(f[12]), "threads": int(f[17]), "start": int(f[19]),
-            "rss": int(f[21])}
+            "rss": int(f[21]), "pri": int(f[15]), "nice": int(f[16]), "virt": int(f[20])}
 
 
 def _field(text: str, key: str) -> int:
@@ -116,10 +120,12 @@ def _read_cmdline(p: str) -> tuple[str, str]:
 
 
 def scan(root: str, cmdlines: dict | None = None,
-         page_size: int = os.sysconf("SC_PAGE_SIZE"), want_status=None) -> dict[tuple[int, int], RawProc]:
+         page_size: int = os.sysconf("SC_PAGE_SIZE"), want_status=None,
+         want_shr: bool = False) -> dict[tuple[int, int], RawProc]:
     """Liest alle Prozesse. `cmdlines` (Schlüssel -> (comm, cmdline, args)) wird nur für neue Schlüssel
     und nach einem comm-Wechsel (exec) neu gelesen. `want_status(key, ticks)` entscheidet, ob status gelesen wird
-    (ohne: immer); sonst bleiben uid, vctx und nvctx None."""
+    (ohne: immer); sonst bleiben uid, vctx und nvctx None.
+    Nur mit `want_shr` wird statm gelesen (shr), sonst und bei Fehlern bleibt shr None."""
     cmdlines = {} if cmdlines is None else cmdlines
     out = {}
     try:
@@ -152,12 +158,18 @@ def scan(root: str, cmdlines: dict | None = None,
         c = cmdlines.get(key)
         if c is None or c[0] != s["name"]:
             c = cmdlines[key] = (s["name"], *_read_cmdline(base + "/cmdline"))
+        shr = None
+        if want_shr:
+            try:
+                shr = int((_read(base + "/statm") or "").split()[2]) * page_size
+            except (ValueError, IndexError):
+                pass
         name = sysfs.printable(s["name"])
         if is_kernel_thread(s["ppid"], c[1]):  # Klammern nur für Kernel-Threads, nicht für PID 1
             name = f"[{name}]"
         out[key] = RawProc(int(n), s["start"], s["ppid"], name, c[1], uid, s["state"], s["ticks"],
                            s["rss"] * page_size, s["threads"], vctx, nvctx, _parse_io(_read(base + "/io")),
-                           c[2])
+                           c[2], s["pri"], s["nice"], s["virt"], shr)
     return out
 
 
@@ -252,7 +264,8 @@ class ProcTable:
                 "args": r.args if len(r.args) <= ARGS_MAX else r.args[:ARGS_MAX - 1] + "…",
                 "user": self._user(r.uid), "own": r.uid == self.uid, "cpu": e.cpu,
                 "spark": list(e.history)[-SPARK:], "rss": r.rss, "io": e.io_rate,
-                "state": state, "since": since}
+                "state": state, "since": since, "pri": r.pri, "nice": r.nice, "virt": r.virt,
+                "shr": r.shr, "s": r.state, "time": r.ticks / self.clk_tck}
 
     def rows(self, now: float) -> list[dict]:
         return [self._row(e, now) for e in self._entries.values()]
