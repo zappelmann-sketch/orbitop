@@ -72,7 +72,7 @@ def test_load_bad_file_is_none_without_hanging(tmp_path, make):  # Review Focus 
     elif make == "huge-split":
         p.write_text(json.dumps({**L, "split": 10**400}))
     elif make == "deep":
-        p.write_text("[" * 4000)
+        p.write_text("[" * 2000 + "]" * 2000)  # balanciert, aber im Decoder kein Fehler (siehe Test unten)
     elif make == "not-a-dict":
         p.write_text("[1, 2]")
     f = LayoutFile(str(p))
@@ -132,3 +132,14 @@ def test_save_failure_leaves_no_temp_file(tmp_path, monkeypatch):
     monkeypatch.setattr(layout.os, "replace", boom)
     f = LayoutFile(str(tmp_path / "orbitop" / "layout.json"))
     assert f.save(L) is False and os.listdir(tmp_path / "orbitop") == []
+
+
+def test_load_recursion_error_is_none(tmp_path, monkeypatch):
+    # Python 3.14: der C-Decoder wirft innerhalb von MAX_BYTES keinen RecursionError; der Zweig bleibt für andere Versionen
+    p = tmp_path / "layout.json"
+    p.write_text(json.dumps(L))
+    def boom(_data):
+        raise RecursionError
+    monkeypatch.setattr(layout.json, "loads", boom)
+    f = LayoutFile(str(p))
+    assert f.load() is None and f.current is None
