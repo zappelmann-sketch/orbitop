@@ -4,7 +4,6 @@
 hwmon-Chips (read_sensors mit held)."""
 import os
 import re
-import time
 from dataclasses import dataclass
 
 from orbitop import sysfs
@@ -13,7 +12,7 @@ from orbitop.system import MAX_DT
 GPU_CHIPS = {"amdgpu", "radeon", "nouveau"}
 TEMP_MIN, TEMP_MAX = -40.0, 150.0   # °C, Obergrenze exklusiv
 SLOW_CHIPS = {"dell_smm"}  # jeder Lesezugriff ist ein BIOS-SMM-Aufruf (gemessen: 3,7 ms CPU, 58 ms Wartezeit)
-SLOW_READ_S, SLOW_EVERY_S = 0.010, 5.0  # wer länger braucht, wird höchstens alle 5 s gelesen
+SLOW_EVERY_S = 5.0  # langsame Chips höchstens so oft lesen
 _THERMAL_CPU = re.compile(r"x86_pkg_temp|cpu|soc")
 
 
@@ -50,7 +49,6 @@ class Battery:
 @dataclass
 class _Chip:
     name: str
-    dir: str
     temps: list[Temp]
     first: Temp | None  # temp1, unabhängig vom Label
     fans: list[Fan]
@@ -93,25 +91,25 @@ def _read_chip(d: str, name: str) -> _Chip:
                 continue
             seen.add(n)
             power.append((sysfs.read_str(f"{d}/power{n}_label") or f"{name} {n}", w / 1e6))
-    return _Chip(name, d, temps, first, fans, power)
+    return _Chip(name, temps, first, fans, power)
 
 
-def _chips(root: str, held: dict, now: float, clock) -> list[_Chip]:
-    """Alle Chips; langsame aus held (Verzeichnis -> (Zeit, Chip)), solange ihr Wert jünger als SLOW_EVERY_S ist."""
+def _chips(root: str, held: dict, now: float) -> list[_Chip]:
+    """Alle Chips; SLOW_CHIPS aus held (Verzeichnis -> (Zeit, Gerätepfad, Chip)), solange ihr Wert jünger als
+    SLOW_EVERY_S ist und das Verzeichnis noch auf dasselbe Gerät zeigt (nach dem Aufwachen ggf. ein anderes)."""
     chips, keep = [], {}
     for d in sysfs.glob(root, "/sys/class/hwmon/hwmon*"):
         name = sysfs.read_str(d + "/name")
         if not name:
             continue
-        old = held.get(d)
-        if old and old[1].name == name and 0 <= now - old[0] < SLOW_EVERY_S:  # nach dem Aufwachen ggf. anderer Chip
+        real, old = os.path.realpath(d), held.get(d)  # der Klassen-Symlink zeigt in den Gerätebaum: kein SMM-Aufruf
+        if old and old[1] == real and old[2].name == name and 0 <= now - old[0] < SLOW_EVERY_S:
             keep[d] = old
-            chips.append(old[1])
+            chips.append(old[2])
             continue
-        t = clock()
         chip = _read_chip(d, name)
-        if name in SLOW_CHIPS or clock() - t > SLOW_READ_S:
-            keep[d] = (now, chip)
+        if name in SLOW_CHIPS:
+            keep[d] = (now, real, chip)
         chips.append(chip)
     held.clear()
     held.update(keep)  # verschwundene Verzeichnisse fallen heraus
@@ -160,10 +158,10 @@ def _temp_rank(t: Temp, primary: set[int]) -> int:
     return 2 if t.chip.startswith("pch_") else 3
 
 
-def read_sensors(root: str, held: dict | None = None, now: float = 0.0, clock=time.monotonic) -> SensorValues:
-    """held behält der Aufrufer über die Takte: Darin bleiben langsame Chips (SLOW_CHIPS oder mehr als SLOW_READ_S
-    Wartezeit je Lesen) bis zu SLOW_EVERY_S stehen. Der Verlauf zeigt dann so lange denselben Wert."""
-    chips = _chips(root, {} if held is None else held, now, clock)
+def read_sensors(root: str, held: dict | None = None, now: float = 0.0) -> SensorValues:
+    """held behält der Aufrufer über die Takte: Darin bleiben langsame Chips (SLOW_CHIPS) bis zu SLOW_EVERY_S stehen.
+    Der Verlauf zeigt dann so lange denselben Wert."""
+    chips = _chips(root, {} if held is None else held, now)
     cpu, used = _cpu_temp(root, chips)
     temps = [t for c in chips if c.name not in used | GPU_CHIPS for t in c.temps]
     primary = {id(next((t for t in c.temps if t.label.endswith("Composite")), c.temps[0]))

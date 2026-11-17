@@ -772,7 +772,7 @@ def test_disk_temps_built_once_per_tick(monkeypatch, tree_copy):
     real = os.path.realpath
     monkeypatch.setattr(sampler_mod.os.path, "realpath", lambda p: (calls.append(p), real(p))[1])
     s.tick_system()
-    chip_calls = [c for c in calls if "/hwmon/" in c]
+    chip_calls = [c for c in calls if "/hwmon/" in c and c.endswith("/device")]  # sensors prüft hwmon* selbst je Takt
     assert len(chip_calls) == len(set(chip_calls)) == 2  # nvme und drivetemp, je einmal
 
 
