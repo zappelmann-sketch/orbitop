@@ -245,6 +245,7 @@ def test_pidfd_before_check_and_signal_via_pidfd(child, monkeypatch):
     monkeypatch.setattr(os, "kill", lambda *a: pytest.fail("Signal per PID"))
     assert terminate(child.pid, start_of(child.pid), False) == "sent"
     assert calls == ["open", "stat", "signal"]
+    assert child.wait(5) == -signal.SIGTERM  # sonst rief der Abbau von child noch das gesperrte os.kill (Wettlauf)
 
 
 def fake_proc(tmp_path, pid, start, ppid, cmdline):
