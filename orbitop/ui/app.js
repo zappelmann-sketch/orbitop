@@ -779,12 +779,13 @@ function colWidth(th) {
   return parseFloat(ui.colgroup.children[ui.ths.indexOf(th)].style.width);
 }
 
-/** mark bekommt beim Ziehen die Klasse on; th: Kopf (Breite, Umordnen), sonst der Trenner. old: Stand für pointercancel. */
+/** mark bekommt beim Ziehen die Klasse on; th: Kopf (Breite, Umordnen), sonst der Trenner. old: Breiten bzw. Anteil für
+ * pointercancel (Umordnen ändert erst beim Ablegen etwas). */
 function startDrag(e, kind, mark, th) {
   if (state.drag) dragEnd({ pointerId: state.drag.pointer }); // hängender Zug (Loslassen verloren): endet wie losgelassen
   state.drag = { kind, mark, id: th && th.dataset.col, pointer: e.pointerId, x: e.clientX, moved: false, to: null,
                  owe: false, w: th ? colWidth(th) : ui.list.getBoundingClientRect().width,
-                 old: kind === "split" ? state.layout.split : { ...state.layout.widths } };
+                 old: kind === "split" ? state.layout.split : kind === "width" ? { ...state.layout.widths } : null };
   document.body.dataset.drag = kind; // keine Textauswahl, Mauszeiger bleibt
 }
 
@@ -821,10 +822,13 @@ function dragEnd(e) {
   d.mark.classList.remove("on");
   ui.drop.hidden = true;
   if (e.type === "pointercancel") {
-    if (d.kind === "split") state.layout.split = d.old;
-    else if (d.kind === "width") state.layout.widths = d.old;
-    sizeCols();
-    showSplit();
+    if (d.kind === "split") {
+      state.layout.split = d.old;
+      showSplit();
+    } else if (d.kind === "width") {
+      state.layout.widths = d.old;
+      sizeCols();
+    }
   } else if (d.moved && d.kind !== "move") {
     saveLayout();
   } else if (d.moved) {
