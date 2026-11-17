@@ -346,6 +346,19 @@ def test_power_main_chain_and_series_name(patched, kw, v, name):
     assert p["aside"] == {("k" if "key" in name else "l"): next(iter(name.values()))}
 
 
+def test_power_curve_never_mixes_sources(monkeypatch):  # powerprobe: Anlauf von intel_gpu_top im Akkubetrieb
+    tools = NoTools()
+    monkeypatch.setattr(sampler_mod, "read_battery", lambda *a: BATT)
+    s = Sampler(INTEL, tools=tools, clock=fake_clock(), uid=1000)
+    s._rapl.read = lambda now: None
+    for i in range(6):
+        tools.pkg_w = 4.0 if i >= 3 else None  # erste Takte: nur die Akku-Entladung (9 W)
+        s.tick_system()
+    p = tile(s.snapshot(OVERVIEW), "power")
+    assert p["series"][0]["key"] == "series.cpu_package"
+    assert p["series"][0]["values"] == [None, None, None, 4.0, 4.0, 4.0]  # der Quellenwechsel ist eine Lücke
+
+
 def test_power_chain_picks_hwmon_first_entry(patched):
     p = power_of(patched, hw=[("a", 1.0), ("b", 2.0)])
     assert p["main"]["v"] == 1.0

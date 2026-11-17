@@ -221,7 +221,7 @@ class Sampler:
             ((v, n) for v, n in ((pkg, ("key", CPU_KEY)), (batt and batt.discharge_w, ("key", "kv.battery")),
                                  (hw[1], ("label", hw[0]))) if v is not None),
             (None, ("key", "kv.battery") if batt else ("key", CPU_KEY)))
-        self._push("power", s["pwr"])
+        self._push("power:" + s["pwr_name"][1], s["pwr"])  # je Quelle: ein Wechsel ist eine Lücke, keine Mischkurve
 
     def _tick_temps(self, now) -> None:
         sens = self._s["sens"]
@@ -352,7 +352,7 @@ class Sampler:
         if s["pwr"] is None and batt is None and gpu_w is None:
             return None
         name = s["pwr_name"]
-        series = self._plot("W", (name, "power", True))
+        series = self._plot("W", (name, "power:" + name[1], True))
         kv = []
         core = s["rapl"].get("core")
         if core is not None:
