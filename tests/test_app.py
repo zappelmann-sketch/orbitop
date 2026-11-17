@@ -31,6 +31,10 @@ UI = REPO / "orbitop" / "ui"
     ('{"type":"ready","extra":[1,2],"pid":"x"}', {"type": "ready"}),  # Zusatzschlüssel werden ignoriert
     ('{"type":"terminate","pid":3,"start":4,"force":true,"sig":"HUP"}',
      {"type": "terminate", "pid": 3, "start": 4, "force": True}),
+    ('{"type":"terminate","pid":4194304,"start":9223372036854775807,"force":false}',  # Obergrenzen genau
+     {"type": "terminate", "pid": 4194304, "start": 2**63 - 1, "force": False}),
+    ('{"type":"view","tab":"procs","pid":4194304,"start":9223372036854775807}',
+     {"type": "view", "tab": "procs", "pid": 4194304, "start": 2**63 - 1}),
 ])
 def test_parse_message_accepts_contract_shapes(raw, msg):
     assert parse_message(raw) == msg
@@ -46,6 +50,11 @@ def test_parse_message_accepts_contract_shapes(raw, msg):
     '{"type":"terminate","pid":1.0,"start":1,"force":false}',    # float
     '{"type":"terminate","pid":1e400,"start":1,"force":false}',  # inf
     '{"type":"terminate","pid":NaN,"start":1,"force":false}',
+    '{"type":"terminate","pid":4194305,"start":1,"force":false}',  # über PID_MAX_LIMIT
+    '{"type":"terminate","pid":1,"start":9223372036854775808,"force":false}',  # start ≥ 2**63
+    pytest.param('{"type":"terminate","pid":1%s,"start":1,"force":false}' % ("0" * 4000), id="pid-4001-digits"),
+    '{"type":"view","tab":"procs","pid":4194305,"start":1}',
+    '{"type":"view","tab":"procs","pid":1,"start":9223372036854775808}',
     '{"type":"terminate","start":1,"force":false}',              # pid fehlt
     '{"type":"terminate","pid":1,"start":1}',                    # force fehlt
     '{"type":"terminate","pid":1,"start":1,"force":"yes"}',

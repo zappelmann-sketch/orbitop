@@ -47,8 +47,11 @@ def encode(msg: dict) -> str:
     return json.dumps(msg, ensure_ascii=True, allow_nan=False)
 
 
-def _uint(v) -> bool:
-    return type(v) is int and v >= 0  # bool ist kein int im Sinne des Vertrags
+PID_MAX, START_MAX = 4194304, 2**63 - 1  # PID_MAX_LIMIT des Kernels; start ist ein u64-Zähler in Ticks
+
+
+def _uint(v, top: int) -> bool:
+    return type(v) is int and 0 <= v <= top  # bool ist kein int im Sinne des Vertrags
 
 
 def parse_message(raw) -> dict | None:
@@ -66,11 +69,12 @@ def parse_message(raw) -> dict | None:
         return {"type": kind}
     if kind == "view":
         tab, pid, start = m.get("tab"), m.get("pid"), m.get("start")
-        if tab in ("overview", "procs") and all(x is None or _uint(x) for x in (pid, start)):
+        if tab in ("overview", "procs") and (pid is None or _uint(pid, PID_MAX)) and (
+                start is None or _uint(start, START_MAX)):
             return {"type": "view", "tab": tab, "pid": pid, "start": start}
     if kind == "terminate":
         pid, start, force = m.get("pid"), m.get("start"), m.get("force")
-        if _uint(pid) and _uint(start) and type(force) is bool:
+        if _uint(pid, PID_MAX) and _uint(start, START_MAX) and type(force) is bool:
             return {"type": "terminate", "pid": pid, "start": start, "force": force}
     return None
 
