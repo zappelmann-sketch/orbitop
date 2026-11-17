@@ -16,10 +16,9 @@ RESTART_S = 30.0
 STALE_S = 3.0  # älteren Werten wird nicht mehr getraut
 TOOL_PATH = "/usr/local/bin:/usr/bin:/bin"  # fest: kein ~/.local/bin, kein leerer PATH-Eintrag
 _CARD = re.compile(r"card[0-9]+")
-_NV_FIELDS = ("busy", "vram_used", "vram_total", "temp_c", "power_w", "freq_mhz",
-              "freq_max_mhz", "fan_pct")
+_NV_FIELDS = ("busy", "vram_used", "vram_total", "temp_c", "power_w", "freq_mhz", "freq_max_mhz")
 _NV_QUERY = ("pci.bus_id,name,utilization.gpu,memory.used,memory.total,temperature.gpu,"
-             "power.draw,clocks.gr,clocks.max.gr,fan.speed")
+             "power.draw,clocks.gr,clocks.max.gr")
 
 
 def _num(v) -> float | None:
@@ -84,7 +83,7 @@ def split_lines(chunks: Iterable[str]) -> Iterator[str]:
 
 def parse_nvidia_line(line: str) -> dict:
     parts = [p.strip() for p in line.split(",")]
-    if len(parts) != 10:
+    if len(parts) != 2 + len(_NV_FIELDS):
         raise ValueError("unerwartete Spaltenzahl")
     d = {"pci": parts[0].lower()[-12:], "name": parts[1]}
     d.update({k: _num(v) for k, v in zip(_NV_FIELDS, parts[2:])})  # [N/A] -> None

@@ -83,7 +83,7 @@ def test_split_deep_nesting_does_not_raise():
 def test_parse_non_finite_is_none():
     d = parse_intel(json.loads('{"engines": {"R": {"busy": NaN}}, "power": {"GPU": Infinity}}'))
     assert d["busy"] is None and d["gpu_w"] is None
-    n = parse_nvidia_line("00000000:01:00.0, X, nan, inf, -inf, 1, 2, 3, 4, 5")
+    n = parse_nvidia_line("00000000:01:00.0, X, nan, inf, -inf, 1, 2, 3, 4")
     assert n["busy"] is None and n["vram_used"] is None and n["vram_total"] is None and n["temp_c"] == 1.0
 
 
@@ -92,19 +92,26 @@ def test_parse_intel_max_over_engines():
 
 
 def test_parse_nvidia_pci_normalized():
-    assert parse_nvidia_line("00000000:0A:00.0, X, 1, 1, 1, 1, 1, 1, 1, 1")["pci"] == "0000:0a:00.0"
+    assert parse_nvidia_line("00000000:0A:00.0, X, 1, 1, 1, 1, 1, 1, 1")["pci"] == "0000:0a:00.0"
 
 
 def test_parse_nvidia_na():
-    d = parse_nvidia_line("00000000:01:00.0, NVIDIA GeForce GTX 1080, 18, 3379, 8192, 54, [N/A], 607, 1911, 0")
+    d = parse_nvidia_line("00000000:01:00.0, NVIDIA GeForce GTX 1080, 18, 3379, 8192, 54, [N/A], 607, 1911")
     assert d["pci"] == "0000:01:00.0" and d["power_w"] is None and d["busy"] == 18.0
-    assert d["name"] == "NVIDIA GeForce GTX 1080" and d["vram_total"] == 8192.0 and d["fan_pct"] == 0.0
+    assert d["name"] == "NVIDIA GeForce GTX 1080" and d["vram_total"] == 8192.0 and d["freq_max_mhz"] == 1911.0
+    assert set(d) == {"pci", "name", "busy", "vram_used", "vram_total", "temp_c", "power_w", "freq_mhz", "freq_max_mhz"}
+
+
+def test_nvidia_query_matches_parser():
+    query = gpu_tools._nvidia_cmd("/usr/bin/nvidia-smi")[1].removeprefix("--query-gpu=").split(",")
+    assert len(query) == 9 and "fan.speed" not in query  # nur abgefragt, was eine Kachel zeigt
+    assert parse_nvidia_line(", ".join(["00000000:01:00.0", "X"] + ["1"] * 7))["busy"] == 1.0
 
 
 def test_parse_nvidia_fixture_not_supported():
     with open(FIX / "nvidia-smi.csv") as f:
         lines = list(split_lines(f))
-    assert parse_nvidia_line(lines[1])["fan_pct"] is None
+    assert parse_nvidia_line(lines[1])["freq_max_mhz"] is None
     with pytest.raises(ValueError):
         parse_nvidia_line("kaputt")
 
@@ -196,7 +203,7 @@ def test_hint_failed_and_device_argument(monkeypatch):
 
 def test_nvidia_lookup_by_normalized_pci(monkeypatch):
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: sys.executable if n == "nvidia-smi" else None)
-    line = "00000000:01:00.0, GTX, 18, 1, 2, 54, 40.5, 607, 1911, 0"
+    line = "00000000:01:00.0, GTX, 18, 1, 2, 54, 40.5, 607, 1911"
     monkeypatch.setattr(gpu_tools, "_nvidia_cmd", lambda path: [sys.executable, "-c", f"print({line!r}, flush=True);import time;time.sleep(5)"])
     t = GpuTools(_gpus("nvidia"))
     wait_until(lambda: t.nvidia("0000:01:00.0") is not None)

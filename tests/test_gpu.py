@@ -119,7 +119,7 @@ def test_nvidia_with_tool():
     nv1 = gpu(AMD, "card1")
     tools = FakeTools(nvidia={"name": "RTX 4070", "busy": 80.0, "vram_used": 2, "vram_total": 12,
                               "temp_c": 55.0, "power_w": 120.0, "freq_mhz": 2100.0,
-                              "freq_max_mhz": 2700.0, "fan_pct": 40.0})
+                              "freq_max_mhz": 2700.0})
     r = GpuReader(AMD, nv1, tools)
     s = r.read(0)
     assert tools.calls == [("nvidia", "0000:01:00.0")]
