@@ -259,7 +259,7 @@ CPU in % eines Kerns, in Klammern PSS in MB:
 | Budget ursprünglich | ≤ 1,5 | ≤ 5 | ≤ 5 | ≤ 5 | ≤ 5; PSS < 250 |
 | **Budget (User, 2026-11-17)** | **≤ 3** | **≤ 9** | **≤ 9** | **≤ 9** | **≤ 9**; PSS **< 275** |
 
-Aufteilung im Endstand (Übersicht, Dauer): WebKit-Webprozess 4,05 %, orbitop (Python, GTK) 2,70 %, `intel_gpu_top` 1,25 %. Ausgeblendet: orbitop 1,62 %, `intel_gpu_top` 1,18 %.
+Aufteilung nach Fix-Runde 1 (8f29d08): Übersicht Dauer WebKit-Webprozess 3,92 %, orbitop (Python, GTK) 2,82 %, `intel_gpu_top` 1,08 %; Prozesse Dauer orbitop 3,68 %, WebKit-Webprozess 3,56 %, `intel_gpu_top` 1,08 %; ausgeblendet orbitop 1,68 %, `intel_gpu_top` 1,08 %.
 
 Einzelmessungen ohne App:
 - `intel_gpu_top -J`: mit `-s 1000` 2,20 %, mit `-s 2000` 1,10 %.
