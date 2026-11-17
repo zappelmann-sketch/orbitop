@@ -12,8 +12,8 @@ SVG = ROOT / "data" / "icons" / f"{APP}.svg"
 SCRIPT = ROOT / "scripts" / "install-user.sh"
 
 
-def run_install(home, *args, script=SCRIPT, env=None):
-    return subprocess.run(["bash", str(script), *args], capture_output=True, text=True,
+def run_install(home, *args, script=SCRIPT, env=None, cwd=None):
+    return subprocess.run(["bash", str(script), *args], capture_output=True, text=True, cwd=cwd,
                           env={**os.environ, "HOME": str(home), **(env or {})})
 
 
@@ -118,8 +118,8 @@ def test_refuses_missing_launcher(tmp_path):
 
 
 def test_refuses_relative_home(tmp_path):
-    r = run_install("relhome")
-    assert r.returncode != 0
+    r = run_install("relhome", cwd=tmp_path)  # im tmp_path: ein Fehler schriebe nie ins Repo (früher: relhome/)
+    assert r.returncode != 0 and not (tmp_path / "relhome").exists()
 
 
 def test_rejects_extra_arguments(tmp_path):
