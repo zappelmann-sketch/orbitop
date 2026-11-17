@@ -208,6 +208,20 @@ def test_d_state_becomes_kernel_hang_then_resets():
     assert t.rows(14.0)[0]["state"] == "waiting"
 
 
+def test_d_state_clock_restarts_after_suspend_gap():
+    """Ruhezustand: dt > MAX_DT macht die Stichprobe ungültig; die D-Uhr darf nicht von vor dem Schlaf weiterlaufen."""
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    for i in range(4):
+        t.update({(10, 1): raw(state="D")}, i * 2.0)
+    t.update({(10, 1): raw(state="D")}, 1000.0)
+    assert t.rows(1000.0)[0]["state"] != "kernel_hang"
+    for i in range(1, 7):
+        t.update({(10, 1): raw(state="D")}, 1000.0 + i * 2.0)
+    assert t.rows(1010.0)[0]["state"] == "working"  # genau 10 s: Schwelle ist strikt
+    row = t.rows(1012.0)[0]
+    assert row["state"] == "kernel_hang" and row["since"] == 12
+
+
 @pytest.mark.parametrize("ticks,io", [(20, 4_000_000), (20, None), (0, 4_000_000)])
 def test_d_state_with_progress_is_never_kernel_hang(ticks, io):
     """Gedrosseltes Schreiben (USB-Stick, NFS): jede Stichprobe D, aber CPU-Ticks oder E/A wachsen weiter."""

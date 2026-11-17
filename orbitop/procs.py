@@ -236,7 +236,8 @@ class ProcTable:
             # und schreibt aber dazwischen; bei unbekannter E/A zählen nur die CPU-Ticks
             progressed = valid and (r.ticks > prev.ticks or (io_delta or 0) > 0)
             stuck = r.state == "D" and not progressed
-            s.d_since = (s.d_since if s.d_since is not None else now) if stuck else None
+            # ungültige Stichprobe (z. B. Lücke nach dem Ruhezustand): die D-Uhr beginnt neu
+            s.d_since = (s.d_since if valid and s.d_since is not None else now) if stuck else None
             # Einstufung mit der Obergrenze dieses Takts: alle Wechsel seit dem letzten Lesen durch sein dt. Über die ganze
             # status-Lücke gemittelt könnte ein Takt mit mehr als 1/s als Dauerlast zählen (zu früh gemeldet).
             busy = valid and ctx_ok and is_busy_sample(e.cpu, (r.vctx - prev.vctx) / dt, io_delta)
