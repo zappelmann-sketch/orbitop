@@ -360,7 +360,7 @@ function renderOverview(msg) {
 
 // ---- Prozesse ----
 const PROC_POINTS = 150, PROC_GRID = 15, SPARK_POINTS = 30; // 2 s je Punkt: Detail 5 min, Linie alle 30 s; Zeile 60 s
-const BUFFER_ROWS = 12, GUESS_PITCH = 31; // Zeilen über und unter dem Sichtbereich; Zeilenabstand, bis er gemessen ist
+const BUFFER_ROWS = 6, GUESS_PITCH = 31; // Zeilen über und unter dem Sichtbereich; Zeilenabstand, bis er gemessen ist
 const SVG_NS = "http://www.w3.org/2000/svg";
 const KIND = { working: "ok", waiting: "idle", busy_noio: "warn", busy_iounknown: "warn", kernel_hang: "bad",
                stopped: "stop", zombie: "dead" }; // Farbe und Symbol je Zustand, wie im Entwurf

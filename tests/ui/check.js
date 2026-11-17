@@ -940,6 +940,7 @@ document.addEventListener("DOMContentLoaded", () => {
   eq(rows().length < 80 && vname(rows()[0]) === "v000", true, `nur sichtbare Zeilen im DOM (${rows().length})`);
   const pitch = rows()[1].getBoundingClientRect().top - rows()[0].getBoundingClientRect().top;
   eq(Math.abs(scroller.scrollHeight - (headH + 300 * pitch)) < 1, true, "volle Höhe wie ohne Virtualisierung");
+  eq(rows().length <= Math.ceil(scroller.clientHeight / pitch) + 7, true, `höchstens 6 Pufferzeilen (${rows().length})`);
   eq($(".ptable").getAttribute("aria-rowcount") + "/" + rows()[1].getAttribute("aria-rowindex"), "301/3",
      "Zeilenzahl und -index für Hilfstechnik");
   const rowTop = (tr) => tr.getBoundingClientRect().top - scroller.getBoundingClientRect().top + scroller.scrollTop - headH;
