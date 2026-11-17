@@ -82,6 +82,7 @@ Was sonst gilt:
 - Die Spalte RES ist das bisherige Feld `rss`.
 - %MEM rechnet die Seite aus `rss` und dem Gesamtspeicher, der im Schnappschuss schon enthalten ist.
 - Der Schnappschuss-Vertrag im Plan („Global Constraints“) wird um diese Felder ergänzt.
+- Im Prozess-Reiter steht statt der Liste `"procs": null, "procs_same": true`, wenn sie sich seit dem letzten Tick mit Liste nicht geändert hat und seitdem weder `ready` noch `view` kam; die Seite behält dann ihre Liste. Ticks mit Liste und Ticks außerhalb des Reiters haben kein `procs_same`.
 
 ### Spalten
 
@@ -288,6 +289,8 @@ CPU in % eines Kerns, in Klammern PSS in MB:
 | Stufe 1 (8f29d08) | 2,77 (169) | 7,93 (250) | 8,16 (245) | – | – |
 | Stufe 1 (1c86566), am selben Abend zum Vergleich | – | – | 7,85 (191); 7,68 (191) | – | – |
 | Hebel 3: 6 statt 12 Pufferzeilen (328ccd6) | 2,76 (134); 2,83 (133) | 7,26 (192); 7,18 (196) | 8,15 (191); 8,11 (193) | 9,11 (198); 9,11 (194) | 9,61 (199); 9,48 (199) |
+| Hebel 4: unveränderte Prozessliste nicht erneut senden (f896963) | 2,85 (134); 2,85 (133) | 7,20 (189); 7,06 (192) | 7,88 (193); 7,81 (190) | 8,80 (194); 8,55 (197); 8,51 (198) | 9,41 (198); 9,24 (198); 9,00 (201) |
+| 328ccd6, in derselben Sitzung abwechselnd mit f896963 | – | – | 8,21 (192); 8,31 (192) | 9,26 (194); 9,30 (195); 8,98 (200); 8,90 (198); 9,08 (200) | – |
 | **Budget (User)** | **≤ 3** | **≤ 9** | **≤ 9** | **≤ 9** | **≤ 9**; PSS **< 275** |
 
 Weitere Läufe in einer instrumentierten Kopie (Zähler, siehe unten): Standard 8,10 bis 8,24 % (6 Läufe), alle Spalten 9,10 bis 9,28 % (7 Läufe).
@@ -298,6 +301,21 @@ Aufteilung je Prozess (Mittel beider Läufe):
 - Prozesse Standard: orbitop 3,59 %, WebKit 3,52 %, `intel_gpu_top` 1,03 %.
 - Prozesse alle Spalten kurz: WebKit 4,52 %, orbitop 3,56 %, `intel_gpu_top` 1,03 %.
 - Prozesse alle Spalten Dauer: WebKit 4,51 %, orbitop 3,99 %, `intel_gpu_top` 1,06 %. Der Mehrbedarf von orbitop steckt im Thread `orbitop-worker` (2,55 statt 2,1 %): Nach 5 Minuten sind die Verläufe voll und das JSON größer.
+
+Messung nach Hebel 4 (2026-11-17/18, f896963), Verfahren wie oben mit Aufteilung je Thread. Alle Läufe der Tabelle sind ungestört (GTK-Hauptthread ≤ 0,15 %, Compositor ≤ 0,12 %), Lastmittel (1 min) 0,09 bis 1,25. Verworfen:
+- „alle Spalten“ 14,00 (195): gestört, GTK-Hauptthread 1,51 %, Compositor 0,93 %.
+- „alle Spalten“ 9,78 (196): Fremdlast. Während des Laufs startete `lynis` (Sicherheitsprüfung, nicht von orbitop) rund 25 000 kurze Prozesse. Alle Threads lagen 12 bis 15 % höher, auch `intel_gpu_top`. Der Dauerlauf direkt danach (9,24) fiel teilweise in dieselbe Zeit; ob `lynis` noch im Messfenster lief, ist offen. Er liegt zwischen den beiden anderen und bleibt in der Tabelle.
+
+Aufteilung je Prozess nach Hebel 4 (Mittel der ungestörten Läufe), in Klammern 328ccd6 aus derselben Sitzung:
+- Ausgeblendet: orbitop 1,80 %, `intel_gpu_top` 1,05 %, WebKit 0 %.
+- Übersicht: WebKit 3,55 %, orbitop 2,50 %, `intel_gpu_top` 1,08 %.
+- Prozesse Standard: orbitop 3,59 % (3,59), WebKit 3,16 % (3,60), `intel_gpu_top` 1,10 % (1,06). Summe 7,84 (8,26).
+- Prozesse alle Spalten kurz: WebKit 4,10 % (4,52), orbitop 3,53 % (3,57), `intel_gpu_top` 0,99 % (1,02). Summe 8,62 (9,10).
+- Prozesse alle Spalten Dauer: WebKit 4,21 %, orbitop 3,99 %, `intel_gpu_top` 1,01 %. Summe 9,22.
+- Hebel 4 spart rund 0,4 bis 0,5 Punkte, ganz im WebKit-Webprozess: Er parst die Liste (~170 KB) nur noch je Prozess-Takt statt jede Sekunde. orbitop selbst bleibt gleich, denn die Zeilen waren schon je Prozess-Takt kodiert.
+- 328ccd6 lag in dieser Sitzung bei „alle Spalten“ kurz zwischen 8,90 und 9,30 %, in der Endmessung davor bei 9,11 %. Die Lage schwankt also zwischen Sitzungen um etwa ±0,2 Punkte. Der Vergleich gilt deshalb nur innerhalb derselben Sitzung.
+
+PSS ausgeblendet: 134 MB statt 169 MB in Stufe 1 (8f29d08). Schon 8b5664b zeigte 133 MB, der Unterschied stammt also nicht aus Task 5. Die Ursache ist nicht untersucht.
 
 Ursache der früheren Schwankung (Standardauswahl 8,1 bis 14,9 %): Eingaben am Messfenster, kein Fehler im Code.
 - Die Mess-Instanz öffnet ihr Fenster mit Tastaturfokus auf dem Arbeitsplatz des Users.
@@ -312,10 +330,17 @@ Ursache der früheren Schwankung (Standardauswahl 8,1 bis 14,9 %): Eingaben am M
   - Nach dem Start schickt die Seite keine Nachrichten an Python.
   - `renderProcs` läuft genau alle 2 s, mit gleich vielen neuen Zeilen (40 bis 60 je 10 s) in gestörten wie ungestörten Läufen.
   - Taktfrequenz und Lastmittel hängen nicht mit den Ausschlägen zusammen. Andere Agenten liefen während der ersten Messungen nicht.
-- „Alle Spalten“ ist genauso betroffen (13,73 % mit Eingaben). Dass im ersten Durchgang fast nur die Standardauswahl ausschlug, lag am Zeitpunkt der Eingaben. Die Läufe des ersten Durchgangs (8b5664b und 328ccd6) mit 11,96 bis 14,88 % (Standard) und 10,51 bis 10,59 % (alle Spalten) zeigen dasselbe Muster und zählen nicht.
+- „Alle Spalten“ ist genauso betroffen (13,73 % mit Eingaben).
+- Erster Durchgang je Stand (Logs im Scratchpad von Task 5, `task5/`):
+  - 8b5664b, vor Hebel 3: `base.log` ausgeblendet 2,75, Übersicht 7,89, Standard 11,96, alle Spalten 10,59, alle Spalten Dauer 10,51; `base2.log` Standard 8,61.
+  - 328ccd6, mit Hebel 3: `l3.log` alle Spalten 9,00, Standard 12,73; `l3b.log` Standard 14,88 und 12,78, alle Spalten 9,05; `l3c.log` alle Spalten Dauer 9,68, Standard 8,13.
+  - Diese Läufe haben keine Aufteilung je Thread. Dass die hohen Werte gestört sind, ist ein Schluss aus dem Muster (orbitop und WebKit steigen beide, `intel_gpu_top` kaum), kein Nachweis. Sie zählen nicht.
+  - Die Wirkung von Hebel 3 belegen sie nicht: Ein sauberer Vorher-Wert fehlt, denn auch die Werte von 8b5664b für „alle Spalten“ (10,59 und 10,51) passen ins Muster der Störung.
 - Gestörte Läufe erkennt man an der Aufteilung je Thread: GTK-Hauptthread von orbitop über 0,3 % oder Compositor-Thread des Webprozesses über 0,15 %. Alle Werte der Tabelle sind ungestört. Während einer Messung das Messfenster nicht berühren.
 
 Hebel:
-- Umgesetzt ist nur Hebel 3 (`BUFFER_ROWS` 12 → 6). Das Zeichnen nur geänderter Zellen war schon so: `setText` und `updateSpark` vergleichen.
+- In Task 5 umgesetzt ist nur Hebel 3 (`BUFFER_ROWS` 12 → 6). Das Zeichnen nur geänderter Zellen war schon so: `setText` und `updateSpark` vergleichen.
 - Hebel 1 und 2 (nur Felder eingeblendeter Spalten senden, `statm` nur bei SHR) braucht die Standardauswahl nicht, sie liegt mit 8,1 % im Budget. Bei „alle Spalten“ wirken sie nicht, weil dort nichts ausgeblendet ist. Sie wurden nicht umgesetzt.
 - „Alle Spalten“ liegt mit 9,11 % (kurz) und 9,5 bis 9,6 % (Dauer) knapp über dem Budget. Nach der STOP-Bedingung von Task 5 bleibt das Aussehen unverändert, der User entscheidet.
+- Hebel 4 (Entscheidung des Users, 2026-11-17): unveränderte Prozessliste nicht erneut senden (Vertrag `procs_same`, siehe „Daten (Python)“). Danach: Standardauswahl 7,8 %, „alle Spalten“ kurz 8,5 bis 8,8 % und damit im Budget, „alle Spalten“ Dauer 9,0 bis 9,4 % weiter knapp darüber.
+- Ausnahme (Entscheidung des Users, 2026-11-17): Liegt „alle Spalten“ nach Hebel 4 weiter über 9 %, ist das eine hingenommene Überschreitung, denn alle Spalten sind nur auf Wunsch eingeblendet. Für die Standardauswahl gilt das Budget von 9 % weiter.

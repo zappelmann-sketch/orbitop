@@ -92,7 +92,7 @@ Python → Seite: `window.orbitop.receive(msg)`.
 init  {"type":"init","lang":"de|en","texts":{key:str},"version":"0.1.0"}
 tick  {"type":"tick","tiles":[Tile],"missing":[kind],"hints":[textkey],
        "top":{"cpu":[ProcBrief],"mem":ProcBrief|null},
-       "procs":[ProcRow]|null, "detail":ProcDetail|null}
+       "procs":[ProcRow]|null, "procs_same":true (optional), "detail":ProcDetail|null}
 terminate_result {"type":"terminate_result","pid":int,"result":Result}
 terminate_check  {"type":"terminate_check","pid":int,"alive":bool}
 
@@ -118,7 +118,7 @@ Result    sent|gone|mismatch|zombie|kernel|denied|nohelper|error   (nohelper: ro
 Seite → Python über `window.webkit.messageHandlers.orbitop.postMessage(obj)`:
 `{"type":"ready"}`, `{"type":"view","tab":"overview|procs","pid":int|null,"start":int|null}`, `{"type":"terminate","pid":int,"start":int,"force":bool}`, `{"type":"quit"}`.
 
-`procs` und `detail` werden nur gefüllt, wenn der zuletzt gemeldete `view.tab` gleich `procs` ist. Das Formatieren der Einheiten übernimmt die Seite (`Intl.NumberFormat(lang)`), Python schickt Basiseinheiten.
+`procs` und `detail` werden nur gefüllt, wenn der zuletzt gemeldete `view.tab` gleich `procs` ist. Im Prozess-Reiter steht statt der Liste `"procs": null, "procs_same": true`, wenn sie sich seit dem letzten Tick mit Liste nicht geändert hat und seitdem weder `ready` noch `view` kam; die Seite behält dann ihre Liste. Ticks mit Liste und Ticks außerhalb des Reiters haben kein `procs_same`. Das Formatieren der Einheiten übernimmt die Seite (`Intl.NumberFormat(lang)`), Python schickt Basiseinheiten.
 
 **Erweiterung dieser Runde:**
 
@@ -601,6 +601,7 @@ git commit -m "feat: Spaltenbreite und Reihenfolge per Ziehen, waagerechtes Scro
      - Test: `test_rows_drop_hidden_fields`.
   2. **`statm` nur lesen, wenn SHR eingeblendet ist:** Der `shr`-Schalter des Workers ist dann zusätzlich an `"shr" not in hidden` gebunden. Test in `test_procs_tick_reads_shr_only_when_procs_tab_visible`.
   3. **Beim Zeichnen nur geänderte Zellen anfassen und weniger Pufferzeilen halten:** `BUFFER_ROWS` von 12 auf 6, kein Neuaufbau unveränderter Zeilen. Die bestehenden Prüfungen der Virtualisierung bleiben grün.
+  4. (Entscheidung des Users, 2026-11-17) **Unveränderte Prozessliste nicht erneut senden:** Vertrag `procs_same` (Global Constraints), `Sampler.snapshot_json(view, resend)`, `Worker._resend`.
 
 - [ ] **Step 1: Messen** in vier Lagen, jede „kurz“ (60 s nach 60 s Aufwärmen):
 
