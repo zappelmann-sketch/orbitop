@@ -23,6 +23,7 @@ from gi.repository import Gdk, Gio, GLib, Gtk, WebKit  # noqa: E402
 from orbitop import APP_ID, __version__, actions  # noqa: E402
 from orbitop.app import SCHEME, UI_HOST, Worker, encode, parse_message, snapshot_path, ui_file  # noqa: E402
 from orbitop.i18n import detect_language, load_texts  # noqa: E402
+from orbitop.layout import KEYS, LayoutFile, config_path  # noqa: E402
 from orbitop.sampler import Sampler  # noqa: E402
 
 UI_DIR = str(Path(__file__).resolve().parent / "ui")
@@ -185,7 +186,7 @@ class Shell:
         elif kind == "view":
             self._worker.update(view=msg)
         elif kind == "layout":
-            self._layouts.save({k: msg[k] for k in ("order", "hidden", "widths", "split")})
+            self._layouts.save({k: msg[k] for k in KEYS})
         elif kind == "terminate":
             self._terminate(msg["pid"], msg["start"], msg["force"])
         else:

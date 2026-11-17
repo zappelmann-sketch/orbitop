@@ -471,3 +471,21 @@ def test_web_process_crash_reloads_at_most_every_10_s(rig, monkeypatch):
     now[0] = 200.0
     assert crash_and_fire() == 0
     assert len(view.loads) == 3
+
+
+def test_startup_wires_layout_from_config_dir(monkeypatch, tmp_path):
+    (tmp_path / "orbitop").mkdir()
+    (tmp_path / "orbitop" / "layout.json").write_text(json.dumps(L))
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    monkeypatch.delenv("ORBITOP_SNAPSHOT", raising=False)
+    s = shell.Shell(False)
+    settings = SimpleNamespace(set_property=lambda *a: None)
+    monkeypatch.setattr(shell, "Gtk", SimpleNamespace(Settings=SimpleNamespace(get_default=lambda: settings)))
+    monkeypatch.setattr(shell, "_unix_signal_add", lambda: lambda *a: None)
+    monkeypatch.setattr(shell, "Sampler", lambda: SimpleNamespace())
+    monkeypatch.setattr(shell, "Worker", lambda *a: SimpleNamespace(start=lambda: None))
+    monkeypatch.setattr(s, "_build_window", lambda app: None)
+    app = SimpleNamespace(add_action=lambda a: None, set_accels_for_action=lambda *a: None, hold=lambda: None, quit=lambda: None)
+    s._startup(app)
+    assert s._layouts.path == str(tmp_path / "orbitop" / "layout.json")
+    assert json.loads(s._init_message())["layout"] == L

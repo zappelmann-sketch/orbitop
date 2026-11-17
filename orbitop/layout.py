@@ -3,7 +3,6 @@
 """Layout der Prozesstabelle: Prüfung, Reparatur alter Dateien, Pfad und atomares Speichern. Ohne GTK."""
 import contextlib
 import json
-import math
 import os
 import stat
 import tempfile
@@ -34,7 +33,7 @@ def validate(obj) -> dict | None:
     if not (isinstance(widths, dict) and all(
             k in COLUMNS and type(v) is int and WIDTH_MIN <= v <= WIDTH_MAX for k, v in widths.items())):
         return None
-    if type(split) not in (int, float) or not math.isfinite(split) or not SPLIT_MIN <= split <= SPLIT_MAX:
+    if type(split) not in (int, float) or not SPLIT_MIN <= split <= SPLIT_MAX:  # NaN und inf fallen hier durch
         return None
     return {"order": list(order), "hidden": list(hidden), "widths": dict(widths), "split": split}
 
@@ -81,7 +80,7 @@ class LayoutFile:
                 return None
             self.current = repair(json.loads(data))
         except (OSError, ValueError, RecursionError):
-            self.current = None
+            pass  # current ist schon None
         return self.current
 
     def save(self, layout: dict) -> bool:

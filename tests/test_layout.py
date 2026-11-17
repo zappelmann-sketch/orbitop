@@ -25,7 +25,7 @@ def test_validate_accepts_contract_and_bounds():
     {"hidden": ["pri", "pri"]}, {"hidden": [1]}, {"widths": {"cpu": 39}}, {"widths": {"cpu": 1201}},
     {"widths": {"cpu": 90.0}}, {"widths": {"cpu": True}}, {"widths": {"cpu": "90"}}, {"widths": {"gpu": 90}},
     {"widths": [90]}, {"split": 0.19}, {"split": 0.81}, {"split": True}, {"split": "0.5"},
-    {"split": float("nan")}, {"split": float("inf")}, {"split": None}])
+    {"split": float("nan")}, {"split": 10**400}, {"split": float("inf")}, {"split": None}])
 def test_validate_rejects(bad):
     assert validate({**L, **bad}) is None
 
@@ -55,7 +55,7 @@ def test_config_path(monkeypatch):
 
 
 @pytest.mark.parametrize("make", ["missing", "truncated", "oversize", "directory", "fifo", "link-to-fifo",
-                                  "not-a-dict"])
+                                  "not-a-dict", "huge-split", "deep"])
 def test_load_bad_file_is_none_without_hanging(tmp_path, make):  # Review Focus 1
     p = tmp_path / "layout.json"
     if make == "truncated":
@@ -69,6 +69,10 @@ def test_load_bad_file_is_none_without_hanging(tmp_path, make):  # Review Focus 
     elif make == "link-to-fifo":
         os.mkfifo(tmp_path / "f")
         p.symlink_to(tmp_path / "f")
+    elif make == "huge-split":
+        p.write_text(json.dumps({**L, "split": 10**400}))
+    elif make == "deep":
+        p.write_text("[" * 4000)
     elif make == "not-a-dict":
         p.write_text("[1, 2]")
     f = LayoutFile(str(p))
@@ -115,3 +119,16 @@ def test_save_failure_is_silent(tmp_path):  # Review Focus 1
         assert f.save(L) is False and f.current == L
     finally:
         d.chmod(0o700)
+
+
+def test_repair_missing_visible_stays_visible_and_first_goes_to_front():
+    r = repair({**L, "order": [c for c in COLUMNS if c not in ("cpu", "pid")]})
+    assert r["order"] == list(COLUMNS) and "cpu" not in r["hidden"] and "pid" not in r["hidden"]
+
+
+def test_save_failure_leaves_no_temp_file(tmp_path, monkeypatch):
+    def boom(a, b):
+        raise OSError("x")
+    monkeypatch.setattr(layout.os, "replace", boom)
+    f = LayoutFile(str(tmp_path / "orbitop" / "layout.json"))
+    assert f.save(L) is False and os.listdir(tmp_path / "orbitop") == []

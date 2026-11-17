@@ -47,6 +47,7 @@ def test_parse_message_accepts_contract_shapes(raw, msg):
 def test_parse_message_layout_rejects_bad_and_oversize():
     assert parse_message(json.dumps({"type": "layout", **L, "hidden": ["process"]})) is None
     assert parse_message(json.dumps({"type": "layout", **L, "pad": "x" * 4096})) is None
+    assert parse_message(json.dumps({"type": "layout", **L}).replace("0.6", "1" + "0" * 400)) is None
     assert parse_message('{"type":"layout","order":[],"hidden":[],"widths":{},"split":NaN}') is None
 
 
