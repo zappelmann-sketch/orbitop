@@ -232,7 +232,7 @@ class GpuReader:
             busy, power = t.get("busy"), t.get("gpu_w")
             if t.get("freq_mhz") is not None:
                 freq = t["freq_mhz"]
-        if busy is None:  # ohne Werte von intel_gpu_top nur eigene Prozesse (hint.igt_missing)
+        if busy is None:  # ohne Werte von intel_gpu_top nur eigene Prozesse (hint.igt_missing, hint.igt_noperm)
             busy = self._own_busy(now)
         return GpuSample(busy, freq, top, power)
 

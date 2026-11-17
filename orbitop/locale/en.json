@@ -54,7 +54,7 @@
   "footer.missing": "Not available: {list}",
   "hint.igt_failed": "intel_gpu_top failed to start.",
   "hint.igt_missing": "intel_gpu_top is not installed. Without it, orbitop shows only the Intel graphics usage of your own processes.",
-  "hint.igt_noperm": "No permission to run intel_gpu_top. Please run scripts/setup-privileges.sh.",
+  "hint.igt_noperm": "intel_gpu_top may not read the GPU counters, so orbitop shows only the Intel graphics usage of your own processes. It can be enabled with setup-privileges.sh --allow-perfmon. Risk: every local account can then read the GPU and package power counters through intel_gpu_top (CVE-2020-8694).",
   "hint.nvsmi_missing": "nvidia-smi is not installed. Without it, NVIDIA graphics values are not shown.",
   "hint.rapl_noperm": "CPU package power is not readable. It can be enabled with setup-privileges.sh --allow-rapl. Risk: the counters then become readable for all programs, which is a side channel.",
   "kv.available": "Available",

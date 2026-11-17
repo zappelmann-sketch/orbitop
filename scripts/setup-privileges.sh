@@ -2,20 +2,22 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Installs the runtime packages and the root-owned kill helper, and grants the few privileges orbitop optionally uses.
-# Usage: sudo bash setup-privileges.sh [--dry-run] [--allow-rapl]
+# Usage: sudo bash setup-privileges.sh [--dry-run] [--allow-rapl] [--allow-perfmon]
 # With --dry-run, detection reads from ${ORBITOP_SYSROOT:-/} so it can be tested against fake trees.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 umask 022  # directories created on the way to the helper must stay readable for orbitop's trust check
 
-usage() { echo "usage: $0 [--dry-run] [--allow-rapl]" >&2; exit 2; }
+usage() { echo "usage: $0 [--dry-run] [--allow-rapl] [--allow-perfmon]" >&2; exit 2; }
 
 dry_run=0
 allow_rapl=0
+allow_perfmon=0
 for arg in "$@"; do
     case "$arg" in
         --dry-run) dry_run=1 ;;
         --allow-rapl) allow_rapl=1 ;;
+        --allow-perfmon) allow_perfmon=1 ;;
         *) usage ;;
     esac
 done
@@ -71,14 +73,17 @@ run install -o root -g root -m 0755 "$helper_src" "$helper"
 echo "Note: after updating orbitop/killhelper.py in the checkout, run this script again."
 echo "Undo: sudo rm -r $(dirname -- "$helper")"
 
-if [ "$has_intel_gfx" -eq 1 ]; then
+if [ "$has_intel_gfx" -eq 1 ] && [ "$allow_perfmon" -eq 1 ]; then
     if [ "$dry_run" -eq 0 ] && { [ -L "$igt" ] || [ ! -f "$igt" ] || [ "$(stat -c %u -- "$igt")" != 0 ]; }; then
         echo "$igt is not a regular root-owned file; refusing to set capabilities." >&2
         exit 1
     fi
+    echo "WARNING: cap_perfmon lets every local account run $igt with GPU and package power counters (RAPL, CVE-2020-8694)."
     run setcap cap_perfmon=ep "$igt"
     echo "Note: upgrading intel-gpu-tools removes this capability; run this script again afterwards."
     echo "Undo: sudo setcap -r $igt"
+elif [ "$allow_perfmon" -eq 1 ]; then
+    echo "No Intel GPU found; nothing to do for --allow-perfmon."
 fi
 
 if [ "$has_rapl" -eq 1 ] && [ "$allow_rapl" -eq 1 ]; then

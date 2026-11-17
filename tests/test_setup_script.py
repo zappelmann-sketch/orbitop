@@ -23,11 +23,29 @@ def dry_run(tree, *args):
     return r.stdout
 
 
-def test_intel_plans_webkit_igt_setcap_no_rapl():
+def test_intel_plans_webkit_igt_without_setcap_by_default():  # F-2: cap_perfmon nur auf Wunsch
     out = dry_run("intel-laptop")
     assert "WOULD: apt-get install -y gir1.2-webkit-6.0 intel-gpu-tools" in out
-    assert "WOULD: setcap cap_perfmon=ep /usr/bin/intel_gpu_top" in out
+    assert "setcap" not in out and "cap_perfmon" not in out
     assert "rapl" not in out.lower().replace("--allow-rapl", "")
+
+
+def test_intel_allow_perfmon_warns_then_sets_capability():
+    out = dry_run("intel-laptop", "--allow-perfmon")
+    warning = ("WARNING: cap_perfmon lets every local account run /usr/bin/intel_gpu_top with GPU and package power "
+               "counters (RAPL, CVE-2020-8694).")
+    assert out.index(warning) < out.index("WOULD: setcap cap_perfmon=ep /usr/bin/intel_gpu_top")
+
+
+def test_allow_perfmon_without_intel_gpu_does_nothing():
+    out = dry_run("amd-desktop", "--allow-perfmon")
+    assert "setcap" not in out and "nothing to do for --allow-perfmon" in out
+
+
+def test_usage_names_every_option():
+    r = subprocess.run(["bash", SCRIPT, "--bogus"], capture_output=True, text=True)
+    assert "[--dry-run] [--allow-rapl] [--allow-perfmon]" in r.stderr
+    assert "[--dry-run] [--allow-rapl] [--allow-perfmon]" in Path(SCRIPT).read_text().splitlines()[4]
 
 
 def test_amd_default_no_rapl_rule():

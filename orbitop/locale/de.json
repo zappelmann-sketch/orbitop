@@ -54,7 +54,7 @@
   "footer.missing": "Nicht vorhanden: {list}",
   "hint.igt_failed": "intel_gpu_top ließ sich nicht starten.",
   "hint.igt_missing": "intel_gpu_top ist nicht installiert. Ohne das Programm zeigt orbitop nur die Auslastung der Intel-Grafik durch eigene Prozesse.",
-  "hint.igt_noperm": "Keine Berechtigung für intel_gpu_top. Bitte scripts/setup-privileges.sh ausführen.",
+  "hint.igt_noperm": "intel_gpu_top darf die Zähler der Grafik nicht lesen, deshalb zeigt orbitop nur die Auslastung der Intel-Grafik durch eigene Prozesse. Mit setup-privileges.sh --allow-perfmon lässt sich das freigeben. Risiko: Dann kann jedes lokale Konto über intel_gpu_top die Zähler der Grafik und der Paketleistung lesen (CVE-2020-8694).",
   "hint.nvsmi_missing": "nvidia-smi ist nicht installiert. Ohne das Programm fehlen die Werte der NVIDIA-Grafik.",
   "hint.rapl_noperm": "Die Leistung des CPU-Pakets ist nicht lesbar. Mit setup-privileges.sh --allow-rapl lässt sie sich freigeben. Risiko: Die Zähler werden dann für alle Programme lesbar, das ist ein Seitenkanal.",
   "kv.available": "Verfügbar",
