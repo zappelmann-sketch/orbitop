@@ -79,7 +79,7 @@ ProcRow   {"pid","start","name","args","user","own":bool,"cpu":float,"spark":[fl
 ProcDetail ProcRow + {"cmdline":str,"ppid":int,"parent":str,"threads":int,"vctx":float,"nvctx":float,"kernel":bool,
            "started":int,"history":[float]}   (history ≤150; kernel = PID 1 oder Kernel-Thread → nicht beendbar, Regel nur in Python)
 State     working|waiting|busy_noio|busy_iounknown|kernel_hang|stopped|zombie
-Result    sent|gone|mismatch|zombie|kernel|denied|error
+Result    sent|gone|mismatch|zombie|kernel|denied|nohelper|error   (nohelper: root-eigener Helfer fehlt oder ist nicht vertrauenswürdig → kein pkexec; Hinweis auf setup-privileges.sh)
 ```
 
 Seite → Python über `window.webkit.messageHandlers.orbitop.postMessage(obj)`:
