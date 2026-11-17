@@ -219,7 +219,7 @@ class ProcTable:
             io_delta = None
             if valid and r.ticks >= prev.ticks:
                 e.cpu = (r.ticks - prev.ticks) / self.clk_tck / dt * 100
-            ctx_ok = False  # Kontextwechsel-Rate in diesem Takt bekannt: über das tatsächliche dt seit dem letzten Lesen
+            ctx_ok = False  # Kontextwechsel in diesem Takt gelesen; angezeigt wird die Rate über das dt seit dem letzten Lesen
             if fresh:
                 sdt = None if e.status_t is None else now - e.status_t
                 ctx_ok = sdt is not None and 0 < sdt <= STATUS_EVERY_S + MAX_DT and r.vctx >= prev.vctx and r.nvctx >= prev.nvctx
@@ -233,7 +233,9 @@ class ProcTable:
             s = e.state
             s.state, s.io_known, s.last_cpu, s.last_io_delta = r.state, r.io is not None, e.cpu, io_delta
             s.d_since = (s.d_since if s.d_since is not None else now) if r.state == "D" else None
-            busy = valid and ctx_ok and is_busy_sample(e.cpu, e.vctx_rate, io_delta)
+            # Einstufung mit der Obergrenze dieses Takts: alle Wechsel seit dem letzten Lesen durch sein dt. Über die ganze
+            # status-Lücke gemittelt könnte ein Takt mit mehr als 1/s als Dauerlast zählen (zu früh gemeldet).
+            busy = valid and ctx_ok and is_busy_sample(e.cpu, (r.vctx - prev.vctx) / dt, io_delta)
             s.busy_since = (s.busy_since if s.busy_since is not None else now - dt) if busy else None
             self._entries[key] = e
         self.cmdlines = {k: v for k, v in self.cmdlines.items() if k in self._entries}

@@ -362,7 +362,8 @@ def test_status_only_for_new_selected_candidates_and_every_10_s(tmp_path):
 
 
 def _gated_and_full(seq):
-    """Dieselbe Folge (ticks, vctx, io) je 2 s einmal mit status bei jedem Takt, einmal nur bei Bedarf."""
+    """Dieselbe Folge (ticks, vctx, io) je 2 s einmal mit status bei jedem Takt, einmal nur bei Bedarf.
+    Je Takt: (Zustand voll, Zustand gegatet, status gelesen, since voll, since gegatet)."""
     full, gated = ProcTable(clk_tck=CLK, uid=1000), ProcTable(clk_tck=CLK, uid=1000)
     out = []
     for i, (ticks, vctx, io) in enumerate(seq):
@@ -370,13 +371,16 @@ def _gated_and_full(seq):
         due = gated.wants_status(now)((10, 1), ticks)
         full.update({(10, 1): raw(ticks=ticks, vctx=vctx, io=io)}, now)
         gated.update({(10, 1): raw(ticks=ticks, vctx=vctx if due else None, nvctx=0 if due else None, io=io)}, now)
-        out.append((full.rows(now)[0]["state"], gated.rows(now)[0]["state"], due))
+        a, b = full.rows(now)[0], gated.rows(now)[0]
+        out.append((a["state"], b["state"], due, a["since"], b["since"]))
     return out
 
 
 @pytest.mark.parametrize("switches,io", [(0, 7), (0, None), (1, 7), (3, 7)])
-def test_classification_unchanged_by_status_gating(switches, io):
-    """12 Takte Leerlauf (wenige freiwillige Kontextwechsel), dann 70 Takte Dauerlast mit switches je Takt."""
+def test_status_gating_same_classification_with_steady_switching(switches, io):
+    """12 Takte Leerlauf (wenige freiwillige Kontextwechsel), dann 70 Takte Dauerlast mit gleich vielen Wechseln je
+    Takt: gegatet und voll stufen bei jedem Takt gleich ein. Allgemein gilt nur: nie früher, höchstens einen Takt
+    später (test_status_gating_never_reports_busy_earlier)."""
     seq, ticks, vctx = [], 0, 0
     for i in range(82):
         if i >= 12:
@@ -390,6 +394,23 @@ def test_classification_unchanged_by_status_gating(switches, io):
     assert sum(o[2] for o in out[:12]) < 6  # im Leerlauf wurde status nur selten gelesen
     want = "working" if switches > 2 else "busy_noio" if io == 7 else "busy_iounknown"  # Grenze: 1 je s, also 2 je Takt
     assert out[-1][0] == want
+
+
+def test_status_gating_never_reports_busy_earlier():
+    """Muster aus dem Review (dilution.py): 8 s ohne Wechsel, dann Dauerlast mit 3 Wechseln in den ersten 2 s (1,5/s),
+    danach keine. Über die ganze status-Lücke gemittelt wären es unter 1/s; gemeldet würde 2 s zu früh."""
+    seq, ticks, vctx = [], 0, 0
+    for i in range(80):
+        if i >= 9:
+            ticks += 200
+            vctx += 3 if i == 9 else 0
+        seq.append((ticks, vctx, 7))
+    out = _gated_and_full(seq)
+    busy = [(o[0].startswith("busy"), o[1].startswith("busy")) for o in out]
+    first_full = next(i for i, b in enumerate(busy) if b[0])
+    first_gated = next(i for i, b in enumerate(busy) if b[1])
+    assert first_full <= first_gated <= first_full + 1
+    assert all(o[4] <= o[3] for o, b in zip(out, busy) if all(b))  # since nie größer als voll
 
 
 def test_status_skipped_keeps_uid_and_rates():
