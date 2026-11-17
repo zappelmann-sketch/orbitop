@@ -230,7 +230,7 @@ def test_decide_policy(rig, kind, uri, supported, verdict):
     assert d.verdict == verdict
 
 
-@pytest.mark.parametrize("name,verdict", [("page.html", "use"), ("i.svg", "ignore"), ("p.png", "ignore"),
+@pytest.mark.parametrize("name,verdict", [("page.html", "use"), ("a.js", "ignore"), ("OFL.txt", "ignore"),
                                           ("f.ttf", "ignore"), ("s.css", "ignore")])
 def test_top_level_navigation_only_to_html(rig, monkeypatch, tmp_path, name, verdict):
     (tmp_path / name).write_text("x")
@@ -262,8 +262,8 @@ def test_serve_index():
     assert r.done == ("ok", data, len(data), "text/html")
 
 
-@pytest.mark.parametrize("name,mime", [("a.js", "text/javascript"), ("f.ttf", "font/ttf"), ("i.svg", "image/svg+xml"),
-                                       ("x.woff", "font/woff"), ("d.json", "application/json")])
+@pytest.mark.parametrize("name,mime", [("a.js", "text/javascript"), ("f.ttf", "font/ttf"), ("s.css", "text/css"),
+                                       ("OFL.txt", "text/plain")])
 def test_serve_content_types(monkeypatch, tmp_path, name, mime):
     (tmp_path / name).write_bytes(b"\x00\x01data")
     monkeypatch.setattr(shell, "UI_DIR", str(tmp_path))

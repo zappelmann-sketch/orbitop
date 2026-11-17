@@ -18,9 +18,8 @@ PERIOD_S = 1.0  # tick_system und Schnappschuss
 PROCS_PERIOD_S = 2.0  # tick_procs, im eigenen Thread
 RUNTIME = (("Gtk", "4.0", "gir1.2-gtk-4.0"), ("WebKit", "6.0", "gir1.2-webkit-6.0"))
 SCHEME, UI_HOST = "orbitop", "ui"  # die Seite läuft unter orbitop://ui/…, nie unter file://
-MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json",
-        ".ttf": "font/ttf", ".otf": "font/otf", ".woff": "font/woff", ".woff2": "font/woff2",
-        ".svg": "image/svg+xml", ".png": "image/png", ".txt": "text/plain"}
+# nur Typen, die orbitop/ui/ enthält (.txt: Lizenztexte der Schriften)
+MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".ttf": "font/ttf", ".txt": "text/plain"}
 
 
 def _missing(package: str) -> str:

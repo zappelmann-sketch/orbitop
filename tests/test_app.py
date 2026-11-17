@@ -86,8 +86,8 @@ def ui(tmp_path):
     """UI-Baum mit je einer Datei pro Typ, einer unbekannten Endung, Unterordner und Symlinks nach innen und außen."""
     d = tmp_path / "ui"
     (d / "fonts").mkdir(parents=True)
-    for name in ("index.html", "app.js", "style.css", "fonts/a.ttf", "fonts/b.otf", "fonts/c.woff2", "fonts/e.woff",
-                 "data.json", "i.svg", "p.png", "fonts/OFL.txt", "tool.py", "noext"):
+    for name in ("index.html", "app.js", "style.css", "fonts/a.ttf", "fonts/b.otf", "fonts/c.woff2", "data.json",
+                 "i.svg", "fonts/OFL.txt", "tool.py", "noext"):
         (d / name).write_text("x")
     (d / "d.js").mkdir()  # Verzeichnis mit bekannter Endung
     (tmp_path / "uix").mkdir()  # Nachbar mit gleichem Präfix
@@ -105,12 +105,6 @@ def ui(tmp_path):
     ("orbitop://ui/app.js", "app.js", "text/javascript"),
     ("orbitop://ui/style.css", "style.css", "text/css"),
     ("orbitop://ui/fonts/a.ttf", "fonts/a.ttf", "font/ttf"),
-    ("orbitop://ui/fonts/b.otf", "fonts/b.otf", "font/otf"),
-    ("orbitop://ui/fonts/c.woff2", "fonts/c.woff2", "font/woff2"),
-    ("orbitop://ui/fonts/e.woff", "fonts/e.woff", "font/woff"),
-    ("orbitop://ui/data.json", "data.json", "application/json"),
-    ("orbitop://ui/i.svg", "i.svg", "image/svg+xml"),
-    ("orbitop://ui/p.png", "p.png", "image/png"),
     ("orbitop://ui/fonts/OFL.txt", "fonts/OFL.txt", "text/plain"),
     ("orbitop://ui/%61pp.js", "app.js", "text/javascript"),
     ("orbitop://ui/fonts/../app.js", "app.js", "text/javascript"),
@@ -126,6 +120,7 @@ def test_ui_file_serves_known_types(ui, uri, name, mime):
     "orbitop://ui/", "orbitop://ui", "orbitop://ui/fonts", "orbitop://ui/missing.html",
     "orbitop://ui/../uix/index.html", "orbitop://ui/%2e%2e/uix/index.html", "orbitop://ui/d.js",
     "orbitop://ui/tool.py", "orbitop://ui/noext", "orbitop://ui/a%00b.html",
+    "orbitop://ui/fonts/b.otf", "orbitop://ui/fonts/c.woff2", "orbitop://ui/data.json", "orbitop://ui/i.svg",  # nicht ausgeliefert
     "orbitop://evil/index.html", "orbitop://ui:80/index.html", "orbitop://x@ui/index.html", "orbitop:///index.html",
     "orbitop:index.html", "orbitopx://ui/index.html",
     "file:///etc/passwd", "file://" + str(UI / "index.html"), "https://x", "about:blank",
@@ -133,6 +128,10 @@ def test_ui_file_serves_known_types(ui, uri, name, mime):
 ])
 def test_ui_file_denies(ui, uri):
     assert ui_file(uri, str(ui)) is None
+
+
+def test_mime_list_has_only_shipped_types():  # Freigabeliste: jeder Eintrag erweitert, was ausgeliefert werden kann
+    assert set(app.MIME) == {p.suffix for p in UI.rglob("*") if p.is_file()}
 
 
 def test_ui_file_real_index():
