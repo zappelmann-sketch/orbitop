@@ -193,7 +193,28 @@ document.addEventListener("DOMContentLoaded", () => {
   paint(octx, window5(340), window5(340).map((s) => runs(s, 300, ostep, oh)), ["#4fd8ff", "#ffb347", "#ffb347"], ow, oh, -Infinity);
   eq(Math.abs(rest) <= 0.5 && rest !== 0, true, "Rest unter einem halben Bildpunkt");
   alike(odd, oref, "inkrementell = voll gezeichnet und um den Rest versetzt");
-  for (const c of [inc, ref, odd, oref]) c.parentNode.remove();
+  const spyClears = (c, list) => {
+    const x = c.getContext("2d"), f = x.clearRect;
+    x.clearRect = function (...a) {
+      list.push(a);
+      return f.apply(this, a);
+    };
+  };
+  // Zwei-Schritt-Takte (Thread-Minis alle 2 s): ebenfalls nur Streifen, Bild wie voll gezeichnet
+  const two = area(), twoClears = [], ref2 = area();
+  spyClears(two, twoClears);
+  for (let t = 1; t <= 341; t += 2) drawArea(two, window5(t), areaOpts);
+  eq(twoClears.at(-1)[0] > 0, true, "Zwei-Schritt-Takt zeichnet nur Streifen an den Rändern");
+  drawArea(ref2, window5(341), areaOpts);
+  alike(two, ref2, "Zwei-Schritt-Takte = voll gezeichnet");
+  // Selbstheilen: spätestens nach einer vollen Bildbreite verschobener Pixel einmal ganz neu gezeichnet
+  const flat = (t) => [{ fill: true, max: 100, values: last300(t, (i) => [30, 45, 60, 45][i % 4]) }];
+  const heal = area(), healClears = [];
+  drawArea(heal, flat(300), areaOpts);
+  spyClears(heal, healClears);
+  for (let t = 301; t <= 600; t++) drawArea(heal, flat(t), areaOpts);
+  eq(healClears.filter((a) => a[0] === 0 && a[2] === heal.size[0]).length, 1, "nach einer Bildbreite einmal ganz neu");
+  for (const c of [inc, ref, odd, oref, two, ref2, heal]) c.parentNode.remove();
 
   // ---- Lange Namen ohne Leerzeichen: kein waagerechtes Scrollen ----
   const long = "label_".padEnd(120, "x");

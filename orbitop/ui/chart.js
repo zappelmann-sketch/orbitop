@@ -137,8 +137,7 @@ function drawArea(canvas, series, opts) {
   const frame = JSON.stringify([w, h, dpr, opts]);
   if (canvas.width !== bw || canvas.height !== bh) {
     canvas.width = bw;
-    canvas.height = bh;
-    canvas.key = null;
+    canvas.height = bh; // frame (w, h, dpr) ändert sich mit, also wird ganz neu gezeichnet
   }
   if (canvas.grid && canvas.grid.key !== frame) {
     drawGrid(canvas.grid, w, h, opts);
@@ -152,7 +151,8 @@ function drawArea(canvas, series, opts) {
   if (k === 0) return; // nichts Neues
   const ctx = canvas.getContext("2d");
   const colors = [opts.color, opts.color2 || opts.color, opts.color3 || opts.color2 || opts.color];
-  if (k < 0) {
+  // Ganz neu auch nach einer vollen Bildbreite Verschiebung: ein beschädigtes Bild heilt so spätestens nach 5 min
+  if (k < 0 || canvas.shifted >= bw) {
     canvas.moved = canvas.shifted = 0; // exakter und ganzzahliger Versatz seit dem letzten vollen Zeichnen
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
