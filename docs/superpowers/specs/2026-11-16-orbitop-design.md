@@ -79,7 +79,7 @@ Stufe 1 muss nur so gebaut sein, dass Stufe 2 nichts umbauen muss (siehe „Für
 - **Sensor-Beschriftung:** Hat ein Sensor kein Label, wird der Treibername benutzt (z. B. „dell_smm 2“). Es gibt keine erfundenen Namen.
 - **Desktop:** Entwickelt und abgenommen auf GNOME. Auf anderen Desktops mit GTK 4 und WebKitGTK läuft orbitop ebenfalls. Der Autostart nutzt den XDG-Standard und funktioniert damit desktopübergreifend.
 - **Rechte-Einrichtung je Hardware:** Die einmalige Einrichtung macht nur, was die Hardware braucht:
-  - `intel-gpu-tools` plus `setcap` nur bei Intel-Grafik.
+  - `intel-gpu-tools` nur bei Intel-Grafik, `setcap` darauf nur mit `--allow-perfmon` (siehe unten).
   - **Keine allgemeine RAPL-Freigabe (vom User entschieden, 2026-11-16).** Auf Intel liefert das mit `cap_perfmon` ausgestattete `intel_gpu_top` die Watt für CPU-Paket und Grafik. Achtung (Security-Audit 2026-11-17, F-2): Die Fähigkeit hängt an der Datei, also kann jedes lokale Konto über `intel_gpu_top` die Paketleistung lesen. **Entscheidung des Users (2026-11-17):** `setcap` nur noch auf Wunsch mit `--allow-perfmon` und vorheriger Warnung. Die Freigabe von `energy_uj` für alle gibt es nur auf ausdrücklichen Wunsch mit `--allow-rapl` und vorheriger Warnung. Sie ist für Rechner ohne andere Leistungsquelle gedacht, etwa AMD, und erfolgt dauerhaft über eine udev-Regel.
   - AMD- und NVIDIA-Grafik brauchen keine Zusatzrechte.
 - **Tests:** Fremde Hardware steht nicht zur Verfügung. Die Erkennung wird deshalb mit nachgebauten `/sys`- und `/proc`-Verzeichnisbäumen getestet (Intel-Notebook, AMD-Desktop mit amdgpu, ARM-Board mit thermal_zone, Rechner ohne Lüfter und ohne Akku). Abgenommen wird auf dem Referenzrechner.
@@ -110,7 +110,7 @@ Stufe 1 muss nur so gebaut sein, dass Stufe 2 nichts umbauen muss (siehe „Für
 5. **Beenden:**
    - Vor jedem Beenden kommt eine Rückfrage.
    - „Beenden“ sendet SIGTERM. Lebt der Prozess nach 5 s noch, wird „Sofort beenden“ (SIGKILL) hervorgehoben.
-   - Eigene Prozesse werden direkt beendet, fremde und Root-Prozesse nur über `pkexec` mit Passwortdialog.
+   - Eigene Prozesse werden direkt beendet, fremde und Root-Prozesse nur über `pkexec` mit Passwortdialog und nur über die root-eigene Kopie des Helfers in `/usr/local/libexec/orbitop/`. Vor jedem Aufruf prüft orbitop per `lstat` die Kette von der Datei bis `/`: jedes Glied root-eigen und nicht für Gruppe oder andere beschreibbar, die Datei regulär und kein Symlink. Sonst gibt es keinen Passwortdialog, sondern das Ergebnis `nohelper` mit dem Hinweis auf `setup-privileges.sh`.
    - Bei Zombies ist der Knopf deaktiviert.
    - Unmittelbar vor dem Signal werden PID **und** Startzeit geprüft.
 6. **Autostart:**
@@ -126,7 +126,8 @@ Stufe 1 muss nur so gebaut sein, dass Stufe 2 nichts umbauen muss (siehe „Für
    - Die Texte liegen in einer Datei je Sprache. Fehlt in einer Sprache ein Text, wird der englische angezeigt. Ein Test stellt sicher, dass beide Sprachen dieselben Schlüssel haben.
 8. **Einmalige sudo-Einrichtung** (vom User genehmigt, Umfang je nach Hardware, siehe oben):
    - `gir1.2-webkit-6.0` installieren.
-   - Bei Intel-Grafik `intel-gpu-tools` installieren und `intel_gpu_top` mit `setcap cap_perfmon=ep` ausstatten.
+   - Auf jedem Rechner den Helfer `orbitop/killhelper.py` aus dem Checkout nach `/usr/local/libexec/orbitop/killhelper.py` installieren, root:root, Datei und Verzeichnis 0755. Ein erneuter Lauf ist idempotent; nach einem Update von `killhelper.py` im Checkout muss das Skript erneut laufen.
+   - Bei Intel-Grafik `intel-gpu-tools` installieren. `intel_gpu_top` bekommt `setcap cap_perfmon=ep` nur mit `--allow-perfmon`, nach einer Warnung, dass dann jedes lokale Konto GPU- und Paketleistungszähler lesen kann (CVE-2020-8694). Ohne die Option zeigt die Grafik-Kachel nur die Auslastung eigener Prozesse.
    - RAPL `energy_uj` **nicht** standardmäßig freigeben. Grund: Laut Security-Audit vom 2026-11-16 wären die Zähler sonst für alle Programme lesbar, auch für Flatpak-Apps (Seitenkanal CVE-2020-8694). Nur mit `--allow-rapl`, nach einer Warnung, die nennt, wer Zugriff erhält und wie man es rückgängig macht. Dauerhaft wird es über eine udev-Regel unter `/etc/udev/rules.d/`, weil tmpfiles beim Booten vor dem RAPL-Treiber laufen kann.
 
 ## Nicht-Ziele

@@ -80,7 +80,7 @@ if [ "$has_intel_gfx" -eq 1 ] && [ "$allow_perfmon" -eq 1 ]; then
     fi
     echo "WARNING: cap_perfmon lets every local account run $igt with GPU and package power counters (RAPL, CVE-2020-8694)."
     run setcap cap_perfmon=ep "$igt"
-    echo "Note: upgrading intel-gpu-tools removes this capability; run this script again afterwards."
+    echo "Note: upgrading intel-gpu-tools removes this capability; run this script with --allow-perfmon again afterwards."
     echo "Undo: sudo setcap -r $igt"
 elif [ "$allow_perfmon" -eq 1 ]; then
     echo "No Intel GPU found; nothing to do for --allow-perfmon."
