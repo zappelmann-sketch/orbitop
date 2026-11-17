@@ -10,7 +10,7 @@ from pathlib import Path
 import pytest
 
 from orbitop import gpu as gpumod
-from orbitop.gpu import FdinfoScanner, GpuReader, discover_gpus
+from orbitop.gpu import FdinfoScanner, GpuReader, GpuSample, discover_gpus
 from tests.roots import AMD, ARM, INTEL, VM
 
 
@@ -57,10 +57,15 @@ def test_product_name_and_connectors_ignored(tree_copy):
     assert [(g.card, g.name) for g in gpus] == [("card1", "Iris Xe")]
 
 
+def test_gpu_sample_carries_only_shown_values():
+    assert list(GpuSample.__dataclass_fields__) == ["busy", "freq_mhz", "freq_max_mhz", "power_w", "temp_c",
+                                                    "vram_used", "vram_total"]
+
+
 def test_amdgpu_sample():
     amd0 = gpu(AMD, "card0")
     s = GpuReader(AMD, amd0).read(0)
-    assert (s.busy, s.busy_scope, s.freq_mhz, s.power_w) == (37.0, "global", 1850.0, 45.0)
+    assert (s.busy, s.freq_mhz, s.power_w) == (37.0, 1850.0, 45.0)
     assert s.temp_c == 61.0 and s.freq_max_mhz == 2400.0
     assert s.vram_total > 0 and s.vram_used is not None
 
@@ -81,19 +86,19 @@ def test_amdgpu_card_vanished(tree_copy):
     reader = GpuReader(root, gpu(root, "card0"))
     shutil.rmtree(f"{root}/sys/class/drm/card0")
     s = reader.read(0)
-    assert (s.busy, s.busy_scope, s.freq_mhz, s.power_w, s.temp_c) == (None,) * 5
+    assert (s.busy, s.freq_mhz, s.power_w, s.temp_c) == (None,) * 4
 
 
 def test_intel_freq_without_tools():
     s = GpuReader(INTEL, gpu(INTEL, "card1")).read(0)
-    assert s.freq_mhz is not None and s.busy_scope in ("own", None)
+    assert s.freq_mhz is not None
     assert s.freq_max_mhz == 1150.0
 
 
 def test_intel_tools_preferred():
     tools = FakeTools(intel={"busy": 12.5, "freq_mhz": 800.0, "gpu_w": 3.5, "pkg_w": 9.0})
     s = GpuReader(INTEL, gpu(INTEL, "card1"), tools).read(0)
-    assert (s.busy, s.busy_scope, s.freq_mhz, s.power_w) == (12.5, "global", 800.0, 3.5)
+    assert (s.busy, s.freq_mhz, s.power_w) == (12.5, 800.0, 3.5)
     assert tools.calls == [("intel", "card1")]
 
 
@@ -123,7 +128,7 @@ def test_nvidia_with_tool():
     r = GpuReader(AMD, nv1, tools)
     s = r.read(0)
     assert tools.calls == [("nvidia", "0000:01:00.0")]
-    assert (s.busy, s.busy_scope, s.temp_c, s.power_w, s.freq_max_mhz) == (80.0, "global", 55.0, 120.0, 2700.0)
+    assert (s.busy, s.temp_c, s.power_w, s.freq_max_mhz) == (80.0, 55.0, 120.0, 2700.0)
     assert (s.vram_used, s.vram_total) == (2 * 1024 ** 2, 12 * 1024 ** 2)
     assert r.name == "RTX 4070"
 
@@ -315,7 +320,7 @@ def test_intel_own_scope_via_fdinfo(tmp_path, tree_copy):
     assert r.read(0).busy is None
     add_client(proc, 1, 10, info(ns=1_000_000_000))
     s = r.read(2.0)
-    assert (s.busy, s.busy_scope) == (50.0, "own")
+    assert s.busy == 50.0
 
 
 @pytest.mark.parametrize("bad", ["00:02.0", "0000:00:02.8", "0000:00:02.9", "0000:00:0A.0", "0000:00:02.0x"])

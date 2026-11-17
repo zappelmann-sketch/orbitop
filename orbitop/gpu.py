@@ -31,7 +31,6 @@ class GpuInfo:
 @dataclass(frozen=True)
 class GpuSample:
     busy: float | None = None
-    busy_scope: str | None = None  # "global" | "own"
     freq_mhz: float | None = None
     freq_max_mhz: float | None = None
     power_w: float | None = None
@@ -216,7 +215,7 @@ class GpuReader:
         busy = sysfs.read_float(dev + "/gpu_busy_percent")
         power, temp = _hwmon(dev)
         cur, top = _sclk(dev)
-        return GpuSample(busy, None if busy is None else "global", cur, top, power, temp,
+        return GpuSample(busy, cur, top, power, temp,
                          sysfs.read_int(dev + "/mem_info_vram_used"),
                          sysfs.read_int(dev + "/mem_info_vram_total"))
 
@@ -227,17 +226,15 @@ class GpuReader:
         else:
             freq = sysfs.read_float(card + "/gt_act_freq_mhz")
             top = sysfs.read_float(card + "/gt_max_freq_mhz")
-        busy, scope, power = None, None, None
+        busy, power = None, None
         t = self._tools.intel(self.info.card) if self._tools else None
         if t:
             busy, power = t.get("busy"), t.get("gpu_w")
-            scope = None if busy is None else "global"
             if t.get("freq_mhz") is not None:
                 freq = t["freq_mhz"]
-        if busy is None:
+        if busy is None:  # ohne Werte von intel_gpu_top nur eigene Prozesse (hint.igt_missing)
             busy = self._own_busy(now)
-            scope = None if busy is None else "own"
-        return GpuSample(busy, scope, freq, top, power)
+        return GpuSample(busy, freq, top, power)
 
     def _nvidia(self) -> GpuSample:
         t = self._tools.nvidia(self.info.pci) if self._tools and self.info.pci else None
@@ -248,7 +245,7 @@ class GpuReader:
         busy = t.get("busy")
         # vram_used/vram_total liefert das Werkzeug in MiB (wie nvidia-smi)
         used, total = t.get("vram_used"), t.get("vram_total")
-        return GpuSample(busy, None if busy is None else "global", t.get("freq_mhz"),
+        return GpuSample(busy, t.get("freq_mhz"),
                          t.get("freq_max_mhz"), t.get("power_w"), t.get("temp_c"),
                          None if used is None else int(used * 1024 ** 2),
                          None if total is None else int(total * 1024 ** 2))
@@ -264,8 +261,7 @@ class GpuReader:
             top = _scaled(sysfs.read_float(d + "/max_freq"), 1e6)
             if freq is not None:
                 break
-        busy = self._own_busy(now)
-        return GpuSample(busy, None if busy is None else "own", freq, top)
+        return GpuSample(self._own_busy(now), freq, top)
 
     def _clients(self, now: float) -> dict[str, dict[str, int]]:
         """Eigene Clients dieser Karte: client-id -> Engine -> ns (Treiber und drm-pdev passend)."""

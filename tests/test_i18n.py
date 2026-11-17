@@ -105,6 +105,11 @@ def test_rapl_hint_names_flag_and_risk():
         assert "--allow-rapl" in json_of(lang)["hint.rapl_noperm"]
 
 
+def test_igt_missing_hint_names_the_own_process_fallback():  # ohne intel_gpu_top zeigt die Kachel fdinfo eigener Prozesse
+    assert "own processes" in json_of("en")["hint.igt_missing"]
+    assert "eigene Prozesse" in json_of("de")["hint.igt_missing"]
+
+
 def test_german_has_real_umlauts():
     de = json_of("de")
     assert de["tab.overview"] == "Übersicht"
