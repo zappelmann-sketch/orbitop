@@ -2,7 +2,11 @@
 # Copyright © 2026 zappelmann-sketch
 """Hülle ohne Fenster: Handler mit Attrappen für Worker, WebView, Entscheidungen, Thread und GLib-Zeitgeber."""
 import json
+import signal
+import subprocess
 import sys
+import threading
+import time
 import warnings
 from pathlib import Path
 from types import SimpleNamespace
@@ -158,8 +162,8 @@ def test_failed_thread_start_keeps_gate_open(rig, monkeypatch):
 
 @pytest.mark.parametrize("outcome,result", [("sent", "sent"), (RuntimeError("x"), "error")])
 def test_terminate_thread_posts_result(rig, monkeypatch, outcome, result):
-    def fake_terminate(pid, start, force):
-        assert (pid, start, force) == (5, 6, False)
+    def fake_terminate(pid, start, force, run):
+        assert (pid, start, force, run) == (5, 6, False, rig.s._run)  # über _run erreicht _shutdown das pkexec
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
@@ -343,6 +347,36 @@ def test_unix_signal_add_falls_back_without_glibunix(monkeypatch, block):  # z. 
 def test_shutdown_stops_worker_then_closes_sampler(rig):
     rig.s._shutdown(None)
     assert rig.log == ["stop", "close"]
+
+
+@pytest.mark.parametrize("exc", [None, PermissionError])  # PermissionError: pkexec läuft schon als root-Helfer
+def test_shutdown_terminates_open_pkexec(rig, exc):
+    def terminate():
+        rig.log.append("pkexec")
+        if exc:
+            raise exc
+    rig.s._pkexec = SimpleNamespace(terminate=terminate)
+    rig.s._shutdown(None)
+    assert rig.log == ["pkexec", "stop", "close"]
+
+
+def test_run_child_ends_with_shutdown(rig):
+    """_run wie subprocess.run, aber das Kind bleibt für _shutdown erreichbar; hier ein eigenes sleep statt pkexec."""
+    out = []
+    t = threading.Thread(target=lambda: out.append(rig.s._run(["sleep", "30"], timeout=120)))
+    t.start()
+    deadline = time.monotonic() + 5
+    while rig.s._pkexec is None and time.monotonic() < deadline:
+        time.sleep(0.01)
+    rig.s._shutdown(None)
+    t.join(5)
+    assert out[0].returncode == -signal.SIGTERM and rig.s._pkexec is None
+
+
+def test_run_timeout_kills_child(rig):
+    with pytest.raises(subprocess.TimeoutExpired):
+        rig.s._run(["sleep", "30"], timeout=0.05)
+    assert rig.s._pkexec is None
 
 
 class Win:

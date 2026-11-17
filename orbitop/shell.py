@@ -3,9 +3,11 @@
 """GTK-4-Fenster mit WebView: Einzelinstanz, Hintergrundbetrieb und Brücke zur Seite.
 
 Erst nach app.check_runtime() importieren, sonst endet ein fehlendes WebKit in einem Traceback."""
+import contextlib
 import math
 import os
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -59,6 +61,7 @@ class Shell:
     def __init__(self, hidden: bool):
         self._argv = ["orbitop", "--hidden"] if hidden else ["orbitop"]
         self._terminating = False  # höchstens ein terminate zugleich, nie ein Stapel Passwortdialoge; nur Hauptthread
+        self._pkexec: subprocess.Popen | None = None  # laufendes pkexec, gesetzt von _run im terminate-Thread
         self._reloaded = -math.inf
         # Jeder Start reicht seine Argumente an die erste Instanz weiter (Einzelinstanz über D-Bus)
         self._app = Gtk.Application(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -120,6 +123,10 @@ class Shell:
         return 0
 
     def _shutdown(self, _app) -> None:
+        child = self._pkexec
+        if child is not None:  # offenes pkexec: verwaist signalisierte es nach späterer Bestätigung ohne Rückmeldung
+            with contextlib.suppress(PermissionError):  # schon der Helfer als root, er endet gleich von selbst
+                child.terminate()
         self._worker.stop()
         self._sampler.close()  # beendet intel_gpu_top
 
@@ -199,15 +206,23 @@ class Shell:
         self._terminating = True  # erst nach erfolgreichem start(), sonst bliebe das Tor für immer zu
 
     def _terminate_thread(self, pid: int, start: int, force: bool) -> None:  # pkexec blockiert bis zu 120 s
-        # shortcut: orbitop bricht ein offenes pkexec beim Beenden nicht selbst ab. Unter GNOME verwirft polkit die
-        # Anfrage, sobald der anfragende Prozess fehlt (beobachtet); bei anderen polkit-Agenten könnte pkexec verwaist
-        # weiterlaufen und nach späterer Bestätigung ohne Rückmeldung signalisieren. Aufrüsten, wenn der Root-Helfer
-        # (Stufe 2) einen Abbruch-Kanal bekommt.
         try:
-            result = actions.terminate(pid, start, force)
+            result = actions.terminate(pid, start, force, run=self._run)
         except Exception:  # sonst bliebe das Beenden für immer gesperrt
             result = "error"
         GLib.idle_add(self._terminated, pid, start, force, result)
+
+    def _run(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess:
+        """subprocess.run für pkexec, nur dass _shutdown das Kind erreicht und beenden kann."""
+        with subprocess.Popen(argv) as p:
+            self._pkexec = p
+            try:
+                return subprocess.CompletedProcess(argv, p.wait(timeout))
+            except subprocess.TimeoutExpired:
+                p.kill()
+                raise
+            finally:
+                self._pkexec = None
 
     def _terminated(self, pid: int, start: int, force: bool, result: str) -> None:
         self._terminating = False
