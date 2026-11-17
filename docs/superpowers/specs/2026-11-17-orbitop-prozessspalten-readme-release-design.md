@@ -276,3 +276,20 @@ Der Zweig heißt `prozess-spalten` und beginnt auf `main` `1c86566`.
 - genaue Pixel von Griff und Einfügemarke
 - Aufbau der Tests
 - Container-Images und Befehle der Prüfung
+
+## Messung Eigenlast (2026-11-17)
+
+Verfahren wie in Stufe 1 (`scripts/measure-load.py --pid <orbitop> --seconds 60`, Prozessbaum, Fenster 1600×1000, Skalierung 1,25): „kurz“ = 60 s nach 60 s Aufwärmen, „Dauer“ = 60 s nach 5 Minuten. „Alle Spalten“ = Layout mit allen 15 Spalten sichtbar. Jede Lage in eigener Instanz mit eigenem `XDG_CONFIG_HOME` und eigener D-Bus-Sitzung. Lastmittel (1 min) vor den Läufen 0,16 bis 1,59. Die Standardauswahl schwankt stark zwischen den Läufen (8,1 bis 14,9 %), alle Spalten kaum (9,0 bis 9,1 %).
+
+CPU in % eines Kerns, in Klammern PSS in MB:
+
+| Stand | Ausgeblendet | Übersicht kurz | Prozesse Standard kurz | Prozesse alle Spalten kurz | Prozesse alle Spalten Dauer |
+|---|---|---|---|---|---|
+| Stufe 1 (8f29d08) | 2,77 (169) | 7,93 (250) | 8,16 (245) | – | – |
+| Vor Task 5 (8b5664b) | 2,75 (133) | 7,89 (201) | 11,96 (197); 8,61 (192) | 10,59 (195) | 10,51 (202) |
+| Hebel 3: 6 statt 12 Pufferzeilen (328ccd6) | – | – | 12,73 (198); 14,88 (194); 12,78 (198); 8,13 (191) | 9,00 (195); 9,05 (194) | 9,68 (198) |
+| **Budget (User)** | **≤ 3** | **≤ 9** | **≤ 9** | **≤ 9** | **≤ 9**; PSS **< 275** |
+
+Aufteilung (Hebel 3, alle Spalten Dauer): WebKit-Webprozess 4,63 %, orbitop 4,00 %, `intel_gpu_top` 1,05 %. Vor Task 5, alle Spalten Dauer: 5,36 / 4,06 / 1,08 %. Standardauswahl (8,13-Lauf): orbitop 3,58 %, WebKit 3,51 %, `intel_gpu_top` 1,03 %; in den 12–15-%-Läufen WebKit 5,8–6,9 %, orbitop 4,7–5,0 %.
+
+Angewandte Hebel: nur Hebel 3 (`BUFFER_ROWS` 12 → 6; das Zeichnen nur geänderter Zellen war schon so: `setText` und `updateSpark` vergleichen). Die Hebel 1 und 2 (nur Felder eingeblendeter Spalten senden, `statm` nur bei SHR) ändern bei „alle Spalten“ nichts, weil dort nichts ausgeblendet ist; sie wurden nicht umgesetzt.
