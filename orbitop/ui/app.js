@@ -375,7 +375,7 @@ const COLS = [
   { id: "state", key: "col.state", get: (p) => SEVERITY.indexOf(p.state) },
 ];
 const FILTERS = { all: () => true, mine: (p) => p.own, flagged: (p) => p.state !== "working" && p.state !== "waiting" };
-const RESULTS = ["sent", "gone", "mismatch", "zombie", "kernel", "denied", "error"];
+const RESULTS = ["sent", "gone", "mismatch", "zombie", "kernel", "denied", "nohelper", "error"];
 
 const keyOf = (p) => p.pid + ":" + p.start;
 const same = (p, sel) => !!sel && p.pid === sel.pid && p.start === sel.start;

@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 import os
 import signal
+import stat
 import subprocess
 import sys
 import threading
@@ -11,11 +12,23 @@ from types import SimpleNamespace
 
 import pytest
 
-from orbitop import killhelper
+from orbitop import actions, killhelper
 from orbitop.actions import is_alive, terminate
 from orbitop.procs import parse_stat
 
-HELPER = os.path.abspath(killhelper.__file__)
+HELPER = os.path.abspath(killhelper.__file__)  # die Quelle im Checkout; pkexec startet nur die root-eigene Kopie
+INSTALLED = "/usr/local/libexec/orbitop/killhelper.py"
+
+
+def chain_lstat(**over):
+    """lstat einer vertrauenswürdigen Kette (alles root, 0755, der Helfer eine reguläre Datei); over: Pfad -> (uid, mode)."""
+    def lstat(path):
+        uid, mode = over.get(path, (0, (stat.S_IFREG if path == INSTALLED else stat.S_IFDIR) | 0o755))
+        return SimpleNamespace(st_uid=uid, st_mode=mode)
+    return lstat
+
+
+TRUSTED = chain_lstat()
 
 
 def start_of(pid):
@@ -110,24 +123,24 @@ def foreign(tmp_path):
 def test_foreign_uses_pkexec_helper(monkeypatch, foreign):
     monkeypatch.setattr(sys, "executable", "/venv/bin/python")
     calls = []
-    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 126)) == "denied"
+    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 126), lstat=TRUSTED) == "denied"
     argv, kw = calls[0]
-    assert argv == ["/usr/bin/pkexec", "/usr/bin/python3", "-I", HELPER, "4242", "77", "TERM"]
-    assert os.path.isabs(argv[3]) and kw["timeout"] == 120 and "shell" not in kw
+    assert argv == ["/usr/bin/pkexec", "/usr/bin/python3", "-I", INSTALLED, "4242", "77", "TERM"]
+    assert kw["timeout"] == 120 and "shell" not in kw
     calls.clear()
-    terminate(4242, 77, True, root=foreign, run=fake(calls, 0))
+    terminate(4242, 77, True, root=foreign, run=fake(calls, 0), lstat=TRUSTED)
     assert calls[0][0][-1] == "KILL"
 
 
 @pytest.mark.parametrize("rc,want", [(0, "sent"), (3, "mismatch"), (4, "gone"), (5, "zombie"), (6, "kernel"),
                                      (126, "denied"), (127, "denied"), (2, "error"), (1, "error")])
 def test_exit_code_mapping(rc, want, foreign):
-    assert terminate(4242, 77, False, root=foreign, run=fake([], rc)) == want
+    assert terminate(4242, 77, False, root=foreign, run=fake([], rc), lstat=TRUSTED) == want
 
 
 @pytest.mark.parametrize("exc", [subprocess.TimeoutExpired("pkexec", 120), FileNotFoundError("pkexec")])
 def test_pkexec_failures_are_error(exc, foreign):
-    assert terminate(4242, 77, False, root=foreign, run=fake([], exc=exc)) == "error"
+    assert terminate(4242, 77, False, root=foreign, run=fake([], exc=exc), lstat=TRUSTED) == "error"
 
 
 def test_foreign_wrong_start_is_mismatch_without_prompt():
@@ -147,7 +160,7 @@ def test_foreign_dead_target_needs_no_prompt(tmp_path, state, want):
 
 def test_foreign_live_target_goes_to_pkexec(foreign):
     calls = []
-    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 0)) == "sent"
+    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 0), lstat=TRUSTED) == "sent"
     assert len(calls) == 1
 
 
@@ -166,7 +179,7 @@ def test_pid1_is_kernel_without_prompt(force):
 def test_kernel_thread_needs_no_prompt(tmp_path, ppid, cmdline, want, prompts):
     foreign_proc(tmp_path, 4243, 77, "S", ppid=ppid, cmdline=cmdline)
     calls = []
-    assert terminate(4243, 77, True, root=str(tmp_path), run=fake(calls, 0)) == want
+    assert terminate(4243, 77, True, root=str(tmp_path), run=fake(calls, 0), lstat=TRUSTED) == want
     assert len(calls) == prompts
     assert is_alive(4243, 77, str(tmp_path)) is (want != "gone")
 
@@ -292,4 +305,59 @@ def test_own_permission_error_is_denied(child, monkeypatch):
 
 def test_guard_blocks_real_pkexec(foreign):
     with pytest.raises(AssertionError):
-        terminate(4242, 77, False, root=foreign)
+        terminate(4242, 77, False, root=foreign, lstat=TRUSTED)
+
+
+# ---- Vertrauensprüfung des Root-Helfers (F-1) ----
+@pytest.mark.parametrize("make", ["user_file", "missing", "symlink"])
+def test_helper_in_user_tree_is_nohelper(monkeypatch, foreign, tmp_path, make):
+    """Echtes lstat: ein Helfer, den User-Code austauschen könnte, startet nie pkexec."""
+    f = tmp_path / "libexec" / "killhelper.py"
+    f.parent.mkdir()
+    if make == "user_file":
+        f.write_bytes(Path(HELPER).read_bytes())
+        f.chmod(0o755)
+    elif make == "symlink":
+        f.symlink_to(os.path.realpath("/usr/bin/python3"))  # Ziel root-eigen, der Link selbst zählt
+    monkeypatch.setattr(actions, "_HELPER", str(f))
+    calls = []
+    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 0)) == "nohelper"
+    assert calls == []
+
+
+@pytest.mark.parametrize("over", [
+    {INSTALLED: (1000, stat.S_IFREG | 0o755)},                   # Datei gehört dem User
+    {INSTALLED: (0, stat.S_IFREG | 0o775)},                      # Datei für die Gruppe beschreibbar
+    {INSTALLED: (0, stat.S_IFLNK | 0o777)},                      # Symlink
+    {INSTALLED: (0, stat.S_IFDIR | 0o755)},                      # keine reguläre Datei
+    {"/usr/local/libexec/orbitop": (0, stat.S_IFDIR | 0o775)},   # Elternverzeichnis für die Gruppe beschreibbar
+    {"/usr/local": (0, stat.S_IFDIR | 0o757)},                   # weiter oben für andere beschreibbar
+    {"/usr/local/libexec": (1000, stat.S_IFDIR | 0o755)},        # Verzeichnis gehört dem User
+    {"/": (0, stat.S_IFDIR | 0o777)},
+])
+def test_untrusted_chain_is_nohelper(foreign, over):
+    calls = []
+    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 0), lstat=chain_lstat(**over)) == "nohelper"
+    assert calls == []
+
+
+def test_trusted_chain_reaches_runner_with_exact_argv(foreign):
+    seen, calls = [], []
+
+    def lstat(path):
+        seen.append(path)
+        return TRUSTED(path)
+    assert terminate(4242, 77, True, root=foreign, run=fake(calls, 0), lstat=lstat) == "sent"
+    assert seen == [INSTALLED, "/usr/local/libexec/orbitop", "/usr/local/libexec", "/usr/local", "/usr", "/"]
+    assert [c[0] for c in calls] == [["/usr/bin/pkexec", "/usr/bin/python3", "-I", INSTALLED, "4242", "77", "KILL"]]
+
+
+def test_trust_check_accepts_a_real_root_chain():
+    assert actions._trusted(os.path.realpath("/usr/bin/python3"))
+
+
+def test_own_process_needs_no_helper(child):
+    def no_lstat(path):
+        pytest.fail("eigene Prozesse brauchen keinen Helfer")
+    assert terminate(child.pid, start_of(child.pid), False, lstat=no_lstat) == "sent"
+    assert child.wait(5) == -signal.SIGTERM

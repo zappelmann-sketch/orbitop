@@ -1,13 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Prozesse beenden: eigene direkt, fremde über pkexec + killhelper.py (als root)."""
+"""Prozesse beenden: eigene direkt, fremde über pkexec + die root-eigene Kopie von killhelper.py."""
 import os
+import stat
 import subprocess
 
 from orbitop import killhelper
 from orbitop.procs import is_kernel, parse_stat
 
-_HELPER = os.path.abspath(killhelper.__file__)
+# Installiert von scripts/setup-privileges.sh; nie die Datei im Checkout, die User-Code austauschen könnte (F-1).
+_HELPER = "/usr/local/libexec/orbitop/killhelper.py"
 # Absolute Pfade: kein PATH- oder venv-Einfluss auf das, was als root läuft.
 PKEXEC = "/usr/bin/pkexec"
 PYTHON = "/usr/bin/python3"
@@ -26,7 +28,24 @@ def _own(pid: int, root: str) -> bool | None:
     return None
 
 
-def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run) -> str:
+def _trusted(path: str, lstat=os.lstat) -> bool:
+    """True, wenn path eine reguläre Datei und kein Symlink ist und jedes Glied von ihr bis / root gehört und für Gruppe
+    und andere nicht beschreibbar ist. Sonst könnte ein Prozess des Users austauschen, was pkexec als root startet."""
+    try:
+        st = lstat(path)
+        if not stat.S_ISREG(st.st_mode):
+            return False
+        while st.st_uid == 0 and not st.st_mode & 0o022:  # ein Symlink weiter oben hat 0777 und fällt hier heraus
+            if path == "/":
+                return True
+            path = os.path.dirname(path)
+            st = lstat(path)
+    except OSError:
+        pass
+    return False
+
+
+def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, lstat=os.lstat) -> str:
     if type(pid) is not int or type(start) is not int:
         return "error"
     sig = "KILL" if force else "TERM"
@@ -43,6 +62,8 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run) -
     refused = _precheck(pid, start, root)
     if refused:  # veraltete Startzeit oder verweigertes Ziel: kein Passwortdialog
         return refused
+    if not _trusted(_HELPER, lstat):  # Helfer fehlt oder ist austauschbar: kein pkexec
+        return "nohelper"
     try:
         r = run([PKEXEC, PYTHON, "-I", _HELPER, str(pid), str(start), sig], timeout=120)
     except (OSError, subprocess.SubprocessError):

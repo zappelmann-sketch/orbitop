@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 import os
+import shutil
 import subprocess
 from pathlib import Path
 
@@ -51,6 +52,29 @@ def test_arm_plans_only_webkit():
 def test_vm_plans_only_webkit():
     out = dry_run("vm")
     assert "gir1.2-webkit-6.0" in out and "setcap" not in out and "rapl" not in out.lower()
+
+
+HELPER_LINES = ["WOULD: install -d -o root -g root -m 0755 /usr/local/libexec/orbitop",
+                f"WOULD: install -o root -g root -m 0755 {ROOT}/orbitop/killhelper.py "
+                "/usr/local/libexec/orbitop/killhelper.py"]
+
+
+@pytest.mark.parametrize("tree", ["intel-laptop", "amd-desktop", "arm-board", "vm"])
+def test_installs_root_owned_helper_on_every_tree(tree):  # F-1: pkexec startet nur diese Kopie
+    lines = dry_run(tree).splitlines()
+    i = lines.index(HELPER_LINES[0])
+    assert lines[i:i + 2] == HELPER_LINES
+    assert any("run this script again" in ln and "killhelper.py" in ln for ln in lines)
+
+
+def test_refuses_symlinked_helper_source(tmp_path):
+    (tmp_path / "scripts").mkdir()
+    (tmp_path / "orbitop").mkdir()
+    shutil.copy(SCRIPT, tmp_path / "scripts")
+    (tmp_path / "orbitop" / "killhelper.py").symlink_to(ROOT / "orbitop" / "killhelper.py")
+    r = subprocess.run(["bash", str(tmp_path / "scripts" / "setup-privileges.sh"), "--dry-run"],
+                       env={**os.environ, "ORBITOP_SYSROOT": str(TREES / "vm")}, capture_output=True, text=True)
+    assert r.returncode == 1 and "refusing" in r.stderr and "WOULD:" not in r.stdout  # vor jeder Aktion
 
 
 def test_refuses_without_root_and_without_dry_run():

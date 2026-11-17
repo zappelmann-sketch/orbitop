@@ -27,7 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "verdict.zombie": "Zombie. Er verschwindet mit {parent}.", "verdict.waiting": "Wartet. Normal.",
     "confirm.terminate_text": "{name} (PID {pid}) beenden?", "confirm.kill_text": "{name} (PID {pid}) sofort?",
     "result.sent": "gesendet", "result.denied": "verweigert", "result.error": "Fehler", "result.gone": "weg",
-    "result.zombie": "Zombie-Grund", "result.kernel": "Kernel-Grund", "btn.busy": "läuft …", "about.version": "Version {version}",
+    "result.zombie": "Zombie-Grund", "result.kernel": "Kernel-Grund", "result.nohelper": "Helfer fehlt", "btn.busy": "läuft …", "about.version": "Version {version}",
     "notice.for": "{name} (PID {pid}): {text}", "detail.cpu_one_core": "{pct} % (ein voller Kern)", "unit.h": "Std",
     "unit.d": "T", "detail.parent_pid": "PID {pid}", "detail.ctx_value": "freiwillig {vol}/s · erzwungen {invol}/s" },
     version: "9.9.9" });
@@ -434,7 +434,8 @@ document.addEventListener("DOMContentLoaded", () => {
   eq(kill.classList.contains("alert"), true, "Hervorhebung bleibt über Ticks");
   receive({ type: "terminate_check", pid: 7, alive: false });
   eq($(".notice span").textContent, "ziel (PID 7): weg", "beendet: Meldung mit Prozess");
-  for (const [code, want] of [["denied", "verweigert"], ["constructor", "Fehler"], ["<b>x", "Fehler"]]) {
+  for (const [code, want] of [["denied", "verweigert"], ["nohelper", "Helfer fehlt"], ["constructor", "Fehler"],
+                              ["<b>x", "Fehler"]]) {
     receive({ type: "terminate_result", pid: 7, result: code });
     eq($(".notice span").textContent, want, "Ergebnis " + code);
   }

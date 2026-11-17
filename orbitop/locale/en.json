@@ -98,6 +98,7 @@
   "result.gone": "The process has already exited.",
   "result.kernel": "Kernel threads and PID 1 cannot be terminated.",
   "result.mismatch": "The PID now belongs to a different process. Nothing was terminated.",
+  "result.nohelper": "Terminating other users' processes needs the helper installed by sudo bash scripts/setup-privileges.sh.",
   "result.sent": "Termination requested. Checking in 5 s whether the process is still running.",
   "result.zombie": "A zombie cannot be terminated. It disappears with its parent process.",
   "series.chipset": "Chipset",

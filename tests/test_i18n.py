@@ -22,7 +22,7 @@ col.process col.cpu col.last60 col.ram col.io col.state
 detail.io_hidden detail.none_selected tab.overview tab.procs
 """.split()
 STATES = ["working", "waiting", "busy_noio", "busy_iounknown", "kernel_hang", "stopped", "zombie"]
-RESULTS = ["sent", "gone", "mismatch", "zombie", "kernel", "denied", "error"]
+RESULTS = ["sent", "gone", "mismatch", "zombie", "kernel", "denied", "nohelper", "error"]
 # Typische Ersatzschreibweisen; "ue" allein wäre zu laut (Dauerlast, Queue).
 UMLAUT_SUBSTITUTES = re.compile(
     r"\b(Ae|Oe|Ue)\w+|\w*(fuer|Groesse|groesse|Schluessel|Verfuegbar|verfuegbar|Waehle|waehle|Koennen|ueber|Ueber|koenn|moeg|wuerd|Laeuft|laeuft|Lueft|Prozess?e?n?\s+gehoer"
@@ -98,6 +98,11 @@ def test_denied_does_not_blame_password():
     for lang in ("en", "de"):
         assert "password" not in json_of(lang)["result.denied"].lower()
         assert "passwort" not in json_of(lang)["result.denied"].lower()
+
+
+def test_nohelper_names_the_setup_command():
+    for lang in ("en", "de"):
+        assert "sudo bash scripts/setup-privileges.sh" in json_of(lang)["result.nohelper"]
 
 
 def test_rapl_hint_names_flag_and_risk():

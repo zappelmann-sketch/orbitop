@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Installs the runtime packages and grants the few privileges orbitop optionally uses.
+# Installs the runtime packages and the root-owned kill helper, and grants the few privileges orbitop optionally uses.
 # Usage: sudo bash setup-privileges.sh [--dry-run] [--allow-rapl]
 # With --dry-run, detection reads from ${ORBITOP_SYSROOT:-/} so it can be tested against fake trees.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+umask 022  # directories created on the way to the helper must stay readable for orbitop's trust check
 
 usage() { echo "usage: $0 [--dry-run] [--allow-rapl]" >&2; exit 2; }
 
@@ -32,6 +33,8 @@ root=${root%/}
 rapl_rules=/etc/udev/rules.d/70-orbitop-rapl.rules
 rapl_rule='ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"'
 igt=/usr/bin/intel_gpu_top
+helper=/usr/local/libexec/orbitop/killhelper.py
+helper_src="$(cd -- "$(dirname -- "$0")/.." && pwd -P)/orbitop/killhelper.py"
 
 has_intel_gfx=0
 for link in "$root"/sys/class/drm/card[0-9]*/device/driver; do
@@ -53,9 +56,20 @@ run() {
     fi
 }
 
+# orbitop runs pkexec only on a root-owned copy of the helper, never on the user-writable checkout.
+if [ -L "$helper_src" ] || [ ! -f "$helper_src" ]; then
+    echo "$helper_src is not a regular file; refusing to install the helper." >&2
+    exit 1
+fi
+
 packages=(gir1.2-webkit-6.0)
 [ "$has_intel_gfx" -eq 1 ] && packages+=(intel-gpu-tools)
 run apt-get install -y "${packages[@]}"
+
+run install -d -o root -g root -m 0755 "$(dirname -- "$helper")"
+run install -o root -g root -m 0755 "$helper_src" "$helper"
+echo "Note: after updating orbitop/killhelper.py in the checkout, run this script again."
+echo "Undo: sudo rm -r $(dirname -- "$helper")"
 
 if [ "$has_intel_gfx" -eq 1 ]; then
     if [ "$dry_run" -eq 0 ] && { [ -L "$igt" ] || [ ! -f "$igt" ] || [ "$(stat -c %u -- "$igt")" != 0 ]; }; then
