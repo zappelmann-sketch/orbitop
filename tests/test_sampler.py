@@ -359,6 +359,16 @@ def test_power_curve_never_mixes_sources(monkeypatch):  # powerprobe: Anlauf von
     assert p["series"][0]["values"] == [None, None, None, 4.0, 4.0, 4.0]  # der Quellenwechsel ist eine Lücke
 
 
+def test_default_clock_counts_suspend(monkeypatch):  # s2idle: monotonic steht im Ruhezustand, RAPL zählt weiter
+    real, boot = sampler_mod.time.clock_gettime, [1000.0]
+    monkeypatch.setattr(sampler_mod.time, "clock_gettime",
+                        lambda cid: boot[0] if cid == sampler_mod.time.CLOCK_BOOTTIME else real(cid))
+    s = Sampler(INTEL, tools=NoTools(), uid=1000)
+    for boot[0] in (1001.0, 1002.0, 1062.0):  # der letzte Takt kommt 60 s Ruhezustand später
+        s.tick_system()
+    assert list(s._bufs["rx"]) == [None, 0.0, None]  # erster Takt Basis, nach dem Aufwachen eine Lücke
+
+
 def test_power_chain_picks_hwmon_first_entry(patched):
     p = power_of(patched, hw=[("a", 1.0), ("b", 2.0)])
     assert p["main"]["v"] == 1.0

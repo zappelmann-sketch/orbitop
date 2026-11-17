@@ -108,6 +108,12 @@ def _crit(root: str) -> float | None:
     return min((v for v in vals if 30 <= v < TEMP_MAX), default=None)
 
 
+def _boottime() -> float:
+    """Zeitbasis der Raten. Anders als monotonic zählt sie den Ruhezustand mit: nach dem Aufwachen ist dt groß und
+    der Punkt eine Lücke (RAPL zählt im s2idle weiter). Die Takt-Kadenz des Workers bleibt monoton."""
+    return time.clock_gettime(time.CLOCK_BOOTTIME)
+
+
 def _safe(fn, *args, default=None):
     """Ein Leser darf den Sampler nie zu Fall bringen: Fehler heißt keine Werte."""
     try:
@@ -117,7 +123,7 @@ def _safe(fn, *args, default=None):
 
 
 class Sampler:
-    def __init__(self, root="/", tools=None, statvfs=os.statvfs, clock=time.monotonic, uid=None):
+    def __init__(self, root="/", tools=None, statvfs=os.statvfs, clock=_boottime, uid=None):
         uid = os.getuid() if uid is None else uid
         self._root, self._clock = root, clock
         self._cpu, self._net = CpuReader(root), NetReader(root)
