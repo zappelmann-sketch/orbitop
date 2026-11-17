@@ -150,7 +150,8 @@ def test_reader_exception_does_not_break(monkeypatch):
     monkeypatch.setattr(sampler_mod, "read_sensors", boom)
     monkeypatch.setattr(sampler_mod.procs, "scan", boom)
     s.tick_system()
-    s.tick_procs()
+    with pytest.raises(RuntimeError):  # Prozess-Takt: der Worker meldet den Fehler einmal (_guard) und läuft weiter
+        s.tick_procs()
     snap = s.snapshot({"tab": "procs", "pid": 1, "start": 1})
     assert "cpu" in snap["missing"] and "temp" in snap["missing"] and "mem" in kinds(snap)
     json.dumps(snap, allow_nan=False)

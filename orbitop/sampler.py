@@ -3,6 +3,7 @@
 """Sampler: Ringpuffer (5 min) und die tick-Nachricht des Schnappschuss-Vertrags."""
 import math
 import os
+import threading
 import time
 from collections import deque
 
@@ -128,6 +129,10 @@ class Sampler:
         self._held: dict = {}  # langsame hwmon-Chips für read_sensors
         self._table = ProcTable(uid=uid, root=root)
         self._now_procs = clock()
+        # Prozess-Takt (eigener Thread) und Schnappschuss teilen _table und _now_procs: update und jedes Lesen unter
+        # dieser Sperre. procs.scan läuft ohne Sperre, liest aber nur _table.cmdlines (nur dieser Thread) und über
+        # wants_status die Einträge und selected (einfache Attribut-Zugriffe).
+        self._procs_lock = threading.Lock()
         self._bufs: dict[str, deque] = {}
         self._pushed: set[str] = set()
         self._n = 0
@@ -261,11 +266,12 @@ class Sampler:
             d.temp_c = t.value if t else None
 
     def tick_procs(self) -> None:
-        now = self._now_procs = self._clock()
-        try:
-            self._table.update(procs.scan(self._root, self._table.cmdlines, want_status=self._table.wants_status(now)), now)
-        except Exception:
-            pass
+        """Im eigenen Thread (app.Worker). Fehler gehen an den Aufrufer, der jeden einmal meldet."""
+        now = self._clock()
+        raw = procs.scan(self._root, self._table.cmdlines, want_status=self._table.wants_status(now))  # kann blockieren
+        with self._procs_lock:
+            self._table.update(raw, now)
+            self._now_procs = now
 
     def close(self) -> None:
         if self._own_tools:
@@ -425,6 +431,10 @@ class Sampler:
         return [t for t in out if t]
 
     def snapshot(self, view: dict) -> dict:
+        with self._procs_lock:  # _tiles (CPU-Kachel) und der Rest lesen die Prozesstabelle
+            return self._snapshot(view)
+
+    def _snapshot(self, view: dict) -> dict:
         view = view if isinstance(view, dict) else {}
         tiles = _safe(self._tiles, default=[]) if self._s else []
         kinds = {t["kind"] for t in tiles}

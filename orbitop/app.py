@@ -16,7 +16,8 @@ from orbitop import __version__
 from orbitop.i18n import detect_language, load_texts
 
 MAX_MESSAGE = 4096
-PERIOD_S = 1.0  # tick_system; tick_procs läuft jeden zweiten Takt
+PERIOD_S = 1.0  # tick_system und Schnappschuss
+PROCS_PERIOD_S = 2.0  # tick_procs, im eigenen Thread
 RUNTIME = (("Gtk", "4.0", "gir1.2-gtk-4.0"), ("WebKit", "6.0", "gir1.2-webkit-6.0"))
 SCHEME, UI_HOST = "orbitop", "ui"  # die Seite läuft unter orbitop://ui/…, nie unter file://
 MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".json": "application/json",
@@ -91,19 +92,22 @@ def snapshot_path(value: str | None) -> str | None:
 
 
 class Worker:
-    """Einziger Benutzer des Samplers: Takte, Schnappschuss und JSON im eigenen Thread.
+    """Einziger Benutzer des Samplers, in zwei eigenen Threads: orbitop-worker (Systemtakt, Schnappschuss, JSON) und
+    orbitop-procs (Prozess-Takt). Das Lesen von /proc/<pid>/cmdline kann blockieren (mmap-Lock bei hängendem FUSE oder
+    NFS); das hält so nur die Prozessliste an, nie die Kacheln. Was beide Threads teilen, schützt der Sampler.
 
     Ruft nie GTK auf; fertiges JSON geht an post (in der Hülle GLib.idle_add)."""
 
     def __init__(self, sampler, post, clock=time.monotonic, wait=None):
         self._sampler, self._post, self._clock = sampler, post, clock
-        self._lock = threading.Lock()  # schützt _visible, _ready, _view
+        self._lock = threading.Lock()  # schützt _visible, _ready, _view und _errors
         self._visible = self._ready = False
         self._view = {"tab": "overview", "pid": None, "start": None}
         self._stop, self._wake = threading.Event(), threading.Event()
         self._wait = wait or self._wake.wait
         self._errors: set[tuple[str, str]] = set()  # schon gemeldete Fehler (Typ, Text)
-        self._thread = threading.Thread(target=self.run, name="orbitop-worker", daemon=True)
+        self._threads = [threading.Thread(target=self.run, name="orbitop-worker", daemon=True),
+                         threading.Thread(target=self.run_procs, name="orbitop-procs", daemon=True)]
 
     def update(self, *, visible=None, ready=None, view=None) -> bool:
         """True, wenn das Fenster sichtbar und die Seite bereit ist; dann folgt sofort ein Schnappschuss."""
@@ -120,40 +124,58 @@ class Worker:
         return live
 
     def start(self) -> None:
-        self._thread.start()
+        for t in self._threads:
+            t.start()
 
     def stop(self, timeout=3.0) -> None:
+        """Beendet beide Threads, insgesamt höchstens timeout lang; ein in /proc hängender Daemon hält nichts auf."""
         self._stop.set()
         self._wake.set()
-        if self._thread.is_alive():
-            self._thread.join(timeout)
+        deadline = time.monotonic() + timeout
+        for t in self._threads:
+            if t.is_alive():
+                t.join(max(0.0, deadline - time.monotonic()))
+
+    def _next(self, due: float, period: float) -> float:
+        due += period
+        now = self._clock()
+        while due <= now:  # verpasste Takte auslassen statt nachholen; der Takt bleibt ohne Drift
+            due += period
+        return due
 
     def run(self) -> None:
-        due, n, fresh = self._clock(), 0, False
+        due, fresh = self._clock(), False
         while not self._stop.is_set():
             if self._clock() >= due:
                 self._guard(self._sampler.tick_system)
-                if n % 2 == 0:
-                    self._guard(self._sampler.tick_procs)
-                n += 1
-                due += PERIOD_S
-                now = self._clock()
-                while due <= now:  # verpasste Takte auslassen statt nachholen; der Takt bleibt ohne Drift
-                    due += PERIOD_S
+                due = self._next(due, PERIOD_S)
                 fresh = True
             if fresh:
                 self._guard(self._publish)
             fresh = self._wait(max(0.0, due - self._clock()))  # True: von update() oder stop() geweckt
             self._wake.clear()
 
+    def run_procs(self, wait=None) -> None:
+        """Prozess-Takt alle PROCS_PERIOD_S, auch bei ausgeblendetem Fenster; wait nur für Tests."""
+        wait = wait or self._stop.wait
+        due = self._clock()
+        while not self._stop.is_set():
+            if self._clock() >= due:
+                self._guard(self._sampler.tick_procs)
+                due = self._next(due, PROCS_PERIOD_S)
+            wait(max(0.0, due - self._clock()))
+
     def _guard(self, fn) -> None:
-        """Ein Fehler im Sampler darf den Mess-Thread nicht still beenden; jeder Fehler erscheint einmal, nicht je Takt."""
+        """Ein Fehler im Sampler darf keinen Mess-Thread still beenden; jeder Fehler erscheint einmal, nicht je Takt."""
         try:
             fn()
         except Exception as e:
             key = (type(e).__name__, str(e))
-            if key not in self._errors and len(self._errors) < 100:  # begrenzt, falls sich der Text ständig ändert
-                self._errors.add(key)
+            with self._lock:  # beide Threads melden hierher
+                new = key not in self._errors and len(self._errors) < 100  # begrenzt, falls sich der Text ständig ändert
+                if new:
+                    self._errors.add(key)
+            if new:
                 traceback.print_exc()
 
     def _publish(self) -> None:

@@ -275,9 +275,31 @@ def test_worker_ticks_on_drift_free_schedule():
     s = FakeSampler(clock)
     posts = run_fake(s, clock, 6)
     assert s.sys_times() == pytest.approx([100.0, 101.0, 102.0, 103.0, 104.0, 105.0])
-    procs = [t for k, t in s.calls if k == "procs"]
-    assert procs == pytest.approx([100.108, 102.108, 104.108])  # jeder zweite Takt, direkt nach tick_system
+    assert not any(k == "procs" for k, _ in s.calls)  # Prozesse laufen im eigenen Thread (run_procs)
     assert posts == [] and s.views == []  # weder sichtbar noch ready: kein Schnappschuss
+
+
+def run_procs_fake(sampler, clock, n, sleep=lambda timeout: timeout):
+    """Lässt den Prozess-Takt synchron laufen, bis n Prozess-Takte erfolgt sind."""
+    def wait(timeout):
+        assert timeout >= 0
+        clock.t += sleep(timeout)
+        if sum(k == "procs" for k, _ in sampler.calls) >= n:
+            worker.stop()
+        return False
+    worker = Worker(sampler, [].append, clock=clock)
+    worker.run_procs(wait)
+
+
+def test_procs_tick_every_2_s_drift_free_and_skips_missed():
+    clock = Clock()
+    s = FakeSampler(clock)
+    run_procs_fake(s, clock, 4)
+    assert [t for _, t in s.calls] == pytest.approx([100.0, 102.0, 104.0, 106.0])
+    clock = Clock()
+    s = FakeSampler(clock)
+    run_procs_fake(s, clock, 3, sleep=lambda timeout: timeout + 3.0)  # ein hängender Takt holt nichts nach
+    assert [t for _, t in s.calls] == pytest.approx([100.0, 105.0, 109.0])
 
 
 def test_worker_skips_missed_slots_instead_of_bursting():
@@ -362,7 +384,7 @@ class Flaky(FakeSampler):
         return super().snapshot(view)
 
 
-@pytest.mark.parametrize("fail", ["tick_system", "tick_procs", "snapshot"])
+@pytest.mark.parametrize("fail", ["tick_system", "snapshot"])
 def test_worker_survives_sampler_exception(fail, capsys):
     clock = Clock()
     s = Flaky(clock, fail)
@@ -370,7 +392,19 @@ def test_worker_survives_sampler_exception(fail, capsys):
     assert s.failed and "RuntimeError: kaputt" in capsys.readouterr().err
     assert s.sys_times() == pytest.approx([100.0, 101.0, 102.0, 103.0])  # der Takt läuft weiter
     assert len(posts) == (3 if fail == "snapshot" else 4)
-    assert len([k for k, _ in s.calls if k == "procs"]) == 2
+
+
+def test_procs_tick_survives_exception_and_reports_it_once(capsys):
+    clock = Clock()
+
+    class Broken(FakeSampler):
+        def tick_procs(self):
+            super().tick_procs()
+            raise RuntimeError("proc kaputt")
+    s = Broken(clock)
+    run_procs_fake(s, clock, 3)
+    err = capsys.readouterr().err
+    assert err.count("RuntimeError: proc kaputt") == 1 and sum(k == "procs" for k, _ in s.calls) == 3
 
 
 def test_worker_prints_each_distinct_error_once(capsys):
@@ -404,7 +438,46 @@ def test_worker_thread_kicks_immediately_and_stops_fast():
     t0 = time.monotonic()
     w.stop()
     assert time.monotonic() - t0 < 0.5
-    assert not any(t.name == "orbitop-worker" for t in threading.enumerate())
+    assert not any(t.name in ("orbitop-worker", "orbitop-procs") for t in threading.enumerate())
     n = len(s.calls)
     time.sleep(1.2)
     assert len(s.calls) == n
+
+
+def test_blocking_process_scan_does_not_stop_tiles(monkeypatch):
+    """/proc/<pid>/cmdline kann blockieren (mmap-Lock bei hängendem FUSE/NFS): Das hält nur die Prozessliste an."""
+    from orbitop import app, sampler as sampler_mod
+    from orbitop.gpu_tools import GpuTools
+    from tests.roots import VM
+    from tests.test_procs import raw
+    monkeypatch.setattr(app, "PERIOD_S", 0.05)
+    monkeypatch.setattr(app, "PROCS_PERIOD_S", 0.1)
+    entered, release = threading.Event(), threading.Event()
+
+    def blocking(*a, **k):
+        entered.set()
+        release.wait(5)
+        return {(10, 1): raw()}
+    monkeypatch.setattr(sampler_mod.procs, "scan", blocking)
+    s = sampler_mod.Sampler(VM, tools=GpuTools([]), uid=1000)
+    posts = []
+    w = Worker(s, posts.append)
+    w.start()
+    try:
+        assert w.update(visible=True, ready=True)
+        assert entered.wait(2)
+        cpu_points = lambda: len(next(t for t in json.loads(posts[-1])["tiles"] if t["id"] == "cpu")["series"][0]["values"])  # noqa: E731
+        time.sleep(0.1)
+        before = (len(posts), cpu_points())
+        time.sleep(0.4)
+        assert len(posts) >= before[0] + 4 and cpu_points() >= before[1] + 4  # Kacheln laufen weiter
+        assert json.loads(posts[-1])["top"]["mem"] is None  # Prozessliste steht
+        release.set()
+        deadline = time.monotonic() + 2
+        while json.loads(posts[-1])["top"]["mem"] is None and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert json.loads(posts[-1])["top"]["mem"]["pid"] == 10  # nach der Freigabe geht es weiter
+    finally:
+        release.set()
+        w.stop()
+    assert not any(t.name in ("orbitop-worker", "orbitop-procs") for t in threading.enumerate())
