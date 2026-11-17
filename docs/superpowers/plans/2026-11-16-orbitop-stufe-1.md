@@ -22,7 +22,7 @@
 - Taktung: System-Kacheln alle 1 s mit 300 Punkten (5 min). Prozesse alle 2 s, 150 Punkte Verlauf, 30 Punkte Mini-Verlauf. Prozesse werden auch bei ausgeblendetem Fenster erhoben.
 - Einstufung: `kernel_hang` ab Zustand D > 10 s. Dauerlast ab ≥ 90 % eines Kerns über ≥ 120 s bei ≤ 1 freiwilligen Kontextwechsel pro Sekunde, und, wenn die E/A lesbar ist, ohne E/A-Bytes.
 - Beenden: Vorher Rückfrage. PID und Startzeit werden unmittelbar vor dem Signal geprüft. 5 s nach SIGTERM wird nachgesehen, ob der Prozess noch lebt. Fremde Prozesse nur über `pkexec`.
-- Eigenlast insgesamt (Programm, alle WebKit-Kindprozesse und Hilfsprogramme): höchstens 5 % eines Kerns bei sichtbarem Fenster, höchstens 1,5 % ausgeblendet, PSS unter 250 MB.
+- Eigenlast insgesamt (Programm, alle WebKit-Kindprozesse und Hilfsprogramme): höchstens 9 % eines Kerns bei sichtbarem Fenster, höchstens 3 % ausgeblendet, PSS unter 275 MB (vom User am 2026-11-17 angehoben; ursprünglich 5 %, 1,5 %, 250 MB).
 - Farben, Schriften (Orbitron, Oxanium) und Stilregeln exakt laut Spec-Abschnitt „Aussehen“. Immer dunkel.
 - Screenshots und Wegwerfdateien gehören ins Scratchpad `$SCRATCH`. Jeden aussagekräftigen Screenshot dem User mit `code -r <pfad>` öffnen (globale Regel des Users).
 - Rate = Zählerdifferenz geteilt durch tatsächliches dt. Bei dt ≤ 0, dt > 5 s oder einem kleiner gewordenen Zähler ist der Punkt `None`, also eine Lücke im Diagramm.
@@ -761,7 +761,7 @@ def test_install_script_shellcheck(): assert run(["shellcheck", "scripts/install
   - `cpu_pct_of_one_core=<x>`
   - `pss_mb=<y>`: Summe von `Pss` aus `/proc/<pid>/smaps_rollup`
   - `processes=<n>`
-- **Grenzen:** sichtbar `cpu ≤ 5.0`, ausgeblendet `cpu ≤ 1.5`, `pss < 250`.
+- **Grenzen:** sichtbar `cpu ≤ 9.0`, ausgeblendet `cpu ≤ 3.0`, `pss < 275` (vom User am 2026-11-17 angehoben; ursprünglich 5.0, 1.5, 250).
 
 - [ ] **Step 1: Failing test:** Ein Kindprozess mit bekannter Last, `python3 -c "busy loop 1 s; sleep"`, wird mit `--seconds 3` gemessen. Erwartet: `cpu_pct_of_one_core` zwischen 20 und 45.
 - [ ] **Step 2:** → FAIL

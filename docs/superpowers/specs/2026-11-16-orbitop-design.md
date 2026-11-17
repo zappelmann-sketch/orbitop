@@ -142,7 +142,7 @@ Stufe 1 muss nur so gebaut sein, dass Stufe 2 nichts umbauen muss (siehe „Für
 
 ## Anti-Ziele (wäre ein Fehlschlag, auch wenn es technisch läuft)
 
-- Das Programm erzeugt selbst spürbare Last. Richtwerte gelten **insgesamt, einschließlich aller WebKit-Prozesse und Hilfsprogramme wie `intel_gpu_top`**: im Mittel höchstens 5 % eines Kerns bei geöffnetem Fenster, höchstens 1,5 % ausgeblendet, RAM unter etwa 250 MB. Gemessen wird auf dem Referenzrechner.
+- Das Programm erzeugt selbst spürbare Last. Richtwerte gelten **insgesamt, einschließlich aller WebKit-Prozesse und Hilfsprogramme wie `intel_gpu_top`**: im Mittel höchstens 9 % eines Kerns bei geöffnetem Fenster, höchstens 3 % ausgeblendet, PSS unter 275 MB. Gemessen wird auf dem Referenzrechner. Die ursprünglichen Werte (5 %, 1,5 %, 250 MB) hat der User am 2026-11-17 nach der Messung angehoben, damit der Look und der sekundengenaue Verlauf bleiben (siehe „Messung Eigenlast“).
 - Es behauptet „hängt“ oder „keine E/A“, wo es das nicht wissen kann.
 - Es beendet einen Prozess ohne Rückfrage, oder es trifft wegen einer neu vergebenen PID den falschen Prozess.
 - Es öffnet einen Netzwerk-Port oder eine andere Schnittstelle, über die Dritte Prozesse beenden könnten.
@@ -271,6 +271,8 @@ Bildvergleich (kopfloser Chrome und WebKitGTK, 1600×1000 bei DPR 2, Demoseite v
 - Prozess-Reiter mit virtualisierter Tabelle: höchstens 2 (Chrome und WebKit).
 
 **Verbleibende Lücken:** Ausgeblendet 2,80 % statt ≤ 1,5 %, Übersicht 7,4–8,0 % statt ≤ 5 %, Prozesse 8,6–9,1 % statt ≤ 5 %, PSS bis 257 MB statt < 250 MB. Alle sechs unsichtbaren Hebel sind umgesetzt; der Look ist unverändert. Weitere Einsparungen ändern Verhalten oder Darstellung und brauchen die Entscheidung des Users.
+
+**Entscheidung des Users (2026-11-17):** Das Budget wird angehoben statt Look oder Verhalten zu ändern: ausgeblendet ≤ 3 %, sichtbar ≤ 9 %, PSS < 275 MB. Vorgelegt waren außerdem: im Hintergrund gröber messen (2-s-Takt, Prozesse und GPU alle 4 s, geschätzt ca. 1,5 %), die GPU-Messung im Hintergrund abschalten (Lücke im Grafik- und Leistungsverlauf), die Anzeige nur alle 2 s weiterschalten (ca. 5,5–6 %), zusätzlich halbe Pixeldichte und GPU alle 4 s (ca. 4,5–5 %) sowie eine WebKit-Speichergrenze. Zum Vergleich: Mission Center brauchte auf demselben Rechner im laufenden Betrieb 22 % eines Kerns (Oberfläche 8,0 %, Hilfsprozess 14,0 %) und 136 MB.
 
 ## Offene Punkte
 
