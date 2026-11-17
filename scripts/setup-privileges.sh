@@ -94,7 +94,7 @@ if [ "$has_rapl" -eq 1 ] && [ "$allow_rapl" -eq 1 ]; then
         echo "WOULD: write $rapl_rules:"
         echo "$rapl_rule"
     else
-        (umask 022 && printf '%s\n' "$rapl_rule" > "$rapl_rules")
+        printf '%s\n' "$rapl_rule" > "$rapl_rules"
     fi
     run udevadm control --reload
     run udevadm trigger --subsystem-match=powercap --action=add
