@@ -4,6 +4,7 @@
 // ?threads=16 vervielfacht die CPU-Threads (Balkenreihe), ?long=120 setzt überall unumbrechbare Namen dieser Länge.
 // ?replay=N spielt vorher N Takte ein, deren Verläufe je einen Schritt zurückliegen (links mit dem ältesten Wert
 // aufgefüllt): So zeichnen die Diagramme am Ende inkrementell, für den Bildvergleich mit vollem Zeichnen.
+// ?cols=all blendet alle Spalten ein (Sichtprüfung, Messung).
 // #procs öffnet den Reiter „Prozesse“ und wählt den obersten Prozess (app.js).
 "use strict";
 (() => {
@@ -29,6 +30,7 @@
     for (const r of [...(tick.procs || []), tick.detail].filter(Boolean)) Object.assign(r, { name, args: name, user: name });
     if (tick.detail) Object.assign(tick.detail, { cmdline: name, parent: name });
   }
+  if (params.get("cols") === "all") init.layout = { order: COLS.map((c) => c.id), hidden: [], widths: {}, split: 1.55 / 2.55 };
   window.orbitop.receive(init);
   const older = (v, k) => (v ? [...Array(Math.min(k, v.length)).fill(v[0]), ...v.slice(0, Math.max(0, v.length - k))] : v);
   for (let k = Number(params.get("replay")) || 0; k > 0; k--) {

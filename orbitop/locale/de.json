@@ -121,6 +121,7 @@
   "missing.temp": "Keine Temperatursensoren gefunden",
   "notice.for": "{name} (PID {pid}): {text}",
   "procs.search": "Prozess suchen …",
+  "procs.splitter": "Trenner zwischen Liste und Detail",
   "result.denied": "Beenden wurde nicht erlaubt (abgebrochen oder keine Berechtigung).",
   "result.error": "Beenden ist fehlgeschlagen.",
   "result.gone": "Der Prozess ist bereits beendet.",

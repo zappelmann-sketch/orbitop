@@ -29,6 +29,7 @@ const state = {
   sel: null, cursor: null, sort: { col: "cpu", desc: true }, filter: "all", query: "", autoPick: false,
   rows: [], scrollTop: 0, viewH: 0, viewW: 0, pitch: 0, block: null, // Prozessliste: sortiert, Rollstand, gemessene Größen
   layout: null, memTotal: null, menuCol: null, savedAt: -Infinity, saving: false, // Spalten, %MEM, Menü, layout-Meldung
+  drag: null, noClick: false, // laufendes Ziehen; Klick nach dem Umordnen verwerfen
   target: null, opener: null, pending: null, lastTerm: null, alert: null, // Rückfrage, laufendes Beenden, Nachsehen
 };
 const ui = { labels: [] };
@@ -472,7 +473,8 @@ function setBadge(b, st, label) {
 }
 
 function buildProcs() {
-  const list = el("div", "in", el("div", "frame list", ui.procs));
+  ui.list = el("div", "frame list", ui.procs);
+  const list = el("div", "in", ui.list);
   const bar = el("div", "bar2", list);
   ui.search = label(label(el("input", "search", bar), "procs.search", "placeholder"), "procs.search", "aria-label");
   ui.search.type = "search";
@@ -499,10 +501,34 @@ function buildProcs() {
     openColumnMenu(th, e.clientX, e.clientY);
   });
   thead.addEventListener("keydown", (e) => {
-    if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
-    e.preventDefault();
-    const th = e.target.closest("th"), r = th.getBoundingClientRect();
-    openColumnMenu(th, r.left, r.bottom);
+    state.noClick = false; // ein Klick per Taste sortiert immer
+    const th = e.target.closest("th");
+    if (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+      e.preventDefault(); // sonst ginge WebKit im Verlauf zurück oder vor
+      setWidth(th.dataset.col, colWidth(th) + (e.key === "ArrowLeft" ? -16 : 16));
+      saveLayout();
+    } else if (e.key === "ContextMenu" || (e.shiftKey && e.key === "F10")) {
+      e.preventDefault();
+      const r = th.getBoundingClientRect();
+      openColumnMenu(th, r.left, r.bottom);
+    }
+  });
+  thead.addEventListener("pointerdown", (e) => {
+    state.noClick = false;
+    const th = e.target.closest("th"), grip = e.target.closest(".grip");
+    if (th) startDrag(e, grip ? "width" : "move", grip || th, th);
+  });
+  thead.addEventListener("click", (e) => { // nach dem Umordnen sortiert der Klick des Loslassens nicht
+    if (!state.noClick) return;
+    state.noClick = false;
+    e.stopPropagation();
+  }, true);
+  thead.addEventListener("dblclick", (e) => { // Griff: Standardbreite, bei Prozess wieder „füllt den Rest“
+    const th = e.target.closest(".grip") && e.target.closest("th");
+    if (!th) return;
+    delete state.layout.widths[th.dataset.col];
+    sizeCols();
+    saveLayout();
   });
   ui.tbody = el("tbody", "", ui.table);
   ui.pads = []; // Abstandszeilen anstelle der nicht gezeichneten Zeilen
@@ -531,6 +557,24 @@ function buildProcs() {
     rove();
   });
 
+  ui.split = label(el("div", "split", ui.procs), "procs.splitter", "aria-label");
+  for (const [k, v] of [["role", "separator"], ["aria-orientation", "vertical"], ["aria-valuemin", "20"], ["aria-valuemax", "80"]]) {
+    ui.split.setAttribute(k, v);
+  }
+  ui.split.tabIndex = 0;
+  ui.split.addEventListener("pointerdown", (e) => startDrag(e, "split", ui.split, null));
+  ui.split.addEventListener("keydown", (e) => {
+    if (e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+    e.preventDefault();
+    splitTo(ui.list.getBoundingClientRect().width + (e.key === "ArrowLeft" ? -32 : 32));
+    saveLayout();
+  });
+  ui.split.addEventListener("dblclick", () => {
+    state.layout.split = DEFAULT_SPLIT;
+    showSplit();
+    saveLayout();
+  });
+
   const det = el("div", "in", el("div", "frame detail", ui.procs));
   label(el("div", "t", det), "detail.selected");
   ui.none = label(el("p", "s", det), "detail.none_selected");
@@ -557,6 +601,11 @@ function buildProcs() {
   const x = label(button("x", ui.notice, () => { ui.notice.hidden = true; }), "btn.close", "aria-label");
   svg(x, "", "0 0 12 12", ICONS.bad);
   buildMenu();
+  ui.drop = el("div", "drop", ui.procs); // Einfügemarke beim Umordnen
+  ui.drop.hidden = true;
+  document.addEventListener("pointermove", dragMove);
+  document.addEventListener("pointerup", dragEnd);
+  document.addEventListener("pointercancel", dragEnd);
   applyLayout(null);
   pressFilters();
 }
@@ -600,6 +649,7 @@ function applyLayout(l) {
     buildHead();
   }
   sizeCols();
+  showSplit();
   if (!ui.menu.hidden) renderMenu();
   refresh();
 }
@@ -613,6 +663,7 @@ function buildHead() {
     th.scope = "col";
     th.dataset.col = c.id;
     button("", th, () => sortBy(c));
+    el("span", "grip", th).setAttribute("aria-hidden", "true");
     return th;
   });
   ui.headRow.replaceChildren(...ui.ths);
@@ -661,11 +712,31 @@ function toggleColumn(id) {
 /** Vor (dir −1) oder hinter (+1) den nächsten sichtbaren Nachbarn; ausgeblendete Spalten bleiben, wo sie sind. */
 function moveColumn(id, dir) {
   const vis = visibleCols().map((c) => c.id), i = vis.indexOf(id), next = vis[i + dir];
-  if (i < 0 || !next) return;
+  if (i >= 0 && next) placeColumn(id, next, dir > 0);
+}
+
+/** In der Gesamtreihenfolge vor (after: hinter) die Spalte ref setzen und melden. */
+function placeColumn(id, ref, after) {
   const order = state.layout.order.filter((x) => x !== id);
-  order.splice(order.indexOf(next) + (dir > 0 ? 1 : 0), 0, id);
+  order.splice(order.indexOf(ref) + (after ? 1 : 0), 0, id);
   applyLayout({ ...state.layout, order });
   saveLayout();
+}
+
+/** Anteil der Liste ins Raster (CSSOM-Variablen); CSS hält Liste ≥ 360 px und Detail ≥ 300 px, ohne den Wert zu ändern. */
+function showSplit() {
+  const s = state.layout.split;
+  ui.procs.style.setProperty("--list", s + "fr");
+  ui.procs.style.setProperty("--detail", 1 - s + "fr");
+  ui.split.setAttribute("aria-valuenow", String(Math.round(s * 100)));
+}
+
+/** Liste auf px Breite: begrenzt auf den Vertrag 0,2..0,8 und so, dass Liste ≥ 360 px, Detail ≥ 300 px; Meldung beim
+ * Aufrufer. */
+function splitTo(px) {
+  const total = ui.procs.clientWidth - ui.split.offsetWidth;
+  state.layout.split = Math.min(0.8, 1 - 300 / total, Math.max(0.2, 360 / total, px / total));
+  showSplit();
 }
 
 function restoreLayout() {
@@ -696,6 +767,60 @@ function sendLayout() {
   state.saving = false;
   state.savedAt = performance.now();
   post(layoutMessage());
+}
+
+// ---- Ziehen: Breite am Griff, Reihenfolge am Kopf, Trenner; Bewegung und Ende am document, gemeldet erst am Ende ----
+/** Breite der Spalte, wie sie gezeichnet ist (Prozess also samt aufgefülltem Rest). */
+function colWidth(th) {
+  return parseFloat(ui.colgroup.children[ui.ths.indexOf(th)].style.width);
+}
+
+/** mark bekommt beim Ziehen die Klasse on; th: Kopf (Breite, Umordnen), sonst der Trenner. */
+function startDrag(e, kind, mark, th) {
+  state.drag = { kind, mark, id: th && th.dataset.col, pointer: e.pointerId, x: e.clientX, moved: false, to: null,
+                 w: th ? colWidth(th) : ui.list.getBoundingClientRect().width };
+  document.body.dataset.drag = kind; // keine Textauswahl, Mauszeiger bleibt
+}
+
+function dragMove(e) {
+  const d = state.drag, dx = d && e.clientX - d.x;
+  if (!d || e.pointerId !== d.pointer) return;
+  if (!(e.buttons & 1)) return dragEnd(e); // nur mit der Haupttaste; auch wenn ihr Loslassen verloren ging
+  if (d.kind === "move" && !d.moved && Math.abs(dx) < 6) return; // unter 6 px: Klick
+  d.moved = true;
+  d.mark.classList.add("on");
+  if (d.kind === "width") setWidth(d.id, d.w + dx);
+  else if (d.kind === "split") splitTo(d.w + dx);
+  else dropAt(d, e.clientX);
+}
+
+/** Einfügemarke an der Grenze zwischen sichtbaren Spalten, die dem Zeiger am nächsten liegt; d.to = Index dahinter. */
+function dropAt(d, x) {
+  const r = ui.ths.map((t) => t.getBoundingClientRect()), box = ui.scroll.getBoundingClientRect();
+  d.to = r.filter((b) => b.left + b.width / 2 < x).length;
+  const at = d.to < r.length ? r[d.to].left : r[r.length - 1].right;
+  ui.drop.style.left = Math.min(Math.max(at, box.left), box.right) + "px";
+  ui.drop.style.top = box.top + "px";
+  ui.drop.style.height = box.height + "px";
+  ui.drop.hidden = false;
+}
+
+/** Breite und Trenner melden; Umordnen legt vor der sichtbaren Spalte an der Marke ab, sonst hinter der letzten. */
+function dragEnd(e) {
+  const d = state.drag;
+  if (!d || e.pointerId !== d.pointer) return;
+  state.drag = null;
+  delete document.body.dataset.drag;
+  d.mark.classList.remove("on");
+  ui.drop.hidden = true;
+  if (!d.moved) return;
+  if (d.kind !== "move") {
+    saveLayout();
+    return;
+  }
+  state.noClick = true;
+  const vis = ui.ths.map((t) => t.dataset.col), i = vis.indexOf(d.id), n = vis.length;
+  if (d.to !== i && d.to !== i + 1) placeColumn(d.id, vis[Math.min(d.to, n - 1)], d.to === n);
 }
 
 // ---- Spaltenmenü (Rechtsklick, Menütaste oder Umschalt+F10 auf einem Kopf) ----

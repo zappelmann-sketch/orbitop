@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
 // Läuft vor app.js: fängt die Nachrichten an Python ab und prüft nach dem Laden Format, sichere Texte, Zeichnen, Reiter,
-// Prozessliste, Spalten und Spaltenmenü, Detail, Beenden mit Rückfrage (gefälschte Brücke, nie ein echtes Beenden) und
-// Dialoge.
+// Prozessliste, Spalten, Spaltenmenü, Ziehen (Breite, Reihenfolge, Trenner), Detail, Beenden mit Rückfrage (gefälschte
+// Brücke, nie ein echtes Beenden) und Dialoge. #narrow (zweiter Lauf, 1000×800) prüft nur die gestapelte Ansicht.
 "use strict";
 const posted = [], timers = [];
 window.onerror = (msg) => { document.title = "FAIL Ausnahme: " + msg; }; // sonst bliebe RUNNING stehen
@@ -35,6 +35,18 @@ document.addEventListener("DOMContentLoaded", () => {
     "unit.d": "T", "detail.parent_pid": "PID {pid}", "detail.ctx_value": "freiwillig {vol}/s · erzwungen {invol}/s",
     "coltip.pid": "Prozessnummer", "menu.restore": "Standard", "col.mem": "%MEM" };
   receive({ type: "init", lang: "de", texts, version: "9.9.9" });
+  if (location.hash === "#narrow") { // zweiter Lauf mit 1000×800 (test_ui.py): gestapelt wie bisher, ohne Trenner
+    $$(".tab")[1].click();
+    receive({ type: "tick", tiles: [], missing: [], hints: [], top: null, detail: null,
+              procs: [{ pid: 1, start: 1, name: "p", args: "", user: "u", own: true, cpu: 1, spark: [1], rss: 1, io: 0,
+                        state: "working", since: 0, pri: 20, nice: 0, virt: 1, shr: 1, s: "S", time: 1 }] });
+    const list = $(".frame.list").getBoundingClientRect(), detail = $(".frame.detail").getBoundingClientRect();
+    eq(getComputedStyle($(".split")).display, "none", "schmal: Trenner ausgeblendet");
+    eq(detail.top >= list.bottom && Math.abs(detail.left - list.left) < 1, true, "schmal: Detail unter der Liste");
+    eq(document.documentElement.scrollWidth <= innerWidth, true, "schmal: Seite rollt nicht waagerecht");
+    document.title = fails.length ? "FAIL " + fails.join(" | ") : "PASS";
+    return;
+  }
 
   // ---- fmt ----
   const G = 1024 ** 3, M = 1024 ** 2;
@@ -272,6 +284,32 @@ document.addEventListener("DOMContentLoaded", () => {
     return e.defaultPrevented;
   };
   const clickAway = () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  const colW = (id) => parseFloat($$(".ptable col")[[...$$(".ptable th")].indexOf(th(id))].style.width);
+  const grip = (id) => th(id).querySelector(".grip"), dblclick = (node) => node.dispatchEvent(new MouseEvent("dblclick", { bubbles: true }));
+  const sep = $(".split"), listW = () => $(".frame.list").getBoundingClientRect().width;
+  const detailW = () => $(".frame.detail").getBoundingClientRect().width;
+  const pointer = (node, type, x, extra) =>
+    node.dispatchEvent(new PointerEvent(type, { bubbles: true, cancelable: true, pointerId: 1, clientX: x, ...extra }));
+  let layoutsDuringMove = 0;
+  /** Drücken, um dx ziehen (during prüft mitten im Ziehen), loslassen; gibt die Zahl der layouts vorher zurück. */
+  const drag = (node, dx, during = () => {}) => {
+    flush();
+    const before = layouts().length, x = node.getBoundingClientRect().left + 1;
+    pointer(node, "pointerdown", x);
+    pointer(node, "pointermove", x + dx, { buttons: 1 });
+    during();
+    flush(); // auch ein erst geplantes layout zählt
+    layoutsDuringMove = layouts().length - before;
+    pointer(node, "pointerup", x + dx);
+    return before;
+  };
+  const reported = (fn) => { // layout-Meldungen, die fn auslöst (vorher ausstehende sind schon gesendet)
+    flush();
+    const n = layouts().length;
+    fn();
+    flush();
+    return layouts().length - n;
+  };
   const DEFAULT_IDS = "pid,process,user,cpu,last60,ram,io,state";
   const terms = () => posted.filter((m) => JSON.parse(m).type === "terminate");
   const term = $(".detail .btn.term"), kill = $(".detail .btn.kill");
@@ -460,6 +498,7 @@ document.addEventListener("DOMContentLoaded", () => {
   eq(ids(), order.filter((id) => id !== "user" && id !== "pri").join(), "init: Reihenfolge und Sichtbarkeit aus layout");
   eq(Math.round(th("cpu").getBoundingClientRect().width) + "/" + (layouts().length - sentBefore) + "/" + timers.length,
      "90/0/0", "init: Breite aus layout, nichts gesendet");
+  eq(sep.getAttribute("aria-valuenow") + "/" + (Math.abs(listW() - detailW()) <= 1), "50/true", "init: Trenner aus layout");
   receive({ type: "init", lang: "de", texts, version: "9.9.9", layout: null });
   eq(ids() + "/" + hb("pid").title, DEFAULT_IDS + "/Prozessnummer", "init ohne layout: Standard");
   toggleColumn("pri");
@@ -486,6 +525,106 @@ document.addEventListener("DOMContentLoaded", () => {
   toggleColumn("cpu");
   flush();
   eq(ids() + "/" + ui.labels.length, DEFAULT_IDS + "/" + labelCount, "wieder Standardspalten, ui.labels nicht gewachsen");
+
+  // ---- Breite: Griff ziehen, Doppelklick, Alt+Pfeil; gemeldet erst am Ende eines Ziehens ----
+  measure();
+  let before = drag(grip("cpu"), 30);
+  eq(colW("cpu") + "/" + layoutsDuringMove + "/" + grip("cpu").getAttribute("aria-hidden"), "82/0/true",
+     "Griff zieht die Breite, gemeldet erst am Ende");
+  flush();
+  eq(layouts().length - before + "/" + JSON.parse(layouts().at(-1)).widths.cpu, "1/82", "genau ein layout nach dem Ziehen");
+  drag(grip("cpu"), -1000, () => pointer(grip("cpu"), "pointermove", 5000, { pointerId: 2, buttons: 1 })); // anderer Zeiger: zählt nicht
+  drag(grip("process"), -1000);
+  eq(colW("cpu") + "/" + layoutMessage().widths.process, "40/120", "Griff begrenzt: CPU 40 px, Prozess 120 px");
+  eq(Math.round($(".ptable").getBoundingClientRect().width), listBox.clientWidth, "Prozess füllt weiter den Rest");
+  eq(reported(() => dblclick(grip("cpu"))) + "/" + colW("cpu") + "/" + JSON.stringify(JSON.parse(layouts().at(-1)).widths),
+     '1/52/{"process":120}', "Doppelklick auf den Griff: Standardbreite, gemeldet");
+  dblclick(grip("process"));
+  eq(JSON.stringify(layoutMessage().widths), "{}", "Doppelklick auf den Prozess-Griff: füllt wieder den Rest");
+  const gripX = grip("cpu").getBoundingClientRect().left;
+  pointer(grip("cpu"), "pointerdown", gripX, { button: 2 });
+  pointer(grip("cpu"), "pointermove", gripX + 30, { buttons: 2 });
+  pointer(grip("cpu"), "pointerup", gripX + 30);
+  eq(colW("cpu"), 52, "rechte Maustaste zieht nicht");
+  const lost = reported(() => {
+    pointer(grip("cpu"), "pointerdown", gripX);
+    pointer(grip("cpu"), "pointermove", gripX + 30, { buttons: 1 });
+    pointer(grip("cpu"), "pointermove", gripX + 60); // ohne gedrückte Taste: das Loslassen ging verloren
+    pointer(grip("cpu"), "pointermove", gripX + 90, { buttons: 1 });
+  });
+  eq(colW("cpu") + "/" + lost, "82/1", "verlorenes Loslassen beendet das Ziehen beim nächsten Bewegen");
+  dblclick(grip("cpu"));
+  const alt = (k, n = 1) => {
+    for (let i = 0; i < n; i++) key(hb("cpu"), k, { altKey: true });
+    return colW("cpu");
+  };
+  eq([alt("ArrowRight"), alt("ArrowRight"), alt("ArrowLeft", 2), alt("ArrowLeft"), alt("ArrowLeft")].join(), "68,84,52,40,40",
+     "Alt+→ +16 px, Alt+← zweimal −32 px, bei 40 px bleibt es");
+  eq(key(hb("cpu"), "ArrowLeft", { altKey: true }), false, "Alt+← geht nicht im Verlauf zurück");
+  eq(reported(() => alt("ArrowRight")) + "/" + JSON.parse(layouts().at(-1)).widths.cpu, "1/56", "Tastenänderung meldet das Layout");
+
+  // ---- Reihenfolge: Kopf waagerecht ziehen, erst ab 6 px; der Klick danach sortiert nicht ----
+  applyLayout(null);
+  const sortNow = th("cpu").getAttribute("aria-sort");
+  drag(hb("cpu"), 5);
+  hb("cpu").click();
+  eq(ids() + "/" + (th("cpu").getAttribute("aria-sort") !== sortNow), DEFAULT_IDS + "/true", "5 px: Klick sortiert, Reihenfolge bleibt");
+  const sortBefore = JSON.stringify(state.sort), r60 = th("last60").getBoundingClientRect();
+  let marked = false;
+  before = drag(hb("cpu"), r60.left + r60.width * 0.75 - hb("cpu").getBoundingClientRect().left - 1, () => {
+    marked = !$(".drop").hidden && Math.abs(parseFloat($(".drop").style.left) - th("ram").getBoundingClientRect().left) < 1;
+  });
+  hb("cpu").click();
+  eq(marked + "/" + ids() + "/" + (JSON.stringify(state.sort) === sortBefore) + "/" + layoutsDuringMove,
+     "true/pid,process,user,last60,cpu,ram,io,state/true/0", "über die Mitte von LETZTE 60 S: Marke, verschoben, Klick sortiert nicht");
+  flush();
+  eq($(".drop").hidden + "/" + (layouts().length - before), "true/1", "Marke weg, ein layout");
+  drag(hb("cpu"), 5000); // losgelassen außerhalb des Kopfs: kein Klick
+  eq(layoutMessage().order.join(), "pid,process,user,last60,ram,io,state,cpu,pri,nice,virt,shr,s,mem,time",
+     "hinter die letzte sichtbare Spalte, ausgeblendete bleiben dahinter");
+  drag(hb("cpu"), 0);
+  hb("cpu").click();
+  const sortClick = JSON.stringify(state.sort);
+  drag(hb("cpu"), 5000);
+  key(hb("cpu"), "Enter");
+  hb("cpu").click(); // so löst Enter am Knopf aus
+  eq([sortClick !== sortBefore, JSON.stringify(state.sort) !== sortClick].join(), "true,true",
+     "nach einem Ziehen ohne Klick sortieren der nächste Klick und Enter");
+  hb("cpu").click();
+  eq(th("cpu").getAttribute("aria-sort"), "descending", "wieder CPU absteigend");
+
+  // ---- Trenner zwischen Liste und Detail ----
+  applyLayout(null);
+  eq([sep.tabIndex, sep.getAttribute("aria-orientation"), sep.getAttribute("aria-valuenow")].join("/"), "0/vertical/61",
+     "Trenner fokussierbar mit Wert");
+  eq(["role", "aria-valuemin", "aria-valuemax", "aria-label"].map((a) => sep.getAttribute(a)).join("/"),
+     "separator/20/80/procs.splitter", "Trenner: Rolle, Grenzen, Name");
+  eq(Math.abs(listW() / detailW() - 1.55) < 0.02, true, "Standard 1,55 : 1");
+  const lw = listW();
+  eq(reported(() => key(sep, "ArrowLeft")) + "/" + (Math.abs(lw - 32 - listW()) <= 1), "1/true",
+     "← schiebt den Trenner um 32 px, gemeldet");
+  key(sep, "ArrowRight");
+  eq(Math.abs(lw - listW()) <= 1, true, "→ schiebt ihn zurück");
+  before = drag(sep, -5000);
+  eq(Math.abs(listW() - 360) <= 1 && Math.abs(layoutMessage().split * (listW() + detailW()) - 360) <= 1, true,
+     "ganz nach links: Liste 360 px, so auch gespeichert");
+  flush();
+  const split = JSON.parse(layouts().at(-1)).split;
+  eq(layoutsDuringMove + "/" + (layouts().length - before) + "/" + (split >= 0.2 && split <= 0.8), "0/1/true",
+     "während des Ziehens kein layout, danach genau eins im Vertrag");
+  drag(sep, 5000);
+  // Bei 1600 px greift rechts die Vertragsgrenze 0,8 vor den 300 px des Details
+  eq((Math.abs(detailW() - 0.2 * (listW() + detailW())) <= 1 && layoutMessage().split === 0.8) + "/" + sep.getAttribute("aria-valuenow"),
+     "true/80", "ganz nach rechts: höchstens 0,8");
+  eq(reported(() => dblclick(sep)) + "/" + (Math.abs(listW() / detailW() - 1.55) < 0.02), "1/true", "Doppelklick: wieder 1,55 : 1, gemeldet");
+  document.body.style.width = "1150px"; // gespeicherter Wert passt nicht ins schmalere Fenster
+  applyLayout({ ...layoutMessage(), split: 0.8 });
+  eq(Math.round(detailW()) >= 300 && layoutMessage().split === 0.8, true, "schmaler: Detail ≥ 300 px, gespeicherter Wert bleibt");
+  drag(sep, 5000);
+  eq(Math.abs(detailW() - 300) <= 1 && layoutMessage().split < 0.8, true, "schmaler ganz nach rechts: Detail 300 px");
+  document.body.style.width = "";
+  applyLayout(null);
+  flush();
 
   // ---- Filter und Suche ----
   filters[1].click();
@@ -774,6 +913,19 @@ document.addEventListener("DOMContentLoaded", () => {
   eq(find("v29") + "/" + $$(".ptable tr.pad").length, "v290,v291,v292,v293,v294,v295,v296,v297,v298,v299/0",
      "Suche über alle Zeilen, wenige Treffer ohne Abstandszeilen");
   find("");
+
+  // ---- Alle Spalten: Tabelle rollt waagerecht, der Kopf bleibt oben und rollt waagerecht mit ----
+  applyLayout({ ...layoutMessage(), hidden: [] });
+  measure();
+  scroller.scrollTop = 100 * pitch;
+  scroller.scrollLeft = 200;
+  scroller.dispatchEvent(new Event("scroll"));
+  eq(scroller.scrollWidth > scroller.clientWidth, true, "alle Spalten: Tabelle scrollt waagerecht");
+  eq(Math.abs(th("cpu").getBoundingClientRect().top - scroller.getBoundingClientRect().top) < 1, true, "Kopf bleibt oben");
+  eq(scroller.scrollLeft === 200 && Math.abs(th("cpu").getBoundingClientRect().left - cell(rows()[0], "cpu").getBoundingClientRect().left) < 1,
+     true, "Kopf scrollt waagerecht mit");
+  eq(document.documentElement.scrollWidth <= innerWidth, true, "die Seite selbst scrollt nie waagerecht");
+  applyLayout(null);
 
   // ---- Info-Dialog ----
   const info = $(".info"), about = $("dialog.about");

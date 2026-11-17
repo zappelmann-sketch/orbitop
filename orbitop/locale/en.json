@@ -121,6 +121,7 @@
   "missing.temp": "No temperature sensors found",
   "notice.for": "{name} (PID {pid}): {text}",
   "procs.search": "Search processes …",
+  "procs.splitter": "Divider between list and details",
   "result.denied": "Termination was not permitted (cancelled or no permission).",
   "result.error": "Termination failed.",
   "result.gone": "The process has already exited.",

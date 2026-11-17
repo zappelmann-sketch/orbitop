@@ -12,12 +12,22 @@ PAGE = Path(__file__).parent / "ui" / "check.html"
 APP_JS = Path(__file__).parent.parent / "orbitop" / "ui" / "app.js"
 
 
-@pytest.mark.skipif(not CHROME, reason="kein Chrome oder Chromium installiert")
-def test_ui_check_page(tmp_path):
-    out = subprocess.run([CHROME, "--headless=new", f"--user-data-dir={tmp_path}", "--window-size=1600,1000",
-                          "--dump-dom", PAGE.as_uri()],
+def check_page(tmp_path, size, fragment=""):
+    out = subprocess.run([CHROME, "--headless=new", f"--user-data-dir={tmp_path}", f"--window-size={size}",
+                          "--dump-dom", PAGE.as_uri() + fragment],
                          capture_output=True, text=True, timeout=60).stdout
     assert "<title>PASS</title>" in out, out[out.find("<title>"):out.find("</title>")]
+
+
+@pytest.mark.skipif(not CHROME, reason="kein Chrome oder Chromium installiert")
+def test_ui_check_page(tmp_path):
+    check_page(tmp_path, "1600,1000")
+
+
+@pytest.mark.skipif(not CHROME, reason="kein Chrome oder Chromium installiert")
+def test_ui_check_page_narrow(tmp_path):
+    """Unter 1100 px: Liste über dem Detail, kein Trenner, die Seite rollt nicht waagerecht."""
+    check_page(tmp_path, "1000,800", "#narrow")
 
 
 def test_terminate_is_posted_only_by_the_confirm_button():

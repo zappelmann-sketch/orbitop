@@ -222,9 +222,11 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* ---- Prozesse (entwuerfe/prozesse.html) ---- */
 .procs {
   display: grid;
-  grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+  /* Liste, Trenner (die frühere Lücke), Detail; Anteile --list/--detail setzt app.js. Die Mindestbreiten gelten auch,
+     wenn ein gespeicherter Anteil im schmaleren Fenster nicht passt. */
+  grid-template-columns: minmax(360px, var(--list, 1.55fr)) 12px minmax(300px, var(--detail, 1fr));
   grid-template-rows: minmax(0, 1fr);
-  gap: 12px;
+  gap: 12px 0;
   height: calc(100vh - 68px); /* Kopfzeile und Rand; Tabelle und Detail rollen innen */
   min-height: 460px;
 }
@@ -233,7 +235,17 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 @media (width < 1100px) {
   .procs { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; height: auto; }
   .list .scroll { flex: none; height: 60vh; min-height: 240px; }
+  .split { display: none; }
 }
+/* Trenner: ruhig ein kurzer Strich, beim Zeigen heller, beim Ziehen und bei Fokus in voller Höhe Cyan */
+.split { position: relative; cursor: col-resize; touch-action: none; }
+.split::after { content: ""; position: absolute; left: 5px; top: calc(50% - 16px); width: 2px; height: 32px; background: #24323b; }
+.split:hover::after { background: var(--mut); }
+.split:focus-visible { outline: none; }
+.split:focus-visible::after, .split.on::after { top: 0; height: 100%; background: var(--cyan); }
+/* Beim Ziehen: keine Textauswahl; an Griff und Trenner bleibt der Zeiger für die Breite */
+[data-drag], [data-drag] * { -webkit-user-select: none; user-select: none; }
+[data-drag="width"], [data-drag="width"] *, [data-drag="split"], [data-drag="split"] * { cursor: col-resize !important; }
 .bar2 { display: flex; gap: 10px; align-items: center; }
 .search {
   flex: 1;
@@ -280,6 +292,23 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ptable th[aria-sort] button::after { margin-left: 2px; letter-spacing: 0; } /* passt so auch in schmale Zahlenspalten */
 .ptable th[aria-sort="descending"] button::after { content: "▾"; }
 .ptable th[aria-sort="ascending"] button::after { content: "▴"; }
+/* Griff am rechten Rand jeder Kopfzelle: Strich erst beim Zeigen auf den Kopf, beim Ziehen Cyan */
+.grip { position: absolute; top: 0; right: 0; bottom: 0; width: 6px; cursor: col-resize; touch-action: none; }
+.grip::after { content: ""; position: absolute; top: 6px; bottom: 6px; right: 0; width: 1px; }
+.ptable thead:hover .grip::after { background: #24323b; }
+.ptable thead .grip:hover::after { background: var(--mut); }
+.ptable thead .grip.on::after { background: var(--cyan); }
+.ptable th.on button { color: var(--cyan); } /* Kopf, der gerade umgeordnet wird */
+/* Einfügemarke beim Umordnen, Lage setzt app.js per CSSOM */
+.drop {
+  position: fixed;
+  z-index: 2;
+  width: 2px;
+  margin-left: -1px;
+  background: var(--cyan);
+  box-shadow: 0 0 6px rgba(79, 216, 255, .6);
+  pointer-events: none;
+}
 .ptable .r { text-align: right; }
 .ptable td { padding: 6px; border-bottom: 1px solid #141c21; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ptable tbody tr { cursor: pointer; }
