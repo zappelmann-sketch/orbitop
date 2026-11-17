@@ -402,7 +402,7 @@ function withUnit(v, u) {
 /** %MEM: rss am Gesamtspeicher (aside.of der Kachel mem im selben Takt), eine Nachkommastelle, „%“ wie fmt. */
 function memShare(p) {
   const of = state.memTotal;
-  return of > 0 ? number(p.rss / of * 100, state.lang, 1, 1, false) + (state.lang === "en" ? "%" : " %") : "–";
+  return of > 0 ? number(p.rss / of * 100, state.lang, 1, 1, false) + (state.lang === "en" ? "%" : "\u00a0%") : "–";
 }
 
 /** CPU-Zeit wie TIME+ in top: „m:ss.hh“, auf ganze Hundertstel gerundet, Minuten ohne Obergrenze, immer „.“. */
@@ -633,12 +633,13 @@ function labelHead() {
   }
 }
 
-/** Breiten per CSSOM; die Prozess-Spalte füllt den Rest des Rollbereichs, die Tabelle ist so breit wie die Summe. */
+/** Breiten per CSSOM; die Prozess-Spalte füllt den Rest des Rollbereichs, ohne eigene Breite des Users schrumpft sie
+ * dafür bis MIN_PROCESS_W. Die Tabelle ist so breit wie die Summe. */
 function sizeCols() {
   const cols = visibleCols(), w = cols.map((c) => state.layout.widths[c.id] ?? c.w);
   const p = cols.findIndex((c) => c.id === "process"), rest = w.reduce((a, b) => a + b, 0) - w[p];
   if (!state.viewW) state.viewW = ui.scroll.clientWidth; // nur bis zur ersten Messung direkt, danach vom ResizeObserver
-  w[p] = Math.max(w[p], state.viewW - rest);
+  w[p] = Math.max(state.layout.widths.process ?? MIN_PROCESS_W, state.viewW - rest);
   w.forEach((x, i) => { ui.colgroup.children[i].style.width = x + "px"; });
   ui.table.style.width = rest + w[p] + "px";
 }
@@ -1165,7 +1166,7 @@ window.orbitop = {
         if (attr) node.setAttribute(attr, text(key));
         else node.textContent = text(key);
       }
-      applyLayout(msg.layout);
+      applyLayout(state.saving ? state.layout : msg.layout); // Meldung steht aus: der neuere Stand der Seite gilt
       labelHead(); // auch ohne Neuaufbau des Kopfes
       setText(ui.version, fill("about.version", { version: state.version }));
       hdrInfo();

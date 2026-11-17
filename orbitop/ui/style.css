@@ -276,6 +276,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   white-space: nowrap;
 }
 .ptable th button:hover, .ptable th[aria-sort] button { color: var(--ink); }
+.ptable th button:focus-visible { outline-offset: -2px; } /* innen: die Zelle schneidet sonst den Ring ab */
 .ptable th[aria-sort] button::after { margin-left: 2px; letter-spacing: 0; } /* passt so auch in schmale Zahlenspalten */
 .ptable th[aria-sort="descending"] button::after { content: "▾"; }
 .ptable th[aria-sort="ascending"] button::after { content: "▴"; }
@@ -387,7 +388,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .menu .in { gap: 0; padding: 8px 8px 12px; max-height: calc(100vh - 16px); overflow-y: auto; }
 .menu button { display: flex; gap: 6px; padding: 4px 12px 4px 6px; font-size: 12px; text-align: left; white-space: nowrap; }
 .menu button::before { content: ""; flex: none; width: 12px; color: var(--cyan); }
-.menu [aria-checked="true"]::before { content: "✓"; }
+/* Zustand nennt aria-checked; leerer Alternativtext hält das Zeichen aus dem Namen (erste Zeile: Engines ohne „/“) */
+.menu [aria-checked="true"]::before { content: "✓"; content: "✓" / ""; }
 .menu button:hover, .menu button:focus-visible { background: #24323b; }
 .menu button:focus-visible { outline-offset: -2px; }
 .menu button[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }

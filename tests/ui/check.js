@@ -33,7 +33,7 @@ document.addEventListener("DOMContentLoaded", () => {
     "result.zombie": "Zombie-Grund", "result.kernel": "Kernel-Grund", "result.nohelper": "Helfer fehlt", "btn.busy": "läuft …", "about.version": "Version {version}",
     "notice.for": "{name} (PID {pid}): {text}", "detail.cpu_one_core": "{pct} % (ein voller Kern)", "unit.h": "Std",
     "unit.d": "T", "detail.parent_pid": "PID {pid}", "detail.ctx_value": "freiwillig {vol}/s · erzwungen {invol}/s",
-    "coltip.pid": "Prozessnummer", "menu.restore": "Standard" };
+    "coltip.pid": "Prozessnummer", "menu.restore": "Standard", "col.mem": "%MEM" };
   receive({ type: "init", lang: "de", texts, version: "9.9.9" });
 
   // ---- fmt ----
@@ -324,6 +324,7 @@ document.addEventListener("DOMContentLoaded", () => {
   receive(tick([memTile], { procs: [...base, r4242], detail: full(base[3]) }));
   eq(["pid", "nice", "virt", "shr", "s", "mem", "time"].map((c) => plain(cell(tr4242(), c).textContent)).join("|"),
      "4242|-5|3 GB|–|S|25,0 %|125:30.50", "Formate der neuen Spalten");
+  eq(cell(tr4242(), "mem").textContent, "25,0\u00a0%", "%MEM mit geschütztem Leerzeichen wie fmt");
   eq(cell(tr4242(), "user").textContent + "/" + cell(tr4242(), "user").querySelectorAll("b").length, "<b>u</b>/0",
      "Benutzer als Text");
   receive(ptick([...base, { ...r4242, cpu: 4 }], full(base[3])));
@@ -340,6 +341,14 @@ document.addEventListener("DOMContentLoaded", () => {
     hb(c.id).click();
     eq(sortedBy(c), true, `sortiert nach ${c.id}`);
   }
+  const ringInside = (b) => { // Umriss = Knopf plus outline-offset und outline-width, die Zelle schneidet ab
+    const r = b.getBoundingClientRect(), t = b.parentNode.getBoundingClientRect(), s = getComputedStyle(b);
+    const o = parseFloat(s.outlineOffset) + parseFloat(s.outlineWidth);
+    return r.left - o >= t.left - 0.5 && r.right + o <= t.right + 0.5 && r.top - o >= t.top - 0.5;
+  };
+  hb("mem").click();
+  hb("mem").focus();
+  eq(hb("mem").matches(":focus-visible") && ringInside(hb("mem")), true, "Fokusring des sortierten Kopfs %MEM ganz sichtbar");
   hb("cpu").click();
   eq(th("cpu").getAttribute("aria-sort"), "descending", "zurück auf CPU absteigend");
   setWidth("cpu", 5);
@@ -351,9 +360,25 @@ document.addEventListener("DOMContentLoaded", () => {
   applyLayout(null);
   receive(ptick(base, full(base[3])));
   eq(ids() + "/" + JSON.stringify(layoutMessage().widths), DEFAULT_IDS + "/{}", "applyLayout(null): Standard");
+  const listBox = $(".procs .scroll"), measure = () => { // wie der ResizeObserver, der in dieser Prüfung nicht läuft
+    state.viewW = listBox.clientWidth;
+    sizeCols();
+  };
+  measure();
+  eq(Math.round($(".ptable").getBoundingClientRect().width), listBox.clientWidth, "Prozess füllt die Breite");
+  listBox.style.width = "838px"; // Rollbereich im Fenster des Users
+  measure();
+  eq(listBox.scrollWidth <= listBox.clientWidth && th("process").getBoundingClientRect().width >= MIN_PROCESS_W, true,
+     "schmal: Prozess schrumpft bis 120 px, kein waagerechtes Rollen");
+  setWidth("process", 240);
+  eq(listBox.scrollWidth > listBox.clientWidth, true, "eigene Prozess-Breite bleibt Untergrenze");
+  listBox.style.width = "";
+  applyLayout(null);
+  measure();
   eq(rightClick("cpu", 300, 80) && menuOpen() && document.activeElement === items()[0], true,
      "Rechtsklick öffnet das Menü, Fokus auf dem ersten Eintrag");
   eq(items().length + "/" + item("process").getAttribute("aria-disabled"), "15/true", "15 Häkchen, Prozess fest");
+  eq(getComputedStyle(item("pid"), "::before").content, '"✓" / ""', "Häkchen mit leerem Alternativtext");
   eq(menu().getAttribute("aria-label") + "/" + $$('[role="menu"] [role="separator"]').length, "menu.columns/1",
      "Menü benannt, ein Trennstrich");
   eq(acts().map((b) => b.textContent).join("|"), "menu.move_left|menu.move_right|Standard", "Verschieben und Standard");
@@ -437,6 +462,14 @@ document.addEventListener("DOMContentLoaded", () => {
      "90/0/0", "init: Breite aus layout, nichts gesendet");
   receive({ type: "init", lang: "de", texts, version: "9.9.9", layout: null });
   eq(ids() + "/" + hb("pid").title, DEFAULT_IDS + "/Prozessnummer", "init ohne layout: Standard");
+  toggleColumn("pri");
+  toggleColumn("nice");
+  eq(timers.length, 1, "Meldung steht aus");
+  receive({ type: "init", lang: "de", texts, version: "9.9.9", layout: null }); // älterer Stand von Python
+  flush();
+  eq(ids() + "/" + JSON.parse(layouts().at(-1)).hidden.join(), DEFAULT_IDS + ",pri,nice/virt,shr,s,mem,time",
+     "init bei ausstehender Meldung: letzte Änderung bleibt und wird gemeldet");
+  applyLayout(null);
 
   // ---- Sortierspalte ausgeblendet: CPU absteigend; nach CPU sortiert und CPU ausgeblendet: Auswahl bleibt ----
   receive(ptick([...base], full(base[3])));
