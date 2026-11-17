@@ -255,7 +255,9 @@ CPU in % eines Kerns, in Klammern PSS in MB:
 | Hebel 3: langsame hwmon-Chips alle 5 s (1cfee92) | 4,31 (170) | – | – | – | – |
 | Hebel 4: status nur bei Bedarf (35e0ce5) | 3,98 (170) | 9,38 (250) | 9,35 (257) | 9,76 (244) | 10,38 (249) |
 | Hebel 5 + 6: intel_gpu_top 2 s, WebKit-Cache-Modell (6c162f1) | 2,80 (169) | 7,38 (249) | 8,00 (257) | 8,55 (244) | 9,11 (248) |
-| **Budget** | **≤ 1,5** | **≤ 5** | **≤ 5** | **≤ 5** | **≤ 5**; PSS **< 250** |
+| Nach Fix-Runde 1: Prozess-Takt im eigenen Thread, Prozesszeilen einmal je 2 s kodiert (8f29d08) | 2,77 (169) | 7,93 (250) | 7,81 (264) | 8,16 (245) | 8,33 (248) |
+| Budget ursprünglich | ≤ 1,5 | ≤ 5 | ≤ 5 | ≤ 5 | ≤ 5; PSS < 250 |
+| **Budget (User, 2026-11-17)** | **≤ 3** | **≤ 9** | **≤ 9** | **≤ 9** | **≤ 9**; PSS **< 275** |
 
 Aufteilung im Endstand (Übersicht, Dauer): WebKit-Webprozess 4,05 %, orbitop (Python, GTK) 2,70 %, `intel_gpu_top` 1,25 %. Ausgeblendet: orbitop 1,62 %, `intel_gpu_top` 1,18 %.
 
@@ -273,6 +275,8 @@ Bildvergleich (kopfloser Chrome und WebKitGTK, 1600×1000 bei DPR 2, Demoseite v
 **Verbleibende Lücken:** Ausgeblendet 2,80 % statt ≤ 1,5 %, Übersicht 7,4–8,0 % statt ≤ 5 %, Prozesse 8,6–9,1 % statt ≤ 5 %, PSS bis 257 MB statt < 250 MB. Alle sechs unsichtbaren Hebel sind umgesetzt; der Look ist unverändert. Weitere Einsparungen ändern Verhalten oder Darstellung und brauchen die Entscheidung des Users.
 
 **Entscheidung des Users (2026-11-17):** Das Budget wird angehoben statt Look oder Verhalten zu ändern: ausgeblendet ≤ 3 %, sichtbar ≤ 9 %, PSS < 275 MB. Vorgelegt waren außerdem: im Hintergrund gröber messen (2-s-Takt, Prozesse und GPU alle 4 s, geschätzt ca. 1,5 %), die GPU-Messung im Hintergrund abschalten (Lücke im Grafik- und Leistungsverlauf), die Anzeige nur alle 2 s weiterschalten (ca. 5,5–6 %), zusätzlich halbe Pixeldichte und GPU alle 4 s (ca. 4,5–5 %) sowie eine WebKit-Speichergrenze. Zum Vergleich: Mission Center brauchte auf demselben Rechner im laufenden Betrieb 22 % eines Kerns (Oberfläche 8,0 %, Hilfsprozess 14,0 %) und 136 MB.
+
+Nach Fix-Runde 1 (2026-11-17, 8f29d08) hält orbitop das neue Budget in allen Lagen ein: ausgeblendet 2,77 %, Übersicht 7,8–7,9 %, Prozesse 8,2–8,3 %, PSS höchstens 264 MB (dazu rund 3 MB des nicht lesbaren `intel_gpu_top`).
 
 ## Offene Punkte
 
