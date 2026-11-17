@@ -229,7 +229,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   min-height: 460px;
 }
 .procs .in { gap: 8px; }
-/* Schmal: Tabelle (feste Spalten ab etwa 610 px) über dem Detail, die Seite rollt senkrecht */
+/* Schmal: Tabelle (Standardspalten 910 px) über dem Detail, die Seite rollt senkrecht */
 @media (width < 1100px) {
   .procs { grid-template-columns: minmax(0, 1fr); grid-template-rows: none; height: auto; }
   .list .scroll { flex: none; height: 60vh; min-height: 240px; }
@@ -255,13 +255,15 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .filters button[aria-pressed="true"]::before { background: #24323b; }
 
 .scroll { flex: 1; min-height: 0; overflow: auto; }
-.ptable { width: 100%; table-layout: fixed; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+/* Breiten setzt app.js per CSSOM auf col und table */
+.ptable { table-layout: fixed; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .ptable th {
   position: sticky;
   top: 0;
   z-index: 1;
   padding: 5px 6px;
   text-align: left;
+  overflow: hidden; /* schmale Spalten: der Kopf darf in den Innenabstand, nicht in die Nachbarspalte */
   background: #111920;
   border-bottom: 1px solid #1f2a31;
 }
@@ -274,13 +276,9 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
   white-space: nowrap;
 }
 .ptable th button:hover, .ptable th[aria-sort] button { color: var(--ink); }
-.ptable th[aria-sort="descending"] button::after { content: " ▾"; }
-.ptable th[aria-sort="ascending"] button::after { content: " ▴"; }
-.ptable th:nth-child(2) { width: 52px; }
-.ptable th:nth-child(3) { width: 104px; }
-.ptable th:nth-child(4) { width: 74px; }
-.ptable th:nth-child(5) { width: 80px; }
-.ptable th:nth-child(6) { width: 200px; }
+.ptable th[aria-sort] button::after { margin-left: 2px; letter-spacing: 0; } /* passt so auch in schmale Zahlenspalten */
+.ptable th[aria-sort="descending"] button::after { content: "▾"; }
+.ptable th[aria-sort="ascending"] button::after { content: "▴"; }
 .ptable .r { text-align: right; }
 .ptable td { padding: 6px; border-bottom: 1px solid #141c21; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ptable tbody tr { cursor: pointer; }
@@ -383,6 +381,17 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .notice .x { display: grid; place-items: center; width: 20px; height: 20px; color: var(--mut); }
 .notice .x:hover { color: var(--ink); }
 .notice svg { width: 10px; height: 10px; }
+
+/* Spaltenmenü: Rahmen wie die Kacheln, Einträge wie die Filterknöpfe; Lage setzt app.js per CSSOM */
+.menu { position: fixed; z-index: 3; min-width: 180px; }
+.menu .in { gap: 0; padding: 8px 8px 12px; max-height: calc(100vh - 16px); overflow-y: auto; }
+.menu button { display: flex; gap: 6px; padding: 4px 12px 4px 6px; font-size: 12px; text-align: left; white-space: nowrap; }
+.menu button::before { content: ""; flex: none; width: 12px; color: var(--cyan); }
+.menu [aria-checked="true"]::before { content: "✓"; }
+.menu button:hover, .menu button:focus-visible { background: #24323b; }
+.menu button:focus-visible { outline-offset: -2px; }
+.menu button[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+.menu .sep { height: 1px; margin: 5px 0; background: #1f2a31; }
 
 /* ---- Dialoge ---- */
 dialog { width: min(480px, calc(100vw - 32px)); padding: 0; border: 0; background: none; color: var(--ink); overflow: visible; }

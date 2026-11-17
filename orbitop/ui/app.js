@@ -27,7 +27,8 @@ function byteStep(big) {
 const state = {
   lang: "en", texts: {}, version: "", tab: "overview", last: null, n: 0, briefs: [], collator: new Intl.Collator(),
   sel: null, cursor: null, sort: { col: "cpu", desc: true }, filter: "all", query: "", autoPick: false,
-  rows: [], scrollTop: 0, viewH: 0, pitch: 0, block: null, // Prozessliste: sortiert, Rollstand, gemessene Größen
+  rows: [], scrollTop: 0, viewH: 0, viewW: 0, pitch: 0, block: null, // Prozessliste: sortiert, Rollstand, gemessene Größen
+  layout: null, memTotal: null, menuCol: null, savedAt: -Infinity, saving: false, // Spalten, %MEM, Menü, layout-Meldung
   target: null, opener: null, pending: null, lastTerm: null, alert: null, // Rückfrage, laufendes Beenden, Nachsehen
 };
 const ui = { labels: [] };
@@ -366,19 +367,49 @@ const ICONS = { ok: ["M2 6.5l2.5 2.5L10 3.5"], idle: ["M3 6a3 3 0 1 0 6 0a3 3 0 
                 bad: ["M3 3l6 6M9 3l-6 6"], stop: ["M4 2.5v7M8 2.5v7"] };
 ICONS.dead = ICONS.idle;
 const SEVERITY = ["waiting", "working", "zombie", "stopped", "busy_iounknown", "busy_noio", "kernel_hang"]; // absteigend: Auffälliges zuerst
+// Grundreihenfolge = layout.COLUMNS (Test), eine Zeile je Spalte. w: Standardbreite in px, off: standardmäßig aus,
+// asc: zuerst aufsteigend, cls "r": rechtsbündig, get: Sortierschlüssel, show: Zelltext (sonst String(get)).
+// Prozess, Verlauf und Zustand zeichnen eigene Elemente (makeRow).
 const COLS = [
-  { id: "process", key: "col.process", get: (p) => String(p.name), asc: true },
-  { id: "cpu", key: "col.cpu", get: (p) => p.cpu, cls: "r" },
-  { id: "last60", key: "col.last60", get: (p) => p.spark.reduce((a, b) => a + b, 0) },
-  { id: "ram", key: "col.ram", get: (p) => p.rss, cls: "r" },
-  { id: "io", key: "col.io", get: (p) => (p.io == null ? -1 : p.io), cls: "r" },
-  { id: "state", key: "col.state", get: (p) => SEVERITY.indexOf(p.state) },
+  { id: "pid", key: "col.pid", tip: "coltip.pid", w: 64, asc: true, cls: "r", get: (p) => p.pid },
+  { id: "process", key: "col.process", tip: "coltip.process", w: 240, asc: true, get: (p) => String(p.name) },
+  { id: "user", key: "col.user", tip: "coltip.user", w: 96, asc: true, get: (p) => String(p.user) },
+  { id: "cpu", key: "col.cpu", tip: "coltip.cpu", w: 52, cls: "r", get: (p) => p.cpu, show: (p) => withUnit(p.cpu, "%") },
+  { id: "last60", key: "col.last60", tip: "coltip.last60", w: 104, get: (p) => p.spark.reduce((a, b) => a + b, 0) },
+  { id: "ram", key: "col.ram", tip: "coltip.ram", w: 74, cls: "r", get: (p) => p.rss, show: (p) => withUnit(p.rss, "B") },
+  { id: "io", key: "col.io", tip: "coltip.io", w: 80, cls: "r", get: (p) => p.io ?? -1, show: (p) => withUnit(p.io, "B/s") },
+  { id: "state", key: "col.state", tip: "coltip.state", w: 200, get: (p) => SEVERITY.indexOf(p.state) },
+  { id: "pri", key: "col.pri", tip: "coltip.pri", w: 44, off: true, cls: "r", get: (p) => p.pri },
+  { id: "nice", key: "col.nice", tip: "coltip.nice", w: 44, off: true, cls: "r", get: (p) => p.nice },
+  { id: "virt", key: "col.virt", tip: "coltip.virt", w: 80, off: true, cls: "r", get: (p) => p.virt, show: (p) => withUnit(p.virt, "B") },
+  { id: "shr", key: "col.shr", tip: "coltip.shr", w: 80, off: true, cls: "r", get: (p) => p.shr ?? -1, show: (p) => withUnit(p.shr, "B") },
+  { id: "s", key: "col.s", tip: "coltip.s", w: 40, off: true, asc: true, get: (p) => String(p.s) },
+  { id: "mem", key: "col.mem", tip: "coltip.mem", w: 64, off: true, cls: "r", get: (p) => p.rss, show: memShare },
+  { id: "time", key: "col.time", tip: "coltip.time", w: 84, off: true, cls: "r", get: (p) => p.time, show: (p) => cpuTime(p.time) },
 ];
+const MIN_W = 40, MIN_PROCESS_W = 120, MAX_W = 1200, DEFAULT_SPLIT = 1.55 / 2.55, LAYOUT_GAP_MS = 500;
 const FILTERS = { all: () => true, mine: (p) => p.own, flagged: (p) => p.state !== "working" && p.state !== "waiting" };
 const RESULTS = ["sent", "gone", "mismatch", "zombie", "kernel", "denied", "nohelper", "error"];
 
 const keyOf = (p) => p.pid + ":" + p.start;
 const same = (p, sel) => !!sel && p.pid === sel.pid && p.start === sel.start;
+const colOf = (id) => COLS.find((c) => c.id === id);
+
+function withUnit(v, u) {
+  return fmt({ v, u }, state.lang);
+}
+
+/** %MEM: rss am Gesamtspeicher (aside.of der Kachel mem im selben Takt), eine Nachkommastelle, „%“ wie fmt. */
+function memShare(p) {
+  const of = state.memTotal;
+  return of > 0 ? number(p.rss / of * 100, state.lang, 1, 1, false) + (state.lang === "en" ? "%" : " %") : "–";
+}
+
+/** CPU-Zeit wie TIME+ in top: „m:ss.hh“, auf ganze Hundertstel gerundet, Minuten ohne Obergrenze, immer „.“. */
+function cpuTime(sec) {
+  const h = Math.round(sec * 100), s = h % 6000;
+  return `${Math.floor(h / 6000)}:${String(Math.floor(s / 100)).padStart(2, "0")}.${String(s % 100).padStart(2, "0")}`;
+}
 
 function svg(parent, cls, viewBox, paths) {
   const s = document.createElementNS(SVG_NS, "svg");
@@ -457,12 +488,21 @@ function buildProcs() {
   }), "filter." + f));
   ui.scroll = el("div", "scroll", list);
   ui.table = label(el("table", "ptable", ui.scroll), "tab.procs", "aria-label");
-  const head = el("tr", "", el("thead", "", ui.table));
-  ui.ths = COLS.map((c) => {
-    const th = el("th", c.cls || "", head);
-    th.scope = "col";
-    label(button("", th, () => sortBy(c)), c.key);
-    return th;
+  ui.colgroup = el("colgroup", "", ui.table);
+  const thead = el("thead", "", ui.table);
+  ui.headRow = el("tr", "", thead);
+  ui.ths = [];
+  thead.addEventListener("contextmenu", (e) => {
+    const th = e.target.closest("th");
+    if (!th) return;
+    e.preventDefault();
+    openColumnMenu(th, e.clientX, e.clientY);
+  });
+  thead.addEventListener("keydown", (e) => {
+    if (e.key !== "ContextMenu" && !(e.shiftKey && e.key === "F10")) return;
+    e.preventDefault();
+    const th = e.target.closest("th"), r = th.getBoundingClientRect();
+    openColumnMenu(th, r.left, r.bottom);
   });
   ui.tbody = el("tbody", "", ui.table);
   ui.pads = []; // Abstandszeilen anstelle der nicht gezeichneten Zeilen
@@ -470,10 +510,15 @@ function buildProcs() {
     state.scrollTop = ui.scroll.scrollTop;
     renderRows();
   }, { passive: true });
-  // Nach dem Layout gemessen, erzwingt also kein Layout: Höhe des Rollbereichs, Rollstand, Zeilenabstand (Schrift)
+  // Nach dem Layout gemessen, erzwingt also kein Layout: Größe des Rollbereichs, Rollstand, Zeilenabstand (Schrift)
   const sizes = new ResizeObserver(() => {
-    const viewH = ui.scroll.clientHeight, top = ui.scroll.scrollTop, pitch = rowPitch();
-    if (!viewH || (viewH === state.viewH && top === state.scrollTop && !(pitch > 0 && pitch !== state.pitch))) return;
+    const viewH = ui.scroll.clientHeight, viewW = ui.scroll.clientWidth, top = ui.scroll.scrollTop, pitch = rowPitch();
+    if (!viewH) return;
+    if (viewW !== state.viewW) { // Prozess-Spalte füllt die Breite
+      state.viewW = viewW;
+      sizeCols();
+    }
+    if (viewH === state.viewH && top === state.scrollTop && !(pitch > 0 && pitch !== state.pitch)) return;
     Object.assign(state, { viewH, scrollTop: top }, pitch > 0 ? { pitch } : {});
     renderRows();
   });
@@ -511,7 +556,8 @@ function buildProcs() {
   ui.noticeText = el("span", "", ui.notice);
   const x = label(button("x", ui.notice, () => { ui.notice.hidden = true; }), "btn.close", "aria-label");
   svg(x, "", "0 0 12 12", ICONS.bad);
-  sortHeads();
+  buildMenu();
+  applyLayout(null);
   pressFilters();
 }
 
@@ -527,10 +573,245 @@ function sortBy(c) {
 }
 
 function sortHeads() {
-  ui.ths.forEach((th, i) => {
-    if (COLS[i].id === state.sort.col) th.setAttribute("aria-sort", state.sort.desc ? "descending" : "ascending");
+  for (const th of ui.ths) {
+    if (th.dataset.col === state.sort.col) th.setAttribute("aria-sort", state.sort.desc ? "descending" : "ascending");
     else th.removeAttribute("aria-sort");
+  }
+}
+
+// ---- Spalten: Layout, Kopf, Breiten, Meldung an Python ----
+function defaultLayout() {
+  return { order: COLS.map((c) => c.id), hidden: COLS.filter((c) => c.off).map((c) => c.id), widths: {},
+           split: DEFAULT_SPLIT };
+}
+
+function visibleCols() {
+  return state.layout.order.filter((id) => !state.layout.hidden.has(id)).map(colOf);
+}
+
+/** Layout übernehmen, aus init (null: Standard) oder nach einer Änderung; sendet nie selbst. */
+function applyLayout(l) {
+  const d = l || defaultLayout();
+  state.layout = { order: [...d.order], hidden: new Set(d.hidden), widths: { ...d.widths }, split: d.split };
+  if (state.layout.hidden.has(state.sort.col)) state.sort = { col: "cpu", desc: true };
+  const sig = visibleCols().map((c) => c.id).join();
+  if (ui.headSig !== sig) {
+    ui.headSig = sig;
+    buildHead();
+  }
+  sizeCols();
+  if (!ui.menu.hidden) renderMenu();
+  refresh();
+}
+
+/** Kopf und col-Elemente der sichtbaren Spalten neu; die gezeichneten Zeilen passen nicht mehr und fallen weg. */
+function buildHead() {
+  const cols = visibleCols();
+  ui.colgroup.replaceChildren(...cols.map(() => el("col")));
+  ui.ths = cols.map((c) => {
+    const th = el("th", c.cls || "");
+    th.scope = "col";
+    th.dataset.col = c.id;
+    button("", th, () => sortBy(c));
+    return th;
   });
+  ui.headRow.replaceChildren(...ui.ths);
+  labelHead();
+  sortHeads();
+  for (const v of procRows.values()) v.tr.remove();
+  procRows.clear();
+  state.block = null;
+  for (const tr of ui.pads) tr.firstChild.colSpan = cols.length;
+}
+
+/** Texte direkt aus state.texts, nicht über label(): ui.labels wüchse sonst mit jedem Neuaufbau. */
+function labelHead() {
+  for (const th of ui.ths) {
+    const c = colOf(th.dataset.col), b = th.firstChild;
+    setText(b, text(c.key));
+    if (b.title !== text(c.tip)) b.title = text(c.tip);
+  }
+}
+
+/** Breiten per CSSOM; die Prozess-Spalte füllt den Rest des Rollbereichs, die Tabelle ist so breit wie die Summe. */
+function sizeCols() {
+  const cols = visibleCols(), w = cols.map((c) => state.layout.widths[c.id] ?? c.w);
+  const p = cols.findIndex((c) => c.id === "process"), rest = w.reduce((a, b) => a + b, 0) - w[p];
+  if (!state.viewW) state.viewW = ui.scroll.clientWidth; // nur bis zur ersten Messung direkt, danach vom ResizeObserver
+  w[p] = Math.max(w[p], state.viewW - rest);
+  w.forEach((x, i) => { ui.colgroup.children[i].style.width = x + "px"; });
+  ui.table.style.width = rest + w[p] + "px";
+}
+
+/** Breite in px, begrenzt; die Meldung (saveLayout) kommt vom Aufrufer, beim Ziehen erst am Ende. */
+function setWidth(id, px) {
+  state.layout.widths[id] = Math.round(Math.min(MAX_W, Math.max(id === "process" ? MIN_PROCESS_W : MIN_W, px)));
+  sizeCols();
+}
+
+function toggleColumn(id) {
+  if (id === "process") return; // fest an
+  const hidden = new Set(state.layout.hidden);
+  if (!hidden.delete(id)) hidden.add(id);
+  applyLayout({ ...state.layout, hidden });
+  saveLayout();
+}
+
+/** Vor (dir −1) oder hinter (+1) den nächsten sichtbaren Nachbarn; ausgeblendete Spalten bleiben, wo sie sind. */
+function moveColumn(id, dir) {
+  const vis = visibleCols().map((c) => c.id), i = vis.indexOf(id), next = vis[i + dir];
+  if (i < 0 || !next) return;
+  const order = state.layout.order.filter((x) => x !== id);
+  order.splice(order.indexOf(next) + (dir > 0 ? 1 : 0), 0, id);
+  applyLayout({ ...state.layout, order });
+  saveLayout();
+}
+
+function restoreLayout() {
+  applyLayout(null);
+  saveLayout();
+}
+
+/** Vertrag „Layout“ als Nachricht; hidden in Spaltenreihenfolge, damit gleicher Stand gleiche Datei heißt. */
+function layoutMessage() {
+  const l = state.layout;
+  return { type: "layout", order: [...l.order], hidden: l.order.filter((id) => l.hidden.has(id)), widths: { ...l.widths },
+           split: l.split };
+}
+
+/** Höchstens eine Meldung je LAYOUT_GAP_MS; was früher kommt, sendet ein einziger Zeitgeber mit dem neuesten Stand. */
+function saveLayout() {
+  if (state.saving) return;
+  const wait = state.savedAt + LAYOUT_GAP_MS - performance.now();
+  if (wait > 0) {
+    state.saving = true;
+    setTimeout(sendLayout, wait);
+  } else {
+    sendLayout();
+  }
+}
+
+function sendLayout() {
+  state.saving = false;
+  state.savedAt = performance.now();
+  post(layoutMessage());
+}
+
+// ---- Spaltenmenü (Rechtsklick, Menütaste oder Umschalt+F10 auf einem Kopf) ----
+function buildMenu() {
+  ui.menu = el("div", "frame menu", ui.procs);
+  ui.menu.hidden = true;
+  ui.menuBox = el("div", "in", ui.menu);
+  ui.menuBox.setAttribute("role", "menu");
+  const item = (role) => {
+    const b = el("button");
+    b.type = "button";
+    b.tabIndex = -1;
+    b.setAttribute("role", role);
+    return b;
+  };
+  ui.checks = new Map(COLS.map((c) => {
+    const b = item("menuitemcheckbox");
+    b.dataset.col = c.id;
+    return [c.id, b];
+  }));
+  ui.checks.get("process").setAttribute("aria-disabled", "true");
+  ui.menuSep = el("div", "sep");
+  ui.menuSep.setAttribute("role", "separator");
+  ui.moves = [item("menuitem"), item("menuitem")]; // nach links, nach rechts
+  ui.restore = item("menuitem");
+  ui.menuBox.addEventListener("click", (e) => {
+    const b = e.target.closest("button");
+    if (b) pickMenu(b);
+  });
+  ui.menuBox.addEventListener("keydown", menuKey);
+  ui.menuBox.addEventListener("focusin", (e) => { // Roving Tabindex: nur der fokussierte Eintrag im Tab-Ablauf
+    for (const b of menuItems()) b.tabIndex = b === e.target ? 0 : -1;
+  });
+  ui.menu.addEventListener("contextmenu", (e) => e.preventDefault()); // kein Menü von WebKit über dem eigenen
+  document.addEventListener("pointerdown", (e) => {
+    if (!ui.menu.hidden && !ui.menu.contains(e.target)) closeColumnMenu();
+  });
+}
+
+function menuItems() {
+  return [...ui.menuBox.querySelectorAll("button")];
+}
+
+/** Häkchen in der Gesamtreihenfolge, Trennstrich, Verschieben der Spalte des Menüs, Standard; Texte aus texts. */
+function renderMenu() {
+  const l = state.layout, vis = visibleCols().map((c) => c.id), i = vis.indexOf(state.menuCol);
+  ui.menuBox.setAttribute("aria-label", text("menu.columns"));
+  const checks = l.order.map((id) => {
+    const b = ui.checks.get(id);
+    setText(b, text(colOf(id).key));
+    b.setAttribute("aria-checked", String(!l.hidden.has(id)));
+    return b;
+  });
+  [["menu.move_left", i <= 0], ["menu.move_right", i < 0 || i === vis.length - 1]].forEach(([k, off], j) => {
+    setText(ui.moves[j], text(k));
+    ui.moves[j].setAttribute("aria-disabled", String(off));
+  });
+  setText(ui.restore, text("menu.restore"));
+  const all = [...checks, ui.menuSep, ...ui.moves, ui.restore];
+  if (all.some((x, j) => ui.menuBox.children[j] !== x)) {
+    const focused = document.activeElement; // Umhängen nimmt dem Eintrag den Fokus
+    ui.menuBox.replaceChildren(...all);
+    if (focused && focused !== document.activeElement && focused.isConnected) focused.focus();
+  }
+}
+
+/** Idempotent: WebKit kann zur Menütaste zusätzlich ein contextmenu schicken. */
+function openColumnMenu(th, x, y) {
+  if (!ui.menu.hidden && state.menuCol === th.dataset.col) return;
+  state.menuCol = th.dataset.col;
+  ui.menu.hidden = false;
+  renderMenu();
+  const r = ui.menu.getBoundingClientRect(), root = document.documentElement; // im Fenster halten
+  ui.menu.style.left = Math.max(0, Math.min(x, root.clientWidth - r.width)) + "px";
+  ui.menu.style.top = Math.max(0, Math.min(y, root.clientHeight - r.height)) + "px";
+  menuItems()[0].focus();
+}
+
+function closeColumnMenu() {
+  ui.menu.hidden = true;
+}
+
+/** Schließen, Fokus zurück auf den Kopf des Menüs (ist die Spalte inzwischen aus: auf Prozess). */
+function leaveMenu() {
+  closeColumnMenu();
+  const th = ui.ths.find((t) => t.dataset.col === state.menuCol) || ui.ths.find((t) => t.dataset.col === "process");
+  th.firstChild.focus();
+}
+
+/** Häkchen und Verschieben lassen das Menü offen, „Standard wiederherstellen“ schließt es. */
+function pickMenu(b) {
+  if (b.getAttribute("aria-disabled") === "true") return;
+  if (b === ui.restore) {
+    restoreLayout();
+    leaveMenu();
+  } else if (b.dataset.col) {
+    toggleColumn(b.dataset.col);
+  } else {
+    moveColumn(state.menuCol, b === ui.moves[0] ? -1 : 1);
+  }
+}
+
+function menuKey(e) {
+  const list = menuItems(), n = list.length, i = list.indexOf(e.target);
+  const to = { ArrowDown: (i + 1) % n, ArrowUp: (i - 1 + n) % n, Home: 0, End: n - 1 };
+  if (Object.hasOwn(to, e.key)) {
+    e.preventDefault();
+    list[to[e.key]].focus();
+  } else if (e.key === "Enter" || e.key === " ") {
+    e.preventDefault(); // sonst klickte der Knopf zusätzlich selbst
+    pickMenu(e.target);
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    leaveMenu();
+  } else if (e.key === "Tab") {
+    leaveMenu(); // ohne preventDefault: Tab geht vom Kopf aus weiter
+  }
 }
 
 function pickRow(tr) {
@@ -567,26 +848,50 @@ function refresh() {
   if (state.tab === "procs" && state.last) renderProcs(state.last);
 }
 
+/** Zellen in der Reihenfolge der sichtbaren Spalten; Systemtexte (Name, Argumente, Benutzer) nur als Text. */
 function makeRow(key) {
   const tr = el("tr");
   tr.dataset.key = key;
   tr.tabIndex = -1; // ohne das Attribut meldet tabIndex zwar -1, die Zeile ist aber nicht fokussierbar
-  const name = el("td", "name", tr);
-  const v = { tr, key, name: el("b", "nm", name), args: el("span", "s nm", name), cpu: el("td", "r", tr) };
-  v.spark = svg(el("td", "", tr), "spark", "0 0 90 18", ["", ""]);
-  v.ram = el("td", "r", tr);
-  v.io = el("td", "r", tr);
-  v.badge = makeBadge(el("td", "", tr));
+  const v = { tr, key, cells: [] };
+  for (const c of visibleCols()) {
+    const td = el("td", c.cls || "", tr);
+    if (c.id === "process") {
+      td.className = "name";
+      v.name = el("b", "nm", td);
+      v.args = el("span", "s nm", td);
+    } else if (c.id === "last60") {
+      v.spark = svg(td, "spark", "0 0 90 18", ["", ""]);
+    } else if (c.id === "state") {
+      v.badge = makeBadge(td);
+    } else {
+      v.cells.push([td, c]);
+    }
+  }
   procRows.set(key, v);
   return v;
 }
 
 function updateRow(v, p) {
-  const lang = state.lang, kind = KIND[p.state] || "idle", sel = same(p, state.sel);
+  const sel = same(p, state.sel);
   v.p = p;
-  setText(v.name, String(p.name));
-  setText(v.args, String(p.args || ""));
-  setText(v.cpu, fmt({ v: p.cpu, u: "%" }, lang));
+  for (const [td, c] of v.cells) setText(td, c.show ? c.show(p) : String(c.get(p)));
+  if (v.name) {
+    setText(v.name, String(p.name));
+    setText(v.args, String(p.args || ""));
+  }
+  if (v.spark) updateSpark(v, p);
+  if (v.badge) setBadge(v.badge, p.state, text("state." + p.state) + (p.state === "kernel_hang" ? " · " + duration(p.since) : ""));
+  if (v.sel !== sel) {
+    v.sel = sel;
+    v.tr.classList.toggle("sel", sel);
+    v.tr.setAttribute("aria-selected", String(sel));
+  }
+}
+
+/** Mini-Verlauf der letzten 60 s, Farbe nach Zustand. */
+function updateSpark(v, p) {
+  const kind = KIND[p.state] || "idle";
   const vals = p.spark.slice(-SPARK_POINTS), step = 90 / (SPARK_POINTS - 1), off = SPARK_POINTS - vals.length;
   const pts = vals.map((y, i) => `${((off + i) * step).toFixed(1)} ${(17 - Math.min(Math.max(y, 0), 100) * 0.15).toFixed(1)}`);
   const line = pts.length ? "M" + pts.join(" L") : "";
@@ -598,14 +903,6 @@ function updateRow(v, p) {
   if (v.kind !== kind) {
     v.kind = kind;
     v.spark.setAttribute("class", "spark " + kind);
-  }
-  setText(v.ram, fmt({ v: p.rss, u: "B" }, lang));
-  setText(v.io, fmt({ v: p.io, u: "B/s" }, lang));
-  setBadge(v.badge, p.state, text("state." + p.state) + (p.state === "kernel_hang" ? " · " + duration(p.since) : ""));
-  if (v.sel !== sel) {
-    v.sel = sel;
-    v.tr.classList.toggle("sel", sel);
-    v.tr.setAttribute("aria-selected", String(sel));
   }
 }
 
@@ -631,7 +928,9 @@ function renderProcs(msg) {
     return;
   }
   hdrInfo();
-  const col = COLS.find((c) => c.id === state.sort.col), dir = state.sort.desc ? -1 : 1, q = state.query;
+  const mem = (msg.tiles || []).find((t) => t.id === "mem");
+  state.memTotal = mem && mem.aside ? mem.aside.of : null; // für %MEM
+  const col = colOf(state.sort.col), dir = state.sort.desc ? -1 : 1, q = state.query;
   const list = msg.procs.filter((p) => FILTERS[state.filter](p) && (!q || `${p.name}\n${p.args}`.toLowerCase().includes(q)));
   list.sort((a, b) => dir * compare(col.get(a), col.get(b)) || a.pid - b.pid); // pid: Gleichstand springt nicht
   if (state.autoPick && !state.sel && list.length) { // nur Sichtprüfung (#procs): obersten Prozess wählen
@@ -707,7 +1006,7 @@ function rowPitch() {
 function makePad() {
   const tr = el("tr", "pad");
   tr.setAttribute("aria-hidden", "true");
-  el("td", "", tr).colSpan = COLS.length;
+  el("td", "", tr).colSpan = ui.ths.length;
   return tr;
 }
 
@@ -866,6 +1165,8 @@ window.orbitop = {
         if (attr) node.setAttribute(attr, text(key));
         else node.textContent = text(key);
       }
+      applyLayout(msg.layout);
+      labelHead(); // auch ohne Neuaufbau des Kopfes
       setText(ui.version, fill("about.version", { version: state.version }));
       hdrInfo();
     } else if (msg.type === "tick") {

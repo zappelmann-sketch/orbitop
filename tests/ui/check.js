@@ -1,11 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
 // Läuft vor app.js: fängt die Nachrichten an Python ab und prüft nach dem Laden Format, sichere Texte, Zeichnen, Reiter,
-// Prozessliste, Detail, Beenden mit Rückfrage (gefälschte Brücke, nie ein echtes Beenden) und Dialoge.
+// Prozessliste, Spalten und Spaltenmenü, Detail, Beenden mit Rückfrage (gefälschte Brücke, nie ein echtes Beenden) und
+// Dialoge.
 "use strict";
-const posted = [];
+const posted = [], timers = [];
 window.onerror = (msg) => { document.title = "FAIL Ausnahme: " + msg; }; // sonst bliebe RUNNING stehen
 window.webkit = { messageHandlers: { orbitop: { postMessage: (m) => posted.push(JSON.stringify(m)) } } };
+window.setTimeout = (fn, ms) => timers.push({ fn, ms }); // Zeitgeber laufen erst mit flush()
+const flush = () => timers.splice(0).forEach((t) => t.fn());
 
 document.addEventListener("DOMContentLoaded", () => {
   const fails = [];
@@ -17,7 +20,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const plain = (s) => s.replace(/ /g, " ");
   const { receive } = window.orbitop;
   eq(posted[0], '{"type":"ready"}', "ready");
-  receive({ type: "init", lang: "de", texts: {
+  const texts = {
     "tile.cpu": "CPU", "unit.rpm": "U/min", "strip.cpu": "{pct} % CPU", "strip.ram": "{size} RAM",
     "footer.missing": "Nicht vorhanden: {list}", "missing.fan": "Lüfter $& $1 {list}", "cap.thread": "T{n}",
     "cap.rate": "{unit} · 5 Min", "cap.usage": "AUSLASTUNG · 5 MIN", "cap.clock": "TAKT · 5 MIN",
@@ -29,8 +32,9 @@ document.addEventListener("DOMContentLoaded", () => {
     "result.sent": "gesendet", "result.denied": "verweigert", "result.error": "Fehler", "result.gone": "weg",
     "result.zombie": "Zombie-Grund", "result.kernel": "Kernel-Grund", "result.nohelper": "Helfer fehlt", "btn.busy": "läuft …", "about.version": "Version {version}",
     "notice.for": "{name} (PID {pid}): {text}", "detail.cpu_one_core": "{pct} % (ein voller Kern)", "unit.h": "Std",
-    "unit.d": "T", "detail.parent_pid": "PID {pid}", "detail.ctx_value": "freiwillig {vol}/s · erzwungen {invol}/s" },
-    version: "9.9.9" });
+    "unit.d": "T", "detail.parent_pid": "PID {pid}", "detail.ctx_value": "freiwillig {vol}/s · erzwungen {invol}/s",
+    "coltip.pid": "Prozessnummer", "menu.restore": "Standard" };
+  receive({ type: "init", lang: "de", texts, version: "9.9.9" });
 
   // ---- fmt ----
   const G = 1024 ** 3, M = 1024 ** 2;
@@ -246,13 +250,29 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ==== Prozesse ====
   const row = (pid, extra) => ({ pid, start: pid * 10, name: "p" + pid, args: "", user: "u", own: true, cpu: 0,
-    spark: [0], rss: 1, io: 0, state: "waiting", since: 0, ...extra });
+    spark: [pid % 7], rss: 1, io: 0, state: "waiting", since: 0, pri: 20 - (pid % 5), nice: -(pid % 5), virt: pid * 4096,
+    shr: pid % 2 ? null : pid * 512, s: "SRDZT"[pid % 5], time: pid * 1.5, ...extra });
   const full = (r, extra) => ({ ...r, cmdline: r.name + " --x", ppid: 1000, parent: "eltern", threads: 3, vctx: 0,
     nvctx: 2, kernel: false, started: Math.floor(Date.now() / 1000) - 120, history: [1, 2, 3], ...extra });
   const ptick = (procs, detail) => tick([], { procs, detail: detail || null });
   const rows = () => [...$$(".ptable tbody tr:not(.pad)")]; // ohne Abstandszeilen der Virtualisierung
   const names = () => rows().map((tr) => tr.querySelector(".name b").textContent).join(",");
-  const heads = $$(".ptable th button"), filters = $$(".filters button");
+  const filters = $$(".filters button");
+  const th = (id) => $(`.ptable th[data-col="${id}"]`), hb = (id) => th(id).querySelector("button");
+  const cell = (tr, id) => tr.children[[...$$(".ptable th")].indexOf(th(id))];
+  const ids = () => [...$$(".ptable th")].map((t) => t.dataset.col).join();
+  const menu = () => $('[role="menu"]'), menuOpen = () => !!menu() && menu().getClientRects().length > 0;
+  const items = () => [...$$('[role="menu"] [role="menuitemcheckbox"]')], item = (id) => items().find((b) => b.dataset.col === id);
+  const acts = () => [...$$('[role="menu"] [role="menuitem"]')]; // Nach links, Nach rechts, Standard wiederherstellen
+  const layouts = () => posted.filter((m) => JSON.parse(m).type === "layout");
+  const key = (node, k, extra) => node.dispatchEvent(new KeyboardEvent("keydown", { key: k, bubbles: true, cancelable: true, ...extra }));
+  const rightClick = (id, x, y) => {
+    const e = new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: x, clientY: y });
+    th(id).dispatchEvent(e);
+    return e.defaultPrevented;
+  };
+  const clickAway = () => document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+  const DEFAULT_IDS = "pid,process,user,cpu,last60,ram,io,state";
   const terms = () => posted.filter((m) => JSON.parse(m).type === "terminate");
   const term = $(".detail .btn.term"), kill = $(".detail .btn.kill");
   const dlg = $("dialog.confirm"), cancel = $("dialog.confirm .btn.plain"), yes = $("dialog.confirm .btns button:last-child");
@@ -270,24 +290,169 @@ document.addEventListener("DOMContentLoaded", () => {
 
   // ---- Sortieren: Standard CPU absteigend, zweiter Klick dreht um, neue Spalte mit eigener Richtung ----
   eq(names(), "alpha,Gamma,beta,chip", "Standard CPU absteigend");
-  eq(heads[1].parentNode.getAttribute("aria-sort"), "descending", "aria-sort CPU");
-  heads[1].click();
+  eq(th("cpu").getAttribute("aria-sort"), "descending", "aria-sort CPU");
+  hb("cpu").click();
   eq(names(), "chip,beta,Gamma,alpha", "CPU aufsteigend nach zweitem Klick");
-  heads[3].click();
+  hb("ram").click();
   eq(names(), "beta,Gamma,alpha,chip", "RAM absteigend");
-  eq(heads[1].parentNode.hasAttribute("aria-sort") + "/" + heads[3].parentNode.getAttribute("aria-sort"), "false/descending",
+  eq(th("cpu").hasAttribute("aria-sort") + "/" + th("ram").getAttribute("aria-sort"), "false/descending",
      "aria-sort wandert mit");
-  heads[0].click();
+  hb("process").click();
   eq(names(), "alpha,beta,chip,Gamma", "Name aufsteigend");
-  heads[0].click();
+  hb("process").click();
   eq(names(), "Gamma,chip,beta,alpha", "Name absteigend");
-  heads[5].click();
+  hb("state").click();
   eq(names(), "beta,Gamma,alpha,chip", "Zustand: Auffälliges zuerst, Gleichstand nach PID");
-  heads[1].click();
+  hb("cpu").click();
   eq(names(), "alpha,Gamma,beta,chip", "zurück auf CPU absteigend");
   receive(ptick([row(9), row(8), ...base], full(base[3])));
   eq(names(), "alpha,Gamma,beta,chip,p8,p9", "Gleichstand nach PID");
   receive(ptick(base, full(base[3])));
+
+  // ---- Spalten: Standard, Tooltip, TIME+, Formate der neuen Spalten ----
+  const labelCount = ui.labels.length;
+  eq(ids(), DEFAULT_IDS, "Standardspalten in Grundreihenfolge");
+  eq(hb("pid").title, "Prozessnummer", "Tooltip aus coltip.pid");
+  eq([cpuTime(0), cpuTime(3.5), cpuTime(59.999), cpuTime(7530.5)].join("|"), "0:00.00|0:03.50|1:00.00|125:30.50",
+     "TIME+ als m:ss.hh");
+  applyLayout({ ...layoutMessage(), hidden: [] });
+  eq(ids(), COLS.map((c) => c.id).join(), "alle Spalten sichtbar");
+  const r4242 = row(4242, { name: "neu", user: "<b>u</b>", pri: 20, nice: -5, virt: 3 * G, shr: null, s: "S",
+                            time: 7530.5, rss: G, cpu: 3 });
+  const memTile = { id: "mem", kind: "mem", aside: { v: G, u: "B", of: 4 * G } };
+  const tr4242 = () => rows().find((tr) => cell(tr, "pid").textContent === "4242");
+  receive(tick([memTile], { procs: [...base, r4242], detail: full(base[3]) }));
+  eq(["pid", "nice", "virt", "shr", "s", "mem", "time"].map((c) => plain(cell(tr4242(), c).textContent)).join("|"),
+     "4242|-5|3 GB|–|S|25,0 %|125:30.50", "Formate der neuen Spalten");
+  eq(cell(tr4242(), "user").textContent + "/" + cell(tr4242(), "user").querySelectorAll("b").length, "<b>u</b>/0",
+     "Benutzer als Text");
+  receive(ptick([...base, { ...r4242, cpu: 4 }], full(base[3])));
+  eq(cell(tr4242(), "mem").textContent, "–", "ohne mem-Kachel: %MEM –");
+
+  // ---- Sortieren nach jeder Spalte: aria-sort am Kopf, Zeilen nach c.get in dieser Richtung monoton ----
+  receive(tick([memTile], { procs: [...base, r4242], detail: full(base[3]) }));
+  const sortedBy = (c) => {
+    const s = th(c.id).getAttribute("aria-sort"), dir = s === "ascending" ? 1 : -1;
+    const data = rows().map((tr) => state.last.procs.find((p) => String(p.pid) === cell(tr, "pid").textContent));
+    return !!s && data.every((p, i) => !i || dir * compare(c.get(data[i - 1]), c.get(p)) <= 0);
+  };
+  for (const c of COLS) {
+    hb(c.id).click();
+    eq(sortedBy(c), true, `sortiert nach ${c.id}`);
+  }
+  hb("cpu").click();
+  eq(th("cpu").getAttribute("aria-sort"), "descending", "zurück auf CPU absteigend");
+  setWidth("cpu", 5);
+  setWidth("process", 5);
+  setWidth("ram", 5000);
+  eq(JSON.stringify(layoutMessage().widths), '{"cpu":40,"process":120,"ram":1200}', "setWidth begrenzt die Breite");
+
+  // ---- Spaltenmenü per Maus und Tastatur ----
+  applyLayout(null);
+  receive(ptick(base, full(base[3])));
+  eq(ids() + "/" + JSON.stringify(layoutMessage().widths), DEFAULT_IDS + "/{}", "applyLayout(null): Standard");
+  eq(rightClick("cpu", 300, 80) && menuOpen() && document.activeElement === items()[0], true,
+     "Rechtsklick öffnet das Menü, Fokus auf dem ersten Eintrag");
+  eq(items().length + "/" + item("process").getAttribute("aria-disabled"), "15/true", "15 Häkchen, Prozess fest");
+  eq(menu().getAttribute("aria-label") + "/" + $$('[role="menu"] [role="separator"]').length, "menu.columns/1",
+     "Menü benannt, ein Trennstrich");
+  eq(acts().map((b) => b.textContent).join("|"), "menu.move_left|menu.move_right|Standard", "Verschieben und Standard");
+  key(items()[0], "ArrowDown");
+  eq(document.activeElement === items()[1], true, "↓ fokussiert den zweiten Eintrag");
+  key(items()[1], "ArrowUp");
+  key(items()[0], "ArrowUp");
+  eq(document.activeElement === acts()[2], true, "↑ auf dem ersten Eintrag springt zum letzten");
+  key(acts()[2], "Home");
+  eq(document.activeElement === items()[0], true, "Pos1 springt zum ersten Eintrag");
+  key(items()[0], "End");
+  eq(document.activeElement === acts()[2] && [...menu().querySelectorAll("[tabindex='0']")].length === 1, true,
+     "Ende springt zum letzten Eintrag, genau einer im Tab-Ablauf");
+  item("pri").focus();
+  key(item("pri"), "Enter");
+  eq(ids().endsWith(",pri") + "/" + item("pri").getAttribute("aria-checked") + "/" + menuOpen(), "true/true/true",
+     "Enter auf PR blendet die Spalte ein, Menü bleibt offen");
+  // Layout-Meldung: die erste sofort, danach höchstens eine je 500 ms mit dem neuesten Stand
+  eq(layouts().length, 1, "Häkchen sendet sofort ein layout");
+  const sent = JSON.parse(layouts()[0]);
+  eq(sent.order.join() + "/" + sent.hidden.join() + "/" + JSON.stringify(sent.widths),
+     COLS.map((c) => c.id).join() + "/nice,virt,shr,s,mem,time/{}", "layout: alle 15 ids, PR eingeblendet");
+  key(item("pri"), " ");
+  eq(layouts().length + "/" + timers.length + "/" + (timers[0].ms > 0 && timers[0].ms <= 500), "1/1/true",
+     "zweites Häkchen gleich danach: kein layout, ein Zeitgeber mit der Restzeit");
+  key(item("pri"), "Enter");
+  key(item("pri"), " ");
+  eq(layouts().length + "/" + timers.length, "1/1", "weitere Häkchen: derselbe Zeitgeber");
+  flush();
+  eq(layouts().length + "/" + JSON.parse(layouts()[1]).hidden.includes("pri"), "2/true", "Zeitgeber sendet den neuesten Stand");
+  key(item("pri"), "Escape");
+  eq(menuOpen() + "/" + (document.activeElement === hb("cpu")), "false/true", "Escape schließt, Fokus zurück auf den Kopf");
+  key(hb("cpu"), "F10", { shiftKey: true });
+  eq(menuOpen() && document.activeElement === items()[0], true, "Umschalt+F10 öffnet das Menü");
+  key(items()[0], "ArrowDown");
+  const at = menu().getBoundingClientRect().left;
+  key(hb("cpu"), "ContextMenu");
+  rightClick("cpu", 0, 0); // WebKit kann zur Taste zusätzlich ein contextmenu schicken
+  eq(menuOpen() + "/" + $$('[role="menu"]').length + "/" + (document.activeElement === items()[1]) + "/" +
+     (menu().getBoundingClientRect().left === at), "true/1/true/true", "erneutes Öffnen ändert nichts (ein Menü, Fokus, Lage)");
+  key(items()[1], "Escape");
+  key(hb("cpu"), "ContextMenu");
+  eq(menuOpen() && document.activeElement === items()[0], true, "Menütaste öffnet das Menü");
+  clickAway();
+  eq(menuOpen(), false, "Zeigen außerhalb schließt das Menü");
+  rightClick("cpu", 300, 80);
+  acts()[0].click();
+  eq(ids() + "/" + menuOpen(), "pid,process,cpu,user,last60,ram,io,state/true", "Nach links: vor den sichtbaren Nachbarn");
+  key(acts()[1], "Enter");
+  eq(ids(), DEFAULT_IDS, "Nach rechts: zurück");
+  clickAway();
+  rightClick("pid", 10, 80);
+  acts()[0].click();
+  eq(acts()[0].getAttribute("aria-disabled") + "/" + acts()[1].getAttribute("aria-disabled") + "/" + ids(),
+     "true/false/" + DEFAULT_IDS, "am linken Rand: Nach links gesperrt");
+  key(item("process"), "Enter");
+  item("process").click();
+  toggleColumn("process");
+  eq(ids() + "/" + item("process").getAttribute("aria-checked"), DEFAULT_IDS + "/true", "Prozess bleibt sichtbar");
+  key(item("time"), "Enter");
+  acts()[1].click();
+  setWidth("cpu", 90);
+  eq(ids(), "process,pid,user,cpu,last60,ram,io,state,time", "vor dem Wiederherstellen: verändert");
+  key(acts()[2], "Enter");
+  eq(ids() + "/" + JSON.stringify(layoutMessage().widths) + "/" + menuOpen() + "/" + (document.activeElement === hb("pid")),
+     DEFAULT_IDS + "/{}/false/true", "Standard wiederherstellen: Standard, Menü zu, Fokus auf dem Kopf");
+  rightClick("state", innerWidth - 2, innerHeight - 2);
+  const mr = menu().getBoundingClientRect();
+  eq(mr.left >= 0 && mr.top >= 0 && mr.right <= innerWidth && mr.bottom <= innerHeight, true, "Menü bleibt im Fenster");
+  key(document.activeElement, "Tab");
+  eq(menuOpen(), false, "Tab schließt das Menü");
+
+  // ---- Layout aus init: nie selbst gesendet ----
+  flush();
+  const sentBefore = layouts().length;
+  const order = ["process", "cpu", ...COLS.map((c) => c.id).filter((id) => id !== "process" && id !== "cpu")];
+  receive({ type: "init", lang: "de", texts, version: "9.9.9",
+            layout: { order, hidden: ["user", "pri"], widths: { cpu: 90 }, split: 0.5 } });
+  eq(ids(), order.filter((id) => id !== "user" && id !== "pri").join(), "init: Reihenfolge und Sichtbarkeit aus layout");
+  eq(Math.round(th("cpu").getBoundingClientRect().width) + "/" + (layouts().length - sentBefore) + "/" + timers.length,
+     "90/0/0", "init: Breite aus layout, nichts gesendet");
+  receive({ type: "init", lang: "de", texts, version: "9.9.9", layout: null });
+  eq(ids() + "/" + hb("pid").title, DEFAULT_IDS + "/Prozessnummer", "init ohne layout: Standard");
+
+  // ---- Sortierspalte ausgeblendet: CPU absteigend; nach CPU sortiert und CPU ausgeblendet: Auswahl bleibt ----
+  receive(ptick([...base], full(base[3])));
+  toggleColumn("nice");
+  hb("nice").click();
+  eq(names(), "beta,alpha,chip,Gamma", "nach NI sortiert");
+  toggleColumn("nice");
+  eq(th("cpu").getAttribute("aria-sort") + "/" + names(), "descending/alpha,Gamma,beta,chip",
+     "Sortierspalte ausgeblendet: CPU absteigend");
+  const selKey = $(".ptable tr.sel").dataset.key;
+  toggleColumn("cpu");
+  eq(names() + "/" + $(".ptable tr.sel").dataset.key, "alpha,Gamma,beta,chip/" + selKey,
+     "CPU ausgeblendet: weiter nach CPU absteigend, Auswahl bleibt");
+  toggleColumn("cpu");
+  flush();
+  eq(ids() + "/" + ui.labels.length, DEFAULT_IDS + "/" + labelCount, "wieder Standardspalten, ui.labels nicht gewachsen");
 
   // ---- Filter und Suche ----
   filters[1].click();
@@ -363,7 +528,7 @@ document.addEventListener("DOMContentLoaded", () => {
   rows()[0].click();
   receive(ptick(moved, fremd));
   eq($(".detail .kv").children[5].textContent, "nicht einsehbar", "fremde E/A");
-  eq(rows()[0].children[4].textContent, "–", "fremde E/A in der Tabelle");
+  eq(cell(rows()[0], "io").textContent, "–", "fremde E/A in der Tabelle");
 
   // ---- Zombie, pid 1 und Kernel-Threads: gesperrt mit Grund; normale Kinder von kthreadd nicht ----
   const zombie = full(moved[2], { parent: "</b><img src=x onerror=window.pwned=3>" });
@@ -568,7 +733,7 @@ document.addEventListener("DOMContentLoaded", () => {
   receive(ptick(sunk, fd));
   eq(document.activeElement === focused && Math.abs(rowTop(focused) - 299 * pitch) < 0.5, true,
      "fokussierte Zeile bleibt im DOM, an ihrem neuen Platz am Ende");
-  setText(rows().find((t) => t !== focused).firstChild.firstChild, "X");
+  setText(cell(rows().find((t) => t !== focused), "process").firstChild, "X");
   receive(ptick(sunk, fd));
   eq(rows().some((t) => vname(t) === "X"), true, "Takt ohne neue Prozessdaten zeichnet die Tabelle nicht neu");
   receive(ptick(many, fd));

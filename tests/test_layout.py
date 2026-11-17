@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 import json
 import os
+import re
 import threading
 from pathlib import Path
 
@@ -10,6 +11,7 @@ import pytest
 from orbitop import layout
 from orbitop.layout import COLUMNS, DEFAULT_HIDDEN, LayoutFile, config_path, repair, validate
 
+REPO = Path(__file__).parent.parent
 L = {"order": list(COLUMNS), "hidden": list(DEFAULT_HIDDEN), "widths": {"cpu": 90}, "split": 0.6}
 
 
@@ -143,3 +145,11 @@ def test_load_recursion_error_is_none(tmp_path, monkeypatch):
     monkeypatch.setattr(layout.json, "loads", boom)
     f = LayoutFile(str(p))
     assert f.load() is None and f.current is None
+
+
+def test_js_columns_match_python():
+    js = (REPO / "orbitop" / "ui" / "app.js").read_text(encoding="utf-8")
+    block = js[js.index("const COLS = ["):]
+    lines = [ln for ln in block[:block.index("\n];")].splitlines() if 'id: "' in ln]
+    assert [re.search(r'id: "(\w+)"', ln)[1] for ln in lines] == list(COLUMNS)
+    assert [re.search(r'id: "(\w+)"', ln)[1] for ln in lines if "off: true" in ln] == list(DEFAULT_HIDDEN)

@@ -14,7 +14,8 @@ APP_JS = Path(__file__).parent.parent / "orbitop" / "ui" / "app.js"
 
 @pytest.mark.skipif(not CHROME, reason="kein Chrome oder Chromium installiert")
 def test_ui_check_page(tmp_path):
-    out = subprocess.run([CHROME, "--headless=new", f"--user-data-dir={tmp_path}", "--dump-dom", PAGE.as_uri()],
+    out = subprocess.run([CHROME, "--headless=new", f"--user-data-dir={tmp_path}", "--window-size=1600,1000",
+                          "--dump-dom", PAGE.as_uri()],
                          capture_output=True, text=True, timeout=60).stdout
     assert "<title>PASS</title>" in out, out[out.find("<title>"):out.find("</title>")]
 
