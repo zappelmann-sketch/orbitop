@@ -184,7 +184,7 @@ class Worker:
                 return
             view = self._view
         try:
-            text = encode(self._sampler.snapshot(view))
+            text = self._sampler.snapshot_json(view)
         except (TypeError, ValueError):  # nie ein ungültiges JS-Literal senden
             return
         self._post(text)

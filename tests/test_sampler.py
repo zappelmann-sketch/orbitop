@@ -912,3 +912,25 @@ def test_tick_procs_passes_status_gate(monkeypatch):
     monkeypatch.setattr(sampler_mod.procs, "scan", lambda root, cmdlines, want_status=None: gates.append(want_status) or {})
     Sampler(VM, tools=NoTools(), uid=1000).tick_procs()
     assert len(gates) == 1 and callable(gates[0])
+
+
+def test_snapshot_json_byte_identical_and_rows_once_per_process_tick(with_procs):
+    """Die Prozessliste ändert sich nur alle 2 s: Zeilen und ihr JSON einmal je Prozess-Takt, sonst eingesetzt."""
+    from orbitop.app import encode
+    s = run(with_procs)
+    first = s.snapshot({"tab": "procs", "pid": None, "start": None})["procs"][0]
+    views = [OVERVIEW, {"tab": "procs", "pid": None, "start": None},
+             {"tab": "procs", "pid": first["pid"], "start": first["start"]}]
+    built = []
+    real = s._table.rows
+    s._table.rows = lambda now: (built.append(now), real(now))[1]
+    for v in views:
+        assert s.snapshot_json(v) == encode(s.snapshot(v)), v
+    built.clear()
+    for v in views * 2:
+        s.snapshot_json(v)
+    assert len(built) == 0  # Zeilen stammen aus dem Prozess-Takt davor
+    s.tick_procs()
+    for v in views:
+        assert s.snapshot_json(v) == encode(s.snapshot(v)), v
+    assert len(built) == 1 + 2  # einmal je Prozess-Takt; dazu die zwei snapshot() mit procs zum Vergleich

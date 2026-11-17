@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 from orbitop import app
-from orbitop.app import Worker, check_runtime, parse_message, snapshot_path, ui_file
+from orbitop.app import Worker, check_runtime, encode, parse_message, snapshot_path, ui_file
 from orbitop.i18n import load_texts
 
 REPO = Path(__file__).resolve().parent.parent
@@ -249,6 +249,9 @@ class FakeSampler:
     def snapshot(self, view):
         self.views.append(dict(view))
         return self.snap if self.snap is not None else {"type": "tick", "view": view}
+
+    def snapshot_json(self, view):
+        return encode(self.snapshot(view))
 
     def sys_times(self):
         return [t for k, t in self.calls if k == "sys"]

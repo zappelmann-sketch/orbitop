@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Sampler: Ringpuffer (5 min) und die tick-Nachricht des Schnappschuss-Vertrags."""
+import json
 import math
 import os
 import threading
@@ -8,6 +9,7 @@ import time
 from collections import deque
 
 from orbitop import procs, sysfs
+from orbitop.app import encode
 from orbitop.gpu import FdinfoScanner, GpuReader, discover_gpus
 from orbitop.gpu_tools import GpuTools
 from orbitop.procs import ProcTable
@@ -19,6 +21,8 @@ DISK_CHIPS = {"nvme", "drivetemp"}
 CPU_CHIPS = {"coretemp", "k10temp", "zenpower", "k8temp", "via_cputemp", "macsmc_hwmon"}
 CPU_KEY, CHIPSET_KEY = "series.cpu_package", "series.chipset"
 KINDS = ("cpu", "gpu", "mem", "power", "temp", "fan", "net", "disk")
+_PROCS = object()  # Platzhalter für die Prozessliste im Schnappschuss, eingesetzt von snapshot / snapshot_json
+_SLOT = json.dumps("\0procs\0")  # ihr Platz im JSON; echte Texte enthalten nie NUL (_clean, sysfs.printable)
 
 
 def _num(v, u, of=None, p=None):
@@ -133,6 +137,7 @@ class Sampler:
         # dieser Sperre. procs.scan läuft ohne Sperre, liest aber nur _table.cmdlines (nur dieser Thread) und über
         # wants_status die Einträge und selected (einfache Attribut-Zugriffe).
         self._procs_lock = threading.Lock()
+        self._procs_n, self._rows_json = 0, (-1, "")  # Prozess-Takte; JSON der Zeilen und sein Takt
         self._bufs: dict[str, deque] = {}
         self._pushed: set[str] = set()
         self._n = 0
@@ -272,6 +277,7 @@ class Sampler:
         with self._procs_lock:
             self._table.update(raw, now)
             self._now_procs = now
+            self._procs_n += 1
 
     def close(self) -> None:
         if self._own_tools:
@@ -430,9 +436,27 @@ class Sampler:
         out += [_safe(getattr(self, f"_{k}_tile")) for k in ("mem", "power", "temp", "fan", "net", "disk")]
         return [t for t in out if t]
 
+    def _rows(self) -> list:
+        return _clean(_safe(self._table.rows, self._now_procs, default=[]))
+
     def snapshot(self, view: dict) -> dict:
         with self._procs_lock:  # _tiles (CPU-Kachel) und der Rest lesen die Prozesstabelle
-            return self._snapshot(view)
+            snap = self._snapshot(view)
+            if snap["procs"] is _PROCS:
+                snap["procs"] = self._rows()
+            return snap
+
+    def snapshot_json(self, view: dict) -> str:
+        """Gleich encode(snapshot(view)), Byte für Byte. Die Prozessliste ändert sich nur je Prozess-Takt (2 s): ihre
+        Zeilen werden dann einmal gebaut und kodiert und in den 1-s-Schnappschüssen dazwischen nur eingesetzt."""
+        with self._procs_lock:
+            snap = self._snapshot(view)
+            if snap["procs"] is not _PROCS:
+                return encode(snap)
+            if self._rows_json[0] != self._procs_n:
+                self._rows_json = (self._procs_n, encode(self._rows()))
+            snap["procs"] = json.loads(_SLOT)
+            return encode(snap).replace(_SLOT, self._rows_json[1], 1)
 
     def _snapshot(self, view: dict) -> dict:
         view = view if isinstance(view, dict) else {}
@@ -444,7 +468,7 @@ class Sampler:
             hints.append("hint.rapl_noperm")
         procs_rows = detail = self._table.selected = None
         if view.get("tab") == "procs":
-            procs_rows = _safe(self._table.rows, self._now_procs, default=[])
+            procs_rows = _PROCS  # setzt snapshot oder snapshot_json ein
             pid, start = view.get("pid"), view.get("start")
             if all(isinstance(x, int) and not isinstance(x, bool) for x in (pid, start)):
                 detail = _safe(self._table.detail, pid, start, self._now_procs)
