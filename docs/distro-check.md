@@ -1,61 +1,129 @@
 # Distribution check
 
-The setup and the test suite of orbitop, run for real in disposable Docker containers with
-[`scripts/check-distros.sh`](../scripts/check-distros.sh). Only the distributions marked `pass` are supported.
+The packages of orbitop from the signed package source, installed, tested, updated and removed for real in disposable
+Docker containers with [`scripts/check-distros.sh`](../scripts/check-distros.sh). Only the distributions marked `pass`
+are supported.
 
-- Date: 2026-11-18. The five supported images ran a second time that day, after `setup-privileges.sh` started to pick
-  the package manager from os-release: same digests, same versions, all `pass` (openSUSE only on a further run after commit a568c23, see below). Debian 12 and Ubuntu 22.04 are from
-  the first run. Ubuntu 26.04 was added later that day and ran once.
-- Docker: 29.9.3 (x86_64 host with an Intel GPU)
+- Date: 2026-11-18. **Throwaway key:** the source was signed with a key made for this run (Ed25519, user ID
+  `Test Signing <test@example.com>`, no passphrase), not with the archive key. Task 10 repeats the run with the real
+  key before the release.
+- Docker: 29.9.3 (x86_64 host)
+- `SITE` came from `build-packages.sh` and `build-site.sh` (orbitop `0.1.0-1`, `orbitop-apt-source` and
+  `orbitop-release` `2026.11.18`), `SITE2` from `build-packages.sh --suffix check1` and `build-site.sh` with the same key
+  (orbitop `0.1.0-1+check1`, RPM `0.1.0-1.check1`, Arch `0.1.0-1.1`; plan K6). The version becomes 0.2.0 with Task 8.
 - Each image runs once as
-  `docker run --rm -v <copy>:/src:ro <image> bash /src/scripts/check-distros.sh --inside`:
-  no `--privileged`, no added capabilities, no other mounts, and `setup-privileges.sh` without `--allow-*` options.
-  `<copy>` is a temporary copy of the files tracked by git (in a release tree: of the whole tree), removed afterwards.
-- Steps inside the container:
-  1. `refresh`: refresh the package index (`apt-get update`, `pacman -Syu --noconfirm`; dnf and zypper refresh on their own).
-  2. `setup`: `bash scripts/setup-privileges.sh` as root, without options.
-  3. `import`: import GTK 4 and WebKitGTK 6.0 through PyGObject.
-  4. `tools`: install pytest, ShellCheck, desktop-file-utils and AppStream.
-  5. `pytest`: `python3 -m pytest -q` as an ordinary user on a copy of the repository.
-     The browser tests skip themselves (no Chrome in the images), and so do the tests that need a display or the
-     reference machine's GPU.
-  6. `dry-run`: `bash scripts/setup-privileges.sh --dry-run` as that user.
-  7. `version`: `python3 bin/orbitop --version`.
+  `docker run --rm -v <copy>:/src:ro -v SITE:/site:ro -v SITE2:/site2:ro <image> bash /src/scripts/matrix/inside.sh`:
+  no `--privileged`, no added capabilities, nothing writable from the host. `<copy>` is `git archive HEAD`, removed
+  afterwards. The containers reach the distribution mirrors over the network. Unlike the builds, the matrix does not
+  drop `SETFCAP`: rpm sets file capabilities while it installs (with `--cap-drop SETFCAP`, Fedora's `gstreamer1` failed
+  with `cpio: cap_set_file failed - Operation not permitted`), and no output of the container reaches the host.
+- The steps run the commands of the README. Only the installed copies of the source definitions under `/etc` point to
+  `file:///site/` (later `/site2/`) instead of `https://zappelmann-sketch.github.io/orbitop/`; the packages keep the
+  Pages address (`tests/test_check_distros.py`). The commands of each package manager are in
+  `scripts/matrix/{apt,dnf,zypper,pacman}.sh`, the shared rpm part in `scripts/matrix/rpm.sh`.
+  1. `refresh`: the index of the distribution (`apt-get update`, `dnf makecache`, `zypper refresh`, `pacman -Syu`).
+  2. `keyring`: apt: `apt install ./orbitop-apt-source.deb`; the source's `Release` has `Architectures: all` and
+     `Acquire-By-Hash: yes` and no `Valid-Until`. Fedora and openSUSE: `rpm --import orbitop-archive-keyring.asc`, then
+     `rpm -K` reports `digests signatures OK` for every RPM of the source, then `dnf install ./orbitop-release-fedora.rpm`
+     or `zypper install ./orbitop-release-opensuse.rpm`. Arch: `pacman-key --init` and `--populate archlinux`,
+     `pacman-key --add orbitop-archive-keyring.asc`, `pacman-key --lsign-key <fingerprint>`, the section `[orbitop]` with
+     `SigLevel = Required DatabaseRequired` and `Server = …/arch/$arch` at the end of `/etc/pacman.conf`.
+  3. `install`: `apt update` (no `W:`, `E:` or `N:`) and `apt install orbitop`; `dnf install orbitop`;
+     `zypper install orbitop`, and `zypper lr orbitop` shows `GPG Check: (rp) Yes`; `pacman -Syu orbitop`.
+  4. `import`: import GTK 4 and WebKitGTK 6.0 through PyGObject.
+  5. `tools`: install pytest, ShellCheck, desktop-file-utils and AppStream.
+  6. `pytest`: `python3 -m pytest -q` as an ordinary user on a copy of the repository. The browser tests skip
+     themselves (no Chrome in the images), and so do the tests that need a display, git, gpg or the reference machine's
+     GPU.
+  7. `version`: `/usr/bin/orbitop --version` as that user prints the version of the tree.
+  8. `upgrade`: the source switched to `SITE2`, then the regular update (`apt upgrade`, `dnf upgrade`, `zypper dup`,
+     `pacman -Syu`); afterwards the check version is installed.
+  9. `remove`: apt: `apt remove orbitop`, `apt update`, `apt remove orbitop-apt-source`, `apt update`; each `apt update`
+     exits 0 without `W:`, `E:`, `N:` (apt 3: `Warning:`, `Error:`, `Notice:`), and orbitop still has a candidate: the
+     conffiles keep the source with its key. Fedora, openSUSE, Arch: remove `orbitop`, then `dnf makecache`,
+     `zypper refresh` or `pacman -Sy` without a warning or an error.
+  10. `purge`: apt: `apt purge orbitop orbitop-apt-source`. Fedora and openSUSE: the `.repo` back to the Pages address,
+      `rpm -V --nomtime orbitop-release` reports nothing (dnf and zypper did not change it), `remove orbitop-release`,
+      `rpmkeys --delete <key>`; on Fedora also `rm -rf /var/cache/libdnf5/orbitop-*` (notes). Arch: the section out of
+      `pacman.conf` (byte for byte the file from before), `pacman-key --delete <fingerprint>`, `pacman -Sc`. Afterwards no
+      path from the file lists of the packages is left, except directories that another package owns; `/etc/orbitop`
+      does not exist; the index refresh is clean; and no index of the source is left (apt lists,
+      `/var/cache/zypp/*/orbitop`, `/var/lib/pacman/sync/orbitop.*`).
+  11. `tamper`: a copy of `SITE` with one changed byte, set up again like in step 2: `Packages.gz` (also at its by-hash
+      paths), a digit of `<revision>` in `repomd.xml`, or `orbitop.db`. The index refresh must fail with its reason:
+      apt "Hash Sum mismatch", dnf "Bad PGP signature" (with `--setopt=skip_if_unavailable=False`, notes), zypper
+      "Signature verification failed for repomd.xml", pacman "invalid or corrupted database (PGP signature)".
+- `debian:bookworm` and `ubuntu:22.04` pass only as an expected refusal: exactly the step `install` fails, with apt's
+  `orbitop : Depends: python3 (>= 3.12)`. The run ends there.
 
 | Distribution | Image | Digest | Date | Packages | Result |
 |---|---|---|---|---|---|
-| Ubuntu 26.04 | `ubuntu:26.04` | `ubuntu@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db` | 2026-11-18 | `python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools`: Python 3.14.4, PyGObject 3.56.2, GTK 4.22.4, WebKitGTK 2.52.6 | pass |
-| Ubuntu 24.04 | `ubuntu:24.04` | `ubuntu@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8` | 2026-11-18 | `python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools`: Python 3.12.3, PyGObject 3.48.2, GTK 4.14.5, WebKitGTK 2.52.6 | pass |
-| Debian 13 | `debian:trixie` | `debian@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6` | 2026-11-18 | `python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools`: Python 3.13.5, PyGObject 3.50.0, GTK 4.18.6, WebKitGTK 2.54.0 | pass |
-| Fedora 45 | `fedora:latest` | `fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c` | 2026-11-18 | `python3-gobject gtk4 webkitgtk6.0 igt-gpu-tools`: Python 3.15.2, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
-| Arch Linux | `archlinux:latest` | `archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899` | 2026-11-18 | `python-gobject gtk4 webkitgtk-6.0 intel-gpu-tools`: Python 3.14.10, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
-| openSUSE Tumbleweed | `opensuse/tumbleweed` | `opensuse/tumbleweed@sha256:e313db943628a15807fe9f774dc6a388d63e9e35c5b81a399cdf67b8db64b986` | 2026-11-18 | `python3-gobject typelib-1_0-Gtk-4_0 typelib-1_0-WebKit-6_0 python3-gobject-Gdk igt-gpu-tools`: Python 3.13.16, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
-| Debian 12 | `debian:bookworm` | `debian@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8` | 2026-11-18 | `python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools`: Python 3.11.2, PyGObject 3.42.2, GTK 4.8.3, WebKitGTK 2.50.6 | fail (expected): step `pytest`, "orbitop needs Python 3.12 or newer, found 3.11.2." |
-| Ubuntu 22.04 | `ubuntu:22.04` | `ubuntu@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde` | 2026-11-18 | `python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools`: Python 3.10.12, PyGObject 3.42.1, GTK 4.6.9, WebKitGTK 2.50.4 | fail (expected): step `pytest`, "orbitop needs Python 3.12 or newer, found 3.10.12." |
+| Ubuntu 26.04 | `ubuntu:26.04` | `ubuntu@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1+check1`: Python 3.14.4, PyGObject 3.56.2, GTK 4.22.4, WebKitGTK 2.52.6 | pass |
+| Ubuntu 24.04 | `ubuntu:24.04` | `ubuntu@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1+check1`: Python 3.12.3, PyGObject 3.48.2, GTK 4.14.5, WebKitGTK 2.52.6 | pass |
+| Debian 13 | `debian:trixie` | `debian@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1+check1`: Python 3.13.5, PyGObject 3.50.0, GTK 4.18.6, WebKitGTK 2.54.0 | pass |
+| Fedora 45 | `fedora:latest` | `fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1.check1`: Python 3.15.2, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
+| Arch Linux | `archlinux:latest` | `archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1.1`: Python 3.14.10, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
+| openSUSE Tumbleweed | `opensuse/tumbleweed` | `opensuse/tumbleweed@sha256:4bec2188b6d98538bb7393051cd4ca490045eb0ca461fb96a30b1f322dd085c7` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1.check1`: Python 3.13.18, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
+| Debian 12 | `debian:bookworm` | `debian@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8` | 2026-11-18 | `orbitop 0.1.0-1` refused: Python 3.11.2 | pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.11.2-1+b1 is to be installed" |
+| Ubuntu 22.04 | `ubuntu:22.04` | `ubuntu@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde` | 2026-11-18 | `orbitop 0.1.0-1` refused: Python 3.10.6 | pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.10.6-1~22.04.1 is to be installed" |
 
-`Packages` is the install line of `setup-privileges.sh` on that distribution, followed by the versions the `import`
-step reported.
+`Packages` is the version of orbitop that the `install` step installed and the one the `upgrade` step updated it to,
+followed by the versions the `import` step reported. The test suite reported 982 or 983 passed and 52 or 53 skipped
+on Debian and Ubuntu, 995 passed and 40 skipped on Fedora, openSUSE and Arch.
 
 ## Notes
 
-- **Intel tools everywhere:** a container sees the host's `/sys`, so `setup-privileges.sh` found the host's Intel GPU
-  and added the Intel GPU tools on every distribution. Every name resolved, and each install ran in one transaction.
-  On a machine without an Intel GPU the line ends before the tools.
-- **Ubuntu 26.04:** `ubuntu:26.04` was Ubuntu 26.04.1 LTS (`VERSION_ID="26.04"`).
-- **Ubuntu 24.04:** GLib 2.80 has a `GLibUnix` namespace without `signal_add`. orbitop falls back to
-  `GLib.unix_signal_add` there; this check found the case. A test now calls the fallback for real and passes there
-  (GLib 2.80.0).
-- **Debian 13:** `debian:trixie` was Debian 13 (`VERSION_ID="13"`).
-- **Fedora:** `fedora:latest` was Fedora 45 (`VERSION_ID=45`) with Python 3.15. The image lacks `runuser`, so the
-  `tools` step also installs `util-linux` there.
+- **apt pinning:** a `file://` source has no origin, so the pin of `orbitop-apt-source`
+  (`Pin: origin zappelmann-sketch.github.io`) does not apply to it: `apt-cache policy orbitop` shows
+  `500 file:/site/apt stable/main all Packages`. The `upgrade` step therefore serves `SITE2` inside the container at
+  `http://zappelmann-sketch.github.io/orbitop/` (the host name on 127.0.0.1 in the container's `/etc/hosts`,
+  `python3 -m http.server`), so that the pin applies as with Pages: `apt-cache policy orbitop` shows
+  `100 http://zappelmann-sketch.github.io/orbitop/apt stable/main all Packages`, and `apt upgrade` still installs the
+  check version. Installed and new version both have priority 100, and of the same priority apt takes the higher
+  version (apt_preferences(5)). The server's log shows that apt fetched the index as
+  `dists/stable/main/binary-all/by-hash/SHA512/<sha512>`. Afterwards the source points to `file:///site2/` again.
+- **by-hash and the tamper step:** with a changed `Packages.gz` alone, `apt-get update` exits 0 (probe): apt fetches
+  the index by its hash from `by-hash/SHA512/`, whose copy was intact. The step therefore changes the by-hash copies as
+  well, as a server that delivers a changed index would.
+- **Ubuntu 26.04:** `ubuntu:26.04` was Ubuntu 26.04.1 LTS. **Ubuntu 24.04:** Ubuntu 24.04.5 LTS. **Debian 13:**
+  `debian:trixie` was Debian 13; its apt 3 writes `Error:` where older apt writes `E:`.
+- **Fedora:** `fedora:latest` was Fedora 45 (`VERSION_ID=45`). The first installation as in the README, `rpm --import`
+  of the key from the site before `dnf install ./orbitop-release-fedora.rpm`:
+  - Installing the local `orbitop-release` prints "Warning: skipped OpenPGP checks for 1 package from repository:
+    @commandline" (dnf5 checks no local packages); there is no warning about an unknown key.
+  - On the first use of the source, dnf still asks once: "Importing OpenPGP key 0xE652BA57: … From:
+    file:///etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop", answered here by `-y`. dnf5 keeps the keys for `repo_gpgcheck`
+    for each repository in `/var/cache/libdnf5/orbitop-<hash>/pubring/<key id>.pub`. Without `rpm --import` first it
+    asks twice, for the metadata and then for the packages (probe). The run asked three times, because `SITE`, `SITE2`
+    and the tampered copy are three addresses with a cache each; with Pages there is one.
+  - After `dnf remove orbitop orbitop-release` and `rpmkeys --delete`, the copy in the pubring stays, also after
+    `dnf clean all` (probe). The full uninstall on Fedora therefore also removes `/var/cache/libdnf5/orbitop-*`.
+  - dnf5 skips a source whose `repomd.xml` has a bad signature and still exits 0 (`skip_if_unavailable=True`, the
+    Fedora default; docs/release.md). The `tamper` step runs `dnf makecache -y --setopt=skip_if_unavailable=False` and
+    also requires the text "Bad PGP signature".
+  - The image lacks `runuser`, so the `tools` step also installs `util-linux` there.
+- **openSUSE Tumbleweed:** `docker pull` brought a new image during the run, snapshot `VERSION_ID="20261117"`; it has
+  no `awk` or `find`.
+  - Without `rpm --import` first, `zypper install ./orbitop-release-opensuse.rpm` aborts: "Signature verification
+    failed [4-Signatures public key is not available]" (probe). With it, zypper asks nothing; `zypper refresh` only
+    reports "Looking for gpg keys in repository orbitop". This is the way for the README, on Fedora too.
+  - `zypper lr orbitop` shows `GPG Check: (rp) Yes`: metadata and packages are checked. After the address is put back,
+    `rpm -V --nomtime orbitop-release` reports nothing: zypper did not rewrite the `.repo` (`type=rpm-md`).
+  - After `zypper remove orbitop-release`, `rpmkeys --delete` and `zypper refresh`, no cache of the source is left
+    (`/var/cache/zypp/*/orbitop`).
+  - zypper parses `repomd.xml` before it checks the signature: a byte changed in the middle of the file gave
+    "Parse error: repomd.xml[14] Opening and ending tag mismatch" instead of a signature error. The `tamper` step
+    therefore changes a digit of `<revision>`, which keeps the XML well-formed.
+  - Not checked: that `pkg_gpgcheck=1` refuses an unsigned or a foreign-signed package. That needs a third tree whose
+    signed metadata lists such a package, and no secret key goes into a container.
 - **Arch Linux:** the image was built on 2026-11-08 (`VERSION_ID=20261108.0.623074`); `pacman -Syu` brought it up to
-  date first.
-- **openSUSE Tumbleweed:** snapshot `VERSION_ID="20261116"`. zypper resolves `python3-gobject`,
-  `python3-gobject-Gdk` and `igt-gpu-tools` as capabilities and installs `python313-gobject`,
-  `python313-gobject-Gdk` and `intel-gpu-tools`. The image has no `find`. In the second run a test's Docker stand-in
-  still listed files with it and failed there; it uses `tar` now, and the image passed when run once more.
-- **Debian 12 and Ubuntu 22.04 are not supported.** Both ship WebKitGTK 6.0, so `setup` and `import` pass, but their
-  Python is older than 3.12. orbitop then refuses to start with the message in the table (seven tests of the runtime
-  check fail with it, and the app shell tests skip themselves).
-- **Not covered:** the window itself (no display in the containers), the kill helper through `pkexec`, and the
-  `--allow-rapl` and `--allow-perfmon` options.
+  date first. It has no local master key, so `pacman-key --init` comes first (docs/release.md). On install,
+  `orbitop.install` ran `pacman-key --populate orbitop` ("Appending keys from orbitop.gpg"). After the section is
+  removed, `orbitop.db` and `orbitop.db.sig` stay in `/var/lib/pacman/sync/` until `pacman -Sc` ("removing unused sync
+  repositories"); the uninstall of the README needs it. The image has no `cmp`.
+- **Debian 12 and Ubuntu 22.04 are not supported.** apt refuses to install orbitop because their Python is older than
+  3.12, with the message in the table and "E: Unable to correct problems, you have held broken packages."
+  `orbitop-apt-source` itself installs there.
+- **Not covered:** the window itself (no display in the containers), the kill helper through `pkexec`, the upgrade
+  of a distribution release (Ubuntu disables third-party sources then), and the package source over HTTPS from Pages
+  itself (Task 10).

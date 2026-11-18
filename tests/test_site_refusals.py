@@ -23,7 +23,8 @@ def two_keys(tmp_path_factory):
     kill_agent(k["home"])
 
 
-@pytest.mark.parametrize("case", ["no-key", "bad-key", "foreign-key", "old-site", "two-versions", "no-socket"])
+@pytest.mark.parametrize("case", ["no-key", "bad-key", "foreign-key", "old-site", pytest.param("two-versions",
+                                  marks=needs_git), "no-socket"])  # put kommt nach git archive HEAD
 def test_build_site_refuses_before_any_container(tmp_path, key, case):
     kwargs, expect = {
         "no-key": ({"fpr": ""}, "ORBITOP_KEY"),
@@ -70,6 +71,7 @@ def test_build_site_never_reads_input_through_a_symlink(tmp_path, key):
     assert not [p for p in site.rglob("*") if p.is_file() and b"not for the public" in p.read_bytes()]
 
 
+@needs_git
 def test_put_refuses_a_symlinked_package_on_its_own(tmp_path, key):  # auch wenn only_plain ihn übersähe
     (tmp_path / "elsewhere").write_text("x")
     (tmp_path / "pkgs" / "arch").mkdir(parents=True)
