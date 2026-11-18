@@ -148,9 +148,14 @@ def test_key_check_needs_exactly_one_key_and_its_fingerprint():  # Audit Task 7,
         assert first_curl.startswith('cd "$(mktemp -d)"\n')  # F3: eigener Ordner für die Downloads
 
 
+ARCH_KEYS = (  # Fingerabdrücke der Hauptschlüssel mit genau dieser User-ID, geprüft, bevor pacman-key sie sieht
+    "sudo gpg --homedir /etc/pacman.d/gnupg --no-options --batch --with-colons --list-keys "
+    "'=orbitop archive signing key' | awk -F: '$1 == \"pub\" { p = 1; next } p && $1 == \"fpr\" { print $10 } "
+    "{ p = 0 }' | grep -xE '[0-9A-F]{40}' | xargs -r -n1 sudo pacman-key --delete")
+
+
 def test_uninstall_deletes_every_key_of_orbitop():  # Audit Task 7, F2: nach einer Erneuerung gibt es zwei
     for text in (EN, DE):
         assert "rpmkeys --list | grep -F 'orbitop archive signing key' | " in text
-        trusted = "/usr/share/pacman/keyrings/orbitop-trusted"
-        keys = text.index(f"cut -d: -f1 {trusted} | xargs -r -n1 sudo pacman-key --delete")
-        assert keys < text.index("sudo pacman -R orbitop")  # die Liste geht mit dem Paket
+        assert ARCH_KEYS in text  # nicht orbitop-trusted: nach einer Erneuerung fehlt dort der alte Schlüssel
+        assert "orbitop-trusted" not in text

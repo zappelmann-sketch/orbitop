@@ -79,7 +79,7 @@ Paketquelle und Release-Dateien sind mit einem Schlüssel signiert: Ed25519, Use
 <FINGERPRINT>
 ```
 
-Der Fingerabdruck steht hier in der README im Repository, nicht nur auf der Seite der Paketquelle. Die Schritte unten brauchen `curl` und GnuPG (`gpg`, unter Debian und Ubuntu auch `gpgv`). Fehlt eines, installieren Sie es: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2` oder `sudo pacman -S curl gnupg`. Laden Sie den Schlüssel in einem neuen, privaten Verzeichnis in beiden Formen und lassen Sie ihn sich zeigen; das ändert nichts am Rechner:
+Der Fingerabdruck steht hier in der README im Repository, nicht nur auf der Seite der Paketquelle. Die Schritte unten brauchen `curl` und GnuPG (`gpg`, unter Debian und Ubuntu auch `gpgv`). Fehlt eines, installieren Sie es: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2 findutils` oder `sudo pacman -S curl gnupg`. Laden Sie den Schlüssel in einem neuen, privaten Verzeichnis in beiden Formen und lassen Sie ihn sich zeigen; das ändert nichts am Rechner:
 
 ```sh
 cd "$(mktemp -d)"
@@ -327,16 +327,16 @@ sudo zypper remove orbitop-release
 rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | xargs -r -n1 sudo rpmkeys --delete
 ```
 
-`rpmkeys --list` zeigt jeden Schlüssel der rpm-Datenbank mit seiner User-ID, unter openSUSE als `<key id>-<date>`, Version und Release seines Pakets `gpg-pubkey-<key id>-<date>`. Die zweite Zeile löscht jeden Schlüssel mit der User-ID `orbitop archive signing key`, auch einen erneuerten, den ein Update gebracht hat.
+`rpmkeys --list` zeigt jeden Schlüssel der rpm-Datenbank mit seiner User-ID, unter openSUSE als `<Schlüssel-ID>-<Datum>`, Version und Release seines Pakets `gpg-pubkey-<Schlüssel-ID>-<Datum>`. Die zweite Zeile löscht jeden Schlüssel mit der User-ID `orbitop archive signing key`, auch einen erneuerten, den ein Update gebracht hat.
 
 ### Arch Linux
 
 ```sh
-cut -d: -f1 /usr/share/pacman/keyrings/orbitop-trusted | xargs -r -n1 sudo pacman-key --delete
 sudo pacman -R orbitop
+sudo gpg --homedir /etc/pacman.d/gnupg --no-options --batch --with-colons --list-keys '=orbitop archive signing key' | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10 } { p = 0 }' | grep -xE '[0-9A-F]{40}' | xargs -r -n1 sudo pacman-key --delete
 ```
 
-Die erste Zeile entfernt jeden Schlüssel von orbitop aus dem Schlüsselbund von pacman: alle Schlüssel in der Liste des Pakets, die mit `pacman -R` verschwindet. Darin steht der Schlüssel, den Sie bei der Installation hinzugefügt haben, und ein erneuerter, den ein Update gebracht hat. Danach meldet `pacman-key --list-keys 'orbitop archive signing key'` „No public key“. Dann den Abschnitt `[orbitop]` (seine drei Zeilen) aus `/etc/pacman.conf` löschen und die Datenbank der Quelle entfernen, die pacman bis `pacman -Sc` aufhebt. Nach einer Rückfrage leert `pacman -Sc` auch den Cache der nicht mehr installierten Pakete, nicht nur die von orbitop.
+Die zweite Zeile entfernt jeden Schlüssel von orbitop aus dem Schlüsselbund von pacman: jeden Schlüssel, dessen User-ID genau `orbitop archive signing key` lautet, also den, den Sie bei der Installation hinzugefügt haben, und einen erneuerten, den ein Update gebracht hat. Sie gibt nur die Fingerabdrücke dieser Hauptschlüssel weiter; gibt es keinen, läuft nichts. Danach meldet `pacman-key --list-keys 'orbitop archive signing key'` „No public key“. Dann den Abschnitt `[orbitop]` (seine drei Zeilen) aus `/etc/pacman.conf` löschen und die Datenbank der Quelle entfernen, die pacman bis `pacman -Sc` aufhebt. Nach einer Rückfrage leert `pacman -Sc` auch den Cache der nicht mehr installierten Pakete, nicht nur die von orbitop.
 
 ```sh
 sudo pacman -Sc

@@ -79,7 +79,7 @@ The package source and the release files are signed with one key: Ed25519, user 
 <FINGERPRINT>
 ```
 
-The fingerprint is in this README in the repository, not only on the page of the package source. The steps below use `curl` and GnuPG (`gpg`, on Debian and Ubuntu also `gpgv`). If one is missing, install it: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2` or `sudo pacman -S curl gnupg`. In a new private directory, download the key in both forms and show it; this changes nothing on the machine:
+The fingerprint is in this README in the repository, not only on the page of the package source. The steps below use `curl` and GnuPG (`gpg`, on Debian and Ubuntu also `gpgv`). If one is missing, install it: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2 findutils` or `sudo pacman -S curl gnupg`. In a new private directory, download the key in both forms and show it; this changes nothing on the machine:
 
 ```sh
 cd "$(mktemp -d)"
@@ -332,11 +332,11 @@ rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | xarg
 ### Arch Linux
 
 ```sh
-cut -d: -f1 /usr/share/pacman/keyrings/orbitop-trusted | xargs -r -n1 sudo pacman-key --delete
 sudo pacman -R orbitop
+sudo gpg --homedir /etc/pacman.d/gnupg --no-options --batch --with-colons --list-keys '=orbitop archive signing key' | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10 } { p = 0 }' | grep -xE '[0-9A-F]{40}' | xargs -r -n1 sudo pacman-key --delete
 ```
 
-The first line removes every key of orbitop from pacman's keyring: all keys in the list of the package, which goes with `pacman -R`. It holds the key you added at installation, and a renewed one that an update brought. Afterwards `pacman-key --list-keys 'orbitop archive signing key'` reports "No public key". Then delete the section `[orbitop]` (its three lines) from `/etc/pacman.conf` and remove the database of the source, which pacman keeps until `pacman -Sc`. After a prompt, `pacman -Sc` also clears the cached packages that are no longer installed, not only those of orbitop.
+The second line removes every key of orbitop from pacman's keyring: each key whose user ID is exactly `orbitop archive signing key`, so the key you added at installation and a renewed one that an update brought. It passes on only the fingerprints of these primary keys; if there is none, nothing runs. Afterwards `pacman-key --list-keys 'orbitop archive signing key'` reports "No public key". Then delete the section `[orbitop]` (its three lines) from `/etc/pacman.conf` and remove the database of the source, which pacman keeps until `pacman -Sc`. After a prompt, `pacman -Sc` also clears the cached packages that are no longer installed, not only those of orbitop.
 
 ```sh
 sudo pacman -Sc
