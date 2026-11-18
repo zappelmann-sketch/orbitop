@@ -35,10 +35,10 @@ class RawProc:
     nvctx: int | None
     io: int | None  # rchar + wchar, None wenn nicht lesbar
     args: str
-    pri: int = 0
-    nice: int = 0
-    virt: int = 0  # Bytes
-    shr: int | None = None  # Bytes; None, wenn statm nicht gelesen wurde oder nicht lesbar ist
+    pri: int
+    nice: int
+    virt: int  # Bytes
+    shr: int | None  # Bytes; None, wenn statm nicht gelesen wurde oder nicht lesbar ist
 
 
 def is_kernel_thread(ppid: int, cmdline) -> bool:
