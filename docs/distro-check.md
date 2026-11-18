@@ -5,7 +5,7 @@ The setup and the test suite of orbitop, run for real in disposable Docker conta
 
 - Date: 2026-11-18. The five supported images ran a second time that day, after `setup-privileges.sh` started to pick
   the package manager from os-release: same digests, same versions, all `pass` (openSUSE only on a further run after commit a568c23, see below). Debian 12 and Ubuntu 22.04 are from
-  the first run.
+  the first run. Ubuntu 26.04 was added later that day and ran once.
 - Docker: 29.9.3 (x86_64 host with an Intel GPU)
 - Each image runs once as
   `docker run --rm -v <copy>:/src:ro <image> bash /src/scripts/check-distros.sh --inside`:
@@ -24,6 +24,7 @@ The setup and the test suite of orbitop, run for real in disposable Docker conta
 
 | Distribution | Image | Digest | Date | Packages | Result |
 |---|---|---|---|---|---|
+| Ubuntu 26.04 | `ubuntu:26.04` | `ubuntu@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db` | 2026-11-18 | `python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools`: Python 3.14.4, PyGObject 3.56.2, GTK 4.22.4, WebKitGTK 2.52.6 | pass |
 | Ubuntu 24.04 | `ubuntu:24.04` | `ubuntu@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8` | 2026-11-18 | `python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools`: Python 3.12.3, PyGObject 3.48.2, GTK 4.14.5, WebKitGTK 2.52.6 | pass |
 | Debian 13 | `debian:trixie` | `debian@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6` | 2026-11-18 | `python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools`: Python 3.13.5, PyGObject 3.50.0, GTK 4.18.6, WebKitGTK 2.54.0 | pass |
 | Fedora 45 | `fedora:latest` | `fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c` | 2026-11-18 | `python3-gobject gtk4 webkitgtk6.0 igt-gpu-tools`: Python 3.15.2, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
@@ -40,6 +41,7 @@ step reported.
 - **Intel tools everywhere:** a container sees the host's `/sys`, so `setup-privileges.sh` found the host's Intel GPU
   and added the Intel GPU tools on every distribution. Every name resolved, and each install ran in one transaction.
   On a machine without an Intel GPU the line ends before the tools.
+- **Ubuntu 26.04:** `ubuntu:26.04` was Ubuntu 26.04.1 LTS (`VERSION_ID="26.04"`).
 - **Ubuntu 24.04:** GLib 2.80 has a `GLibUnix` namespace without `signal_add`. orbitop falls back to
   `GLib.unix_signal_add` there; this check found the case. A test now calls the fallback for real and passes there
   (GLib 2.80.0).

@@ -114,6 +114,6 @@ if [ "${1:-}" = --inside ]; then
     [ $# -eq 1 ] || usage
     inside
 fi
-[ $# -gt 0 ] || set -- ubuntu:24.04 debian:trixie fedora:latest archlinux:latest opensuse/tumbleweed debian:bookworm \
+[ $# -gt 0 ] || set -- ubuntu:26.04 ubuntu:24.04 debian:trixie fedora:latest archlinux:latest opensuse/tumbleweed debian:bookworm \
     ubuntu:22.04
 host "$@"

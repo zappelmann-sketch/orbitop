@@ -142,6 +142,7 @@ At start, orbitop checks the Python version, PyGObject, GTK 4 and WebKitGTK 6.0.
 <!-- supported:start -->
 | Checked distribution | Derived from it, not tested |
 |---|---|
+| Ubuntu 26.04 | |
 | Ubuntu 24.04 | Linux Mint 22, Pop!_OS 24.04 |
 | Debian 13 | |
 | Fedora 45 | |
