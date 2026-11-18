@@ -29,11 +29,12 @@ def _own(pid: int, root: str) -> bool | None:
 
 
 def _trusted(path: str, lstat=os.lstat) -> bool:
-    """True, wenn path eine reguläre Datei und kein Symlink ist und jedes Glied von ihr bis / root gehört und für Gruppe
-    und andere nicht beschreibbar ist. Sonst könnte ein Prozess des Users austauschen, was pkexec als root startet."""
+    """True, wenn path eine ausführbare reguläre Datei und kein Symlink ist und jedes Glied von ihr bis / root gehört
+    und für Gruppe und andere nicht beschreibbar ist. Sonst könnte ein Prozess des Users austauschen, was pkexec als
+    root startet; ohne x-Bit scheiterte pkexec erst nach dem Passwort."""
     try:
         st = lstat(path)
-        if not stat.S_ISREG(st.st_mode):
+        if not stat.S_ISREG(st.st_mode) or not st.st_mode & stat.S_IXUSR:
             return False
         while st.st_uid == 0 and not st.st_mode & 0o022:  # ein Symlink weiter oben hat 0777 und fällt hier heraus
             if path == "/":

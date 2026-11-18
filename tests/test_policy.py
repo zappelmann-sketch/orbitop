@@ -32,19 +32,28 @@ def test_names_follow_polkit8():  # nur [A-Za-z0-9.-], Datei heißt nach dem Nam
 
 def test_every_session_needs_admin_auth_each_time():
     defaults = policy().find("action/defaults")
-    assert {e.tag: e.text for e in defaults} == dict.fromkeys(("allow_any", "allow_inactive", "allow_active"),
-                                                              "auth_admin")
+    assert sorted((e.tag, e.text) for e in defaults) == [(k, "auth_admin") for k in
+                                                         ("allow_active", "allow_any", "allow_inactive")]
 
 
 def test_only_annotation_is_exec_path_of_the_helper():  # kein allow_gui, kein argv1
-    assert {a.get("key"): a.text for a in policy().iter("annotate")} == {
-        "org.freedesktop.policykit.exec.path": actions._HELPER}
+    assert [(a.get("key"), a.text) for a in policy().iter("annotate")] == [
+        ("org.freedesktop.policykit.exec.path", actions._HELPER)]
 
 
 def test_texts_match_locale():
     action = policy().find("action")
     for tag in ("description", "message"):
-        assert {e.get(LANG): e.text for e in action.findall(tag)} == {None: text("en"), "de": text("de")}, tag
+        assert sorted((e.get(LANG, ""), e.text) for e in action.findall(tag)) == [("", text("en")),
+                                                                                  ("de", text("de"))], tag
+
+
+def test_dialog_shows_the_command_line():  # sonst sähe der Admin nicht, welche PID der Helfer beenden soll
+    assert all(text(lang).endswith(": $(command_line)") for lang in ("en", "de"))
+
+
+def test_ui_never_uses_polkit_texts():  # polkit.* ist nur für die .policy; die Seite setzt $(…) nicht ein
+    assert not [p for p in (ROOT / "orbitop" / "ui").rglob("*") if p.is_file() and b"polkit" in p.read_bytes()]
 
 
 def test_spdx_header_in_comment():

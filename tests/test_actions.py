@@ -371,6 +371,7 @@ def test_helper_in_user_tree_is_nohelper(monkeypatch, foreign, tmp_path, make):
     {INSTALLED: (0, stat.S_IFREG | 0o775)},                      # Datei für die Gruppe beschreibbar
     {INSTALLED: (0, stat.S_IFLNK | 0o777)},                      # Symlink
     {INSTALLED: (0, stat.S_IFDIR | 0o755)},                      # keine reguläre Datei
+    {INSTALLED: (0, stat.S_IFREG | 0o644)},                      # nicht ausführbar: pkexec scheiterte nach dem Passwort
     {"/usr/lib/orbitop": (0, stat.S_IFDIR | 0o775)},             # Elternverzeichnis für die Gruppe beschreibbar
     {"/usr": (0, stat.S_IFDIR | 0o757)},                         # weiter oben für andere beschreibbar
     {"/usr/lib": (1000, stat.S_IFDIR | 0o755)},                  # Verzeichnis gehört dem User

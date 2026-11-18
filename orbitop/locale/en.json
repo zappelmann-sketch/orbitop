@@ -121,7 +121,7 @@
   "missing.power": "No power reading available",
   "missing.temp": "No temperature sensors found",
   "notice.for": "{name} (PID {pid}): {text}",
-  "polkit.terminate": "Terminate a process of another user",
+  "polkit.terminate": "Terminate a process of another user: $(command_line)",
   "procs.search": "Search processes …",
   "procs.splitter": "Divider between list and details",
   "result.denied": "Termination was not permitted (cancelled or no permission).",
