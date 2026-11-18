@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+[Desktop Entry]
+Type=Application
+Name=orbitop
+Exec=orbitop --hidden
+TryExec=orbitop
+Icon=io.github.zappelmann_sketch.orbitop
+X-GNOME-Autostart-enabled=true
+NoDisplay=true

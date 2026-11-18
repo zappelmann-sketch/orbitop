@@ -31,6 +31,7 @@ const state = {
   layout: null, memTotal: null, menuCol: null, savedAt: -Infinity, saving: false, // Spalten, %MEM, Menü, layout-Meldung
   drag: null, noClick: false, // laufendes Ziehen; Klick nach dem Umordnen verwerfen
   target: null, opener: null, pending: null, lastTerm: null, alert: null, // Rückfrage, laufendes Beenden, Nachsehen
+  autostart: null, autoBusy: false, // Stand aus init oder autostart_state (null: kein Befehl orbitop); Antwort steht aus
 };
 const ui = { labels: [] };
 const tiles = new Map(); // Kachel-id -> Elemente
@@ -1262,9 +1263,31 @@ function buildDialogs() {
     label(b.lastChild, "state." + s);
     label(el("p", "", leg), "legend." + s);
   }
+  label(el("h3", "t", a), "settings.title");
+  ui.auto = label(button("switch", a, toggleAutostart), "settings.autostart");
+  ui.auto.setAttribute("role", "switch");
+  ui.autoHint = el("p", "s", a);
+  ui.autoHint.id = "autostart-hint";
+  ui.auto.setAttribute("aria-describedby", ui.autoHint.id);
+  renderAutostart();
   const ab = el("div", "btns", a);
   ui.aboutClose = label(button("btn plain", ab, () => closeDialog(ui.about)), "btn.close");
   label(button("btn term", ab, () => post({ type: "quit" })), "about.quit");
+}
+
+/** Schalter „Beim Anmelden starten“: gesperrt ohne Befehl orbitop (null) und bis zur Antwort auf einen Klick. */
+function renderAutostart() {
+  const on = state.autostart;
+  ui.auto.setAttribute("aria-checked", String(on === true));
+  ui.auto.setAttribute("aria-disabled", String(on === null || state.autoBusy));
+  setText(ui.autoHint, text(on === null ? "settings.autostart_unavailable" : "settings.autostart_hint"));
+}
+
+function toggleAutostart() {
+  if (ui.auto.getAttribute("aria-disabled") === "true") return;
+  state.autoBusy = true;
+  post({ type: "autostart", on: !state.autostart });
+  renderAutostart();
 }
 
 /** Rückfrage öffnen; das Ziel (pid, start) wird jetzt festgehalten, nicht erst beim Bestätigen. */
@@ -1314,6 +1337,8 @@ window.orbitop = {
       applyLayout(state.saving ? state.layout : msg.layout); // Meldung steht aus: der neuere Stand der Seite gilt
       labelHead(); // auch ohne Neuaufbau des Kopfes
       setText(ui.version, fill("about.version", { version: state.version }));
+      state.autostart = typeof msg.autostart === "boolean" ? msg.autostart : null;
+      renderAutostart();
       hdrInfo();
     } else if (msg.type === "tick") {
       const prev = state.last;
@@ -1337,6 +1362,10 @@ window.orbitop = {
       if (msg.alive) state.alert = keyOf(t); // „Sofort beenden“ hervorheben
       else notify("gone", t);
       refresh();
+    } else if (msg.type === "autostart_state") {
+      state.autostart = typeof msg.on === "boolean" ? msg.on : null;
+      state.autoBusy = false;
+      renderAutostart();
     }
   },
 };

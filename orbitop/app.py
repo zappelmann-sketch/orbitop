@@ -110,6 +110,8 @@ def parse_message(raw) -> dict | None:
         pid, start, force = m.get("pid"), m.get("start"), m.get("force")
         if _uint(pid, PID_MAX) and _uint(start, START_MAX) and type(force) is bool:
             return {"type": "terminate", "pid": pid, "start": start, "force": force}
+    if kind == "autostart" and type(m.get("on")) is bool:
+        return {"type": "autostart", "on": m["on"]}
     return None
 
 

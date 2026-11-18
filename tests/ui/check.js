@@ -1035,6 +1035,38 @@ document.addEventListener("DOMContentLoaded", () => {
   about.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   eq(about.open + "/" + (document.activeElement === info), "false/true", "Info: Esc schließt, Fokus zurück");
   info.click();
+  // Autostart: init ohne Feld oder mit null heißt gesperrt (Checkout ohne Paket), sonst der Stand aus init
+  const sw = $("dialog.about [role=switch]"), swState = () => [sw.tagName, sw.textContent, sw.getAttribute("aria-checked"),
+    sw.getAttribute("aria-disabled"), sw.nextElementSibling.textContent].join("/");
+  const initWith = (autostart) => receive({ type: "init", lang: "de", texts, version: "9.9.9", layout: null, autostart });
+  const nPosted = posted.length;
+  eq(swState(), "BUTTON/settings.autostart/false/true/settings.autostart_unavailable", "Autostart: ohne Feld gesperrt");
+  sw.click();
+  initWith(null);
+  sw.click();
+  eq(posted.length + "/" + swState(), nPosted + "/BUTTON/settings.autostart/false/true/settings.autostart_unavailable",
+     "Autostart: bei null gesperrt, Klick sendet nichts");
+  initWith(false);
+  eq(swState(), "BUTTON/settings.autostart/false/false/settings.autostart_hint", "Autostart: aus laut init");
+  initWith(true);
+  eq(swState(), "BUTTON/settings.autostart/true/false/settings.autostart_hint", "Autostart: an laut init");
+  sw.click();
+  sw.click(); // gesperrt bis zur Antwort
+  eq(posted.slice(nPosted).join() + "/" + sw.getAttribute("aria-disabled"), '{"type":"autostart","on":false}/true',
+     "Autostart: Klick postet genau eine Nachricht, danach gesperrt");
+  receive({ type: "autostart_state", on: false });
+  eq(swState(), "BUTTON/settings.autostart/false/false/settings.autostart_hint", "Autostart: autostart_state setzt aria-checked");
+  sw.click();
+  eq(posted.at(-1), '{"type":"autostart","on":true}', "Autostart: nächster Klick schaltet ein");
+  receive({ type: "autostart_state", on: true });
+  eq(sw.getAttribute("aria-checked") + "/" + sw.getAttribute("aria-disabled"), "true/false", "Autostart: an nach Antwort");
+  receive({ type: "autostart_state", on: null });
+  eq(swState(), "BUTTON/settings.autostart/false/true/settings.autostart_unavailable", "Autostart: Antwort null sperrt");
+  eq(sw.getAttribute("aria-describedby") === sw.nextElementSibling.id && !!sw.nextElementSibling.id, true,
+     "Autostart: Hinweis beschreibt den Schalter");
+  eq(sw.previousElementSibling.tagName + "/" + sw.previousElementSibling.textContent + "/" +
+     (sw.compareDocumentPosition($("dialog.about .legend")) & Node.DOCUMENT_POSITION_PRECEDING ? "nach" : "vor"),
+     "H3/settings.title/nach", "Autostart: Überschrift über dem Schalter, unter der Legende");
   $("dialog.about .btn.term").click();
   eq(posted.at(-1), '{"type":"quit"}', "Info: beenden sendet quit");
   $("dialog.about .btn.plain").click();

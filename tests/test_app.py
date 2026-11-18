@@ -40,6 +40,8 @@ UI = REPO / "orbitop" / "ui"
     ('{"type":"view","tab":"procs","pid":4194304,"start":9223372036854775807}',
      {"type": "view", "tab": "procs", "pid": 4194304, "start": 2**63 - 1}),
     (json.dumps({"type": "layout", **L, "path": "/etc/passwd"}), {"type": "layout", **L}),
+    ('{"type":"autostart","on":true}', {"type": "autostart", "on": True}),
+    ('{"type":"autostart","on":false,"path":"/etc/xdg"}', {"type": "autostart", "on": False}),
 ])
 def test_parse_message_accepts_contract_shapes(raw, msg):
     assert parse_message(raw) == msg
@@ -75,6 +77,8 @@ def test_parse_message_layout_rejects_bad_and_oversize():
     '{"type":"view","tab":"x","pid":null,"start":null}',
     '{"type":"view","tab":["procs"],"pid":null,"start":null}',
     '{"type":"view","pid":null,"start":null}',
+    '{"type":"autostart","on":1}', '{"type":"autostart","on":"true"}', '{"type":"autostart"}',
+    '{"type":"autostart","on":null}',
     '{"type":"reload"}', '{"type":["ready"]}', '{"type":null}', '{}',
     '[{"type":"ready"}]', "null", "1", '"ready"', "", "{kaputt", '{"type":"ready"',
     '{"type":"ready","pad":"' + "x" * 4096 + '"}',               # zu lang

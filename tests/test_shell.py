@@ -26,7 +26,7 @@ from orbitop import shell  # noqa: E402
 from orbitop.layout import COLUMNS, DEFAULT_HIDDEN, LayoutFile  # noqa: E402
 
 UI = Path(shell.UI_DIR)
-INIT = '{"type": "init", "layout": null}'
+INIT = '{"type": "init", "layout": null, "autostart": null}'
 L = {"order": list(COLUMNS), "hidden": list(DEFAULT_HIDDEN), "widths": {"cpu": 90}, "split": 0.6}
 
 
@@ -93,6 +93,9 @@ def rig(monkeypatch, tmp_path):
     s._init_fields, s._layouts = {"type": "init"}, LayoutFile(str(tmp_path / "layout.json"))
     s._sampler = SimpleNamespace(close=lambda: log.append("close"))
     s._app = SimpleNamespace(quit=lambda: log.append("quit"))
+    # nie der echte Autostart-Ordner: set_enabled schriebe sonst nach ~/.config/autostart
+    monkeypatch.setattr(shell.autostart, "state", lambda env: None)
+    monkeypatch.setattr(shell.autostart, "set_enabled", lambda on, env: log.append(("autostart", on)))
     glib = FakeGLib()
     monkeypatch.setattr(shell, "GLib", glib)
     monkeypatch.setattr(shell, "threading", SimpleNamespace(Thread=Thread))
@@ -135,6 +138,25 @@ def test_ready_while_hidden_sends_nothing(rig):
     assert rig.js == []
 
 
+def test_init_carries_autostart_state(rig, monkeypatch):
+    seen = iter([False, True])
+    monkeypatch.setattr(shell.autostart, "state", lambda env: next(seen) if env is os.environ else pytest.fail())
+    rig.s._on_message(None, Value({"type": "ready"}))
+    rig.s._on_message(None, Value({"type": "ready"}))  # bei jedem Senden neu ermittelt
+    sent = [json.loads(j.removeprefix("window.orbitop.receive(").removesuffix(")")) for j in rig.js]
+    assert [m["autostart"] for m in sent] == [False, True]
+
+
+@pytest.mark.parametrize("on,after", [(True, True), (False, False), (True, None), (False, True)])
+def test_autostart_message_sets_and_replies(rig, monkeypatch, on, after):
+    calls = []
+    monkeypatch.setattr(shell.autostart, "set_enabled",
+                        lambda value, env: calls.append((value, env is os.environ)) or after)
+    rig.s._on_message(None, Value({"type": "autostart", "on": on, "path": "/tmp/x"}))
+    assert calls == [(on, True)] and rig.log == []
+    assert rig.js == [receive({"type": "autostart_state", "on": after})]
+
+
 def test_view_goes_to_worker(rig):
     rig.s._on_message(None, Value({"type": "view", "tab": "procs", "pid": 3, "start": 4, "x": 1}))
     assert rig.log == [("update", {"view": {"type": "view", "tab": "procs", "pid": 3, "start": 4}})]
@@ -145,7 +167,8 @@ def test_quit_message_quits(rig):
     assert rig.log == ["quit"]
 
 
-@pytest.mark.parametrize("obj", [{"type": "terminate", "pid": True, "start": 1, "force": False}, {"type": "x"}, [1]])
+@pytest.mark.parametrize("obj", [{"type": "terminate", "pid": True, "start": 1, "force": False}, {"type": "x"}, [1],
+                                 {"type": "autostart", "on": 1}, {"type": "autostart"}])
 def test_invalid_message_is_ignored(rig, obj):
     rig.s._on_message(None, Value(obj))
     assert rig.log == [] and rig.js == [] and rig.threads == []

@@ -20,7 +20,7 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit  # noqa: E402
 
-from orbitop import APP_ID, __version__, actions  # noqa: E402
+from orbitop import APP_ID, __version__, actions, autostart  # noqa: E402
 from orbitop.app import SCHEME, UI_HOST, Worker, encode, parse_message, snapshot_path, ui_file  # noqa: E402
 from orbitop.i18n import detect_language, load_texts  # noqa: E402
 from orbitop.layout import KEYS, LayoutFile, config_path  # noqa: E402
@@ -147,7 +147,8 @@ class Shell:
 
     # ---- Brücke ----
     def _init_message(self) -> str:
-        return encode({**self._init_fields, "layout": self._layouts.current})  # bei jedem Senden das aktuelle Layout
+        # bei jedem Senden das aktuelle Layout und der Autostart-Stand von jetzt
+        return encode({**self._init_fields, "layout": self._layouts.current, "autostart": autostart.state(os.environ)})
 
     def _send(self, text: str) -> None:
         """text stammt aus encode(), ist also ein sicheres JS-Literal."""
@@ -189,6 +190,8 @@ class Shell:
             self._layouts.save({k: msg[k] for k in KEYS})
         elif kind == "terminate":
             self._terminate(msg["pid"], msg["start"], msg["force"])
+        elif kind == "autostart":
+            self._send(encode({"type": "autostart_state", "on": autostart.set_enabled(msg["on"], os.environ)}))
         else:
             self._app.quit()
 
