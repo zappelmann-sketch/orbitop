@@ -321,6 +321,11 @@ def test_serve_denies(uri):
 
 
 # ---- Einstellungen ----
+# WebKit.Settings stürzt ohne Anzeige ab (Segfault statt Ausnahme), etwa im Container oder über SSH
+needs_display = pytest.mark.skipif(shell.Gdk.Display.get_default() is None, reason="keine Anzeige")
+
+
+@needs_display
 def test_settings_hardened(monkeypatch):
     monkeypatch.delenv("ORBITOP_DEVTOOLS", raising=False)
     st = shell._settings()
@@ -333,6 +338,7 @@ def test_settings_hardened(monkeypatch):
     assert st.get_media_playback_requires_user_gesture()
 
 
+@needs_display
 @pytest.mark.parametrize("value,on", [("1", True), ("yes", False), ("0", False), ("", False)])
 def test_devtools_only_with_env_1(monkeypatch, value, on):
     monkeypatch.setenv("ORBITOP_DEVTOOLS", value)
@@ -341,16 +347,25 @@ def test_devtools_only_with_env_1(monkeypatch, value, on):
 
 # ---- Signale ----
 def test_unix_signal_add_prefers_glibunix():
-    gi.require_version("GLibUnix", "2.0")
-    from gi.repository import GLibUnix
+    try:
+        gi.require_version("GLibUnix", "2.0")
+        from gi.repository import GLibUnix
+        preferred = GLibUnix.signal_add
+    except (ImportError, ValueError, AttributeError):
+        pytest.skip("GLibUnix.signal_add fehlt (ältere GLib)")
     with warnings.catch_warnings():  # GLib.unix_signal_add wäre hier derselbe Aufruf, aber mit Veraltet-Warnung
         warnings.simplefilter("error", DeprecationWarning)
-        assert shell._unix_signal_add() == GLibUnix.signal_add
+        assert shell._unix_signal_add() == preferred
 
 
-@pytest.mark.parametrize("block", ["require", "import"])
-def test_unix_signal_add_falls_back_without_glibunix(monkeypatch, block):  # z. B. Ubuntu 24.04, PyGObject 3.48
-    if block == "require":
+# require/import: ältere GLib ohne GLibUnix; attr: GLib 2.80 (Ubuntu 24.04) hat dort nur signal_add_full
+@pytest.mark.parametrize("block", ["require", "import", "attr"])
+def test_unix_signal_add_falls_back_without_glibunix(monkeypatch, block):
+    if block == "attr":
+        fake = SimpleNamespace()  # Modul ohne signal_add
+        monkeypatch.setitem(sys.modules, "gi.repository.GLibUnix", fake)
+        monkeypatch.setattr(sys.modules["gi.repository"], "GLibUnix", fake, raising=False)
+    elif block == "require":
         real = gi.require_version
 
         def require(namespace, version):

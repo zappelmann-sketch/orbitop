@@ -211,8 +211,10 @@ def test_nvidia_lookup_by_normalized_pci(monkeypatch):
     t.stop()
 
 
-@pytest.mark.skipif(not shutil.which("intel_gpu_top", path=gpu_tools.TOOL_PATH) or not Path("/sys/class/drm/card1").exists(),
-                    reason="intel_gpu_top fehlt")
+# /dev/dri/card1: im Container sind sysfs und intel_gpu_top da, das Gerät nicht; der Test meint nur den Referenzrechner
+@pytest.mark.skipif(not shutil.which("intel_gpu_top", path=gpu_tools.TOOL_PATH)
+                    or not Path("/sys/class/drm/card1").exists() or not Path("/dev/dri/card1").exists(),
+                    reason="intel_gpu_top oder Intel-GPU card1 fehlt")
 def test_real_intel_gpu_top_delivers_within_3s():
     t = GpuTools(discover_gpus("/"))
     try:

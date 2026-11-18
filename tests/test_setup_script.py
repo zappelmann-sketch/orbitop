@@ -134,7 +134,16 @@ def test_bad_arguments_exit_2_without_actions(args):
 
 def test_shellcheck_clean():
     assert subprocess.run(["shellcheck", str(ROOT / "scripts/setup-privileges.sh"),
-                           str(ROOT / "scripts/capture-fixture.sh")]).returncode == 0
+                           str(ROOT / "scripts/capture-fixture.sh"),
+                           str(ROOT / "scripts/check-distros.sh")]).returncode == 0
+
+
+def test_check_distros_refuses_outside_container(tmp_path):  # installiert echt als root, also nur im Wegwerf-Container
+    if os.geteuid() == 0:
+        pytest.skip("running as root")
+    r = subprocess.run(["bash", str(ROOT / "scripts" / "check-distros.sh"), "--inside"], capture_output=True, text=True,
+                       cwd=tmp_path)
+    assert r.returncode == 1 and "container" in r.stderr and "STEP" not in r.stdout
 
 
 def test_capture_mount_filter_keeps_only_plain_mounts():

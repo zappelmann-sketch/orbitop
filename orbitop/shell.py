@@ -34,13 +34,13 @@ RELOAD_GAP_S = 10  # nach Abstürzen des Web-Prozesses höchstens einmal je 10 s
 
 
 def _unix_signal_add():
-    """GLibUnix.signal_add (neues PyGObject); ältere Fassungen ohne GLibUnix (Ubuntu 24.04: 3.48) nur GLib.unix_signal_add."""
+    """GLibUnix.signal_add (neue GLib), sonst GLib.unix_signal_add (GLib 2.80 in Ubuntu 24.04: nur signal_add_full)."""
     try:
         gi.require_version("GLibUnix", "2.0")
         from gi.repository import GLibUnix
-    except (ImportError, ValueError):
+        return GLibUnix.signal_add
+    except (ImportError, ValueError, AttributeError):
         return GLib.unix_signal_add
-    return GLibUnix.signal_add
 
 
 def _settings() -> WebKit.Settings:

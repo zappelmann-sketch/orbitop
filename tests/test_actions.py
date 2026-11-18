@@ -252,7 +252,8 @@ def test_unexpected_oserror_is_error(child, monkeypatch):
 def test_pidfd_before_check_and_signal_via_pidfd(child, monkeypatch):
     calls = []
     o, st, sd = os.pidfd_open, killhelper._stat, signal.pidfd_send_signal
-    monkeypatch.setattr(os, "pidfd_open", lambda pid: calls.append("open") or o(pid))
+    # *flags: unter Python 3.15 (Fedora 45) ruft auch Popen.wait os.pidfd_open(pid, 0)
+    monkeypatch.setattr(os, "pidfd_open", lambda pid, *flags: calls.append("open") or o(pid, *flags))
     monkeypatch.setattr(killhelper, "_stat", lambda pid, root: calls.append("stat") or st(pid, root))
     monkeypatch.setattr(signal, "pidfd_send_signal", lambda fd, s: calls.append("signal") or sd(fd, s))
     monkeypatch.setattr(os, "kill", lambda *a: pytest.fail("Signal per PID"))
