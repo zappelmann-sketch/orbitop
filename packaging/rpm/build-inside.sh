@@ -6,20 +6,13 @@
 #        starts: the archive at /src (read-only), results to /out/rpm-<family> and /out/lint, the key
 #        already checked by the host (binary).
 set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=../container-prologue.sh
+. "$(dirname -- "$0")/../container-prologue.sh"  # $key from stdin, die, archive; only as root in a container
 
-key=$(mktemp)
-cat > "$key"  # first step: nothing else may read stdin
-
-die() { echo "$*" >&2; exit 1; }
 [ $# -eq 2 ] || die "usage: $0 VERSION RELEASE < KEY.pgp"
-if [ ! -e /.dockerenv ] || [ "$(id -u)" -ne 0 ]; then
-    die "$0 installs packages as root and runs only as root inside a disposable container."
-fi
-[[ ${OWNER:-} =~ ^[0-9]+:[0-9]+$ ]] || die "OWNER must be uid:gid"
-trap 'chown -R "$OWNER" /out' EXIT  # the results belong to the caller, also after a failure
 version=$1 release=$2
 
-tools=(rpm-build desktop-file-utils rpmlint cpio)
+tools=(rpm-build desktop-file-utils rpmlint cpio gawk)
 # shellcheck source=/dev/null  # os-release(5) of the image
 case "$(. /etc/os-release && echo "$ID")" in
     fedora)
@@ -35,7 +28,7 @@ esac
 # Sources: the archive as orbitop-VERSION.tar, the key armored (rpm --import and the .repo files need it so).
 top=$(mktemp -d)
 mkdir "$top/SOURCES" "$top/SPECS"
-tar -C / -cf "$top/SOURCES/orbitop-$version.tar" --transform "s,^src,orbitop-$version," src
+archive "$top/SOURCES" "$version"
 GNUPGHOME=$(mktemp -d) && export GNUPGHOME
 gpg --batch --quiet --import "$key"
 gpg --batch --armor --export > "$top/SOURCES/RPM-GPG-KEY-orbitop"
@@ -66,19 +59,7 @@ rpm2cpio "$top/RPMS/noarch/orbitop-$version-$release.noarch.rpm" |
 
 mkdir -p "/out/rpm-$family" /out/lint
 cp "$top"/RPMS/noarch/*.rpm "/out/rpm-$family/"
-# openSUSE's rpmlint reports every polkit action that the SUSE security team has not reviewed for a SUSE product and
-# blocks filters for it (BlockedFilters in opensuse.toml). orbitop is no SUSE product, so exactly this line is accepted;
-# a weaker default than auth_admin fails (docs/release.md, "Lint notes"). The exit status of rpmlint depends on a
-# badness threshold there, so every E: line counts.
-accepted=-  # a line rpmlint never prints
-if [ "$family" = opensuse ]; then
-    accepted="orbitop.noarch: E: polkit-untracked-privilege (Badness: 10) io.github.zappelmann-sketch.orbitop.terminate"
-    accepted+=" (auth_admin:auth_admin:auth_admin)"
-fi
 report=/out/lint/rpm-$family.txt
-rpmlint "/out/rpm-$family"/*.rpm > "$report" 2>&1 || true
+rpmlint "/out/rpm-$family"/*.rpm > "$report" 2>&1 || true  # its exit status is no verdict (lint-gate.sh)
 cat "$report"
-grep -q ' packages and .* specfiles checked;' "$report" || die "rpmlint did not finish"
-if grep ': E: ' "$report" | grep -qvxF -- "$accepted"; then
-    die "rpmlint reports errors"
-fi
+bash /src/packaging/rpm/lint-gate.sh "$family" "$report" || die "rpmlint reports errors"

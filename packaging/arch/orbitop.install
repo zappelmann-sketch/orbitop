@@ -1,10 +1,15 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Loads the signing key of the orbitop repository from /usr/share/pacman/keyrings into the keyring of pacman
-# (pacman-key(8), "Providing a keyring for import"), so that a renewed key arrives with the update.
+# (pacman-key(8), "Providing a keyring for import"), so that a renewed key arrives with the update. Like
+# archlinux-keyring, only when pacman's keyring is set up.
 
 post_install() {
-    pacman-key --populate orbitop
+    if pacman-key -l >/dev/null 2>&1; then
+        pacman-key --populate orbitop
+    else
+        echo "orbitop: pacman's keyring is not set up; run 'pacman-key --init' and 'pacman-key --populate orbitop'."
+    fi
 }
 
 post_upgrade() {

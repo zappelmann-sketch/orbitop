@@ -5,17 +5,10 @@
 # Usage: bash build-inside.sh VERSION PKGREL < KEY.pgp   only as root in the container that scripts/build-packages.sh
 #        starts: the archive at /src (read-only), results to /out/arch, the key already checked by the host (binary).
 set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=../container-prologue.sh
+. "$(dirname -- "$0")/../container-prologue.sh"  # $key from stdin, die, archive; only as root in a container
 
-key=$(mktemp)
-cat > "$key"  # first step: nothing else may read stdin
-
-die() { echo "$*" >&2; exit 1; }
 [ $# -eq 2 ] || die "usage: $0 VERSION PKGREL < KEY.pgp"
-if [ ! -e /.dockerenv ] || [ "$(id -u)" -ne 0 ]; then
-    die "$0 installs packages as root and runs only as root inside a disposable container."
-fi
-[[ ${OWNER:-} =~ ^[0-9]+:[0-9]+$ ]] || die "OWNER must be uid:gid"
-trap 'chown -R "$OWNER" /out' EXIT  # the results belong to the caller, also after a failure
 version=$1 pkgrel=$2
 
 pacman -Syu --noconfirm --needed base-devel namcap python >/dev/null
@@ -25,12 +18,13 @@ useradd --create-home builder  # makepkg refuses to run as root
 work=$(mktemp -d)
 cp /src/packaging/arch/orbitop.install "$work/"
 { printf 'pkgver=%s\npkgrel=%s\n' "$version" "$pkgrel"; cat /src/packaging/arch/PKGBUILD; } > "$work/PKGBUILD"
-tar -C / -cf "$work/orbitop-$version.tar" --transform "s,^src,orbitop-$version," src
+archive "$work" "$version"
 cp "$key" "$work/orbitop.gpg"
 GNUPGHOME=$(mktemp -d) && export GNUPGHOME
 fpr=$(gpg --batch --with-colons --show-keys "$key" | awk -F: '$1 == "fpr" { print $10; exit }')
 [[ $fpr =~ ^[0-9A-F]{40}$ ]] || die "no fingerprint in the key"
-printf '%s:4:\n' "$fpr" > "$work/orbitop-trusted"  # ownertrust "marginal", as in archlinux-trusted
+# Owner trust 3 ("never"): pacman's local signature makes the key valid, but it never helps to validate another key.
+printf '%s:3:\n' "$fpr" > "$work/orbitop-trusted"
 chown -R builder "$work"
 
 cd "$work"
@@ -52,4 +46,4 @@ cp "$pkg" /out/arch/
 report=/out/lint/arch-orbitop.txt
 namcap PKGBUILD "$pkg" > "$report" 2>&1
 cat "$report"
-if grep -q ' E: ' "$report"; then exit 1; fi
+if grep -q ' E: ' "$report"; then die "namcap reports errors"; fi

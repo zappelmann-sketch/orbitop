@@ -44,10 +44,29 @@ def test_pkgbuild_ships_keyring_and_tree():
     assert '"$pkgdir/usr/share/pacman/keyrings"' in text and "startdir" not in text  # PKGBUILD(5): deprecated
 
 
-def test_install_script_populates_keyring(tmp_path):  # pacman-key(8): --populate liest /usr/share/pacman/keyrings
-    (tmp_path / "pacman-key").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/calls\n')
+def hooks(tmp_path, keyring_ok):
+    """post_install und post_upgrade mit einem pacman-key-Stellvertreter; "-l" gelingt nur mit keyring_ok."""
+    (tmp_path / "pacman-key").write_text(f'#!/bin/sh\necho "$@" >> {tmp_path}/calls\n'
+                                         f'[ "$1" != -l ] || exit {0 if keyring_ok else 1}\n')
     (tmp_path / "pacman-key").chmod(0o755)
-    for hook in ("post_install", "post_upgrade"):
-        subprocess.run(["sh", "-ec", f'. "$1"; {hook} 0.2.0-1', "sh", str(ARCH / "orbitop.install")], check=True,
-                       env={"PATH": f"{tmp_path}:{os.environ['PATH']}"})
-    assert (tmp_path / "calls").read_text().splitlines() == ["--populate orbitop"] * 2
+    out = [subprocess.run(["sh", "-ec", f'. "$1"; {hook} 0.2.0-1', "sh", str(ARCH / "orbitop.install")], check=True,
+                          capture_output=True, text=True, env={"PATH": f"{tmp_path}:{os.environ['PATH']}"}).stdout
+           for hook in ("post_install", "post_upgrade")]
+    return (tmp_path / "calls").read_text().splitlines(), out
+
+
+def test_install_script_populates_keyring(tmp_path):  # pacman-key(8): --populate liest /usr/share/pacman/keyrings
+    calls, _ = hooks(tmp_path, keyring_ok=True)
+    assert calls == ["-l", "--populate orbitop"] * 2
+
+
+def test_install_script_without_keyring_only_hints(tmp_path):  # wie archlinux-keyring: kein Fehler ohne Schlüsselbund
+    calls, out = hooks(tmp_path, keyring_ok=False)
+    assert calls == ["-l"] * 2
+    assert all("pacman-key --init" in o for o in out)
+
+
+def test_trusted_file_never_trusts_the_key_as_introducer():  # Owner-Trust 3: "never", nie 4 (marginal) oder höher
+    script = (ARCH / "build-inside.sh").read_text(encoding="utf-8")
+    assert """printf '%s:3:\\n' "$fpr" > "$work/orbitop-trusted"\n""" in script
+    assert script.count("orbitop-trusted") == 1

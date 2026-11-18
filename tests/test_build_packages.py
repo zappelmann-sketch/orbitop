@@ -80,14 +80,15 @@ def test_build_refuses_old_output_and_bad_suffix(tmp_path, keys):
 def test_build_runs_disposable_containers(tmp_path, keys):
     r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), "--suffix", "check1")
     assert r.returncode == 0, r.stderr
-    runs = "\n".join(calls).split("run\n")[1:]  # je Container ein Aufruf "docker run …"
+    starts = [i for i, a in enumerate(calls) if a == "run"]  # je Container ein Aufruf "docker run …"
+    runs = [calls[i + 1:j] for i, j in zip(starts, [*starts[1:], len(calls)])]
+    assert starts[:1] == [0]
     images = {"debian:trixie": ("debian", f"{__version__}-1+check1"),
               "fedora:latest": ("rpm", __version__, "1.check1"),
               "opensuse/tumbleweed": ("rpm", __version__, "1.check1"),
               "archlinux:latest": ("arch", __version__, "1.1")}  # K6: Prüfbau mit Suffix je Format
     assert len(runs) == len(images)
-    for run in runs:
-        args = run.splitlines()
+    for args in runs:
         assert args[:2] == ["--rm", "-i"], args
         mounts = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
         assert [m.rsplit(":", 1)[-1] for m in mounts] == ["ro", "/out"]

@@ -4,6 +4,7 @@
 import configparser
 import hashlib
 import re
+import subprocess
 
 from orbitop import app
 from tests.packaging_common import METAINFO, PKG, ROOT, load_changelog
@@ -14,7 +15,7 @@ KEY = "/etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop"
 PAGES = "https://zappelmann-sketch.github.io/orbitop/rpm/"
 # Eingaben von orbitop-release außer dem Schlüssel, je packaging/keyring.version (wie APT_SOURCE_INPUTS in
 # test_packaging_debian.py): Ändert sich eine, steigt die Version. Ersetzen nur vor der ersten Veröffentlichung.
-RELEASE_INPUTS = {"2026.11.18": "f07e14f0ca69be331538e36c0a694fc2033ab3bcbdd86af796d9b26bed4c202c"}
+RELEASE_INPUTS = {"2026.11.18": "3bf8d9fb7c4d24c36c202dc315974ceafe200dcf36d41a89853c5e70055a1b30"}
 
 
 def tags(spec):
@@ -91,8 +92,10 @@ def test_repo_files_have_signature_checks():
         assert (r["baseurl"], r["enabled"]) == (PAGES + family, "1"), family
         # über dem Standard 99: dnf und zypper nehmen die kleinere Zahl, Pakete der Distribution gewinnen immer
         assert r["priority"] == "100", family
-    assert repo("opensuse")["autorefresh"] == "1"
-    assert set(repo("opensuse")) - set(repo("fedora")) == {"autorefresh"}
+    suse = repo("opensuse")  # zypper prüft Pakete nur mit pkg_gpgcheck=1, wenn die Metadaten signiert sind
+    assert (suse["autorefresh"], suse["pkg_gpgcheck"], suse["type"]) == ("1", "1", "rpm-md")
+    assert set(suse) - set(repo("fedora")) == {"autorefresh", "pkg_gpgcheck", "type"}
+    assert set(repo("fedora")) <= set(suse)
 
 
 def test_release_spec_installs_repo_and_key():  # .repo als %config(noreplace), der Schlüssel nie als %config
@@ -116,3 +119,31 @@ def release_inputs():
 def test_release_inputs_pinned():  # gleiche Version, gleiche Bytes
     version, digest = release_inputs()
     assert RELEASE_INPUTS.get(version) == digest
+
+
+ACCEPTED = ("orbitop.noarch: E: polkit-untracked-privilege (Badness: 10) io.github.zappelmann-sketch.orbitop.terminate"
+            " (auth_admin:auth_admin:auth_admin)")
+SUMMARY = " 2 packages and 0 specfiles checked; 1 errors, 1 warnings, 10 filtered, 10 badness; has taken 0.2 s"
+
+
+def gate(tmp_path, family, *lines):
+    (tmp_path / "report.txt").write_text("\n".join(lines) + "\n")
+    return subprocess.run(["bash", str(RPM / "lint-gate.sh"), family, str(tmp_path / "report.txt")],
+                          capture_output=True, text=True).returncode
+
+
+def test_lint_gate_accepts_only_the_polkit_line_on_opensuse(tmp_path):
+    warning = "orbitop-release.noarch: W: non-conffile-in-etc /etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop"
+    assert gate(tmp_path, "opensuse", ACCEPTED, warning, SUMMARY) == 0
+    assert gate(tmp_path, "fedora", warning, SUMMARY) == 0
+    assert gate(tmp_path, "fedora", ACCEPTED, SUMMARY) == 1  # die Ausnahme gilt nur für openSUSE
+    weaker = ACCEPTED.replace("auth_admin:auth_admin:auth_admin", "yes:yes:yes")
+    assert gate(tmp_path, "opensuse", weaker, SUMMARY) == 1
+    assert gate(tmp_path, "opensuse", ACCEPTED) == 1  # ohne Abschlusszeile: rpmlint ist abgebrochen
+
+
+def test_lint_gate_fails_on_large_reports(tmp_path):  # früher: grep -q endete früh, SIGPIPE ließ den Bau durch
+    other = "orbitop.noarch: E: some-error /usr/share/orbitop"
+    assert gate(tmp_path, "opensuse", other, *[ACCEPTED] * 3000, SUMMARY) == 1
+    assert gate(tmp_path, "fedora", *[other] * 3000, SUMMARY) == 1
+    assert gate(tmp_path, "opensuse", *[ACCEPTED] * 3000, SUMMARY) == 0

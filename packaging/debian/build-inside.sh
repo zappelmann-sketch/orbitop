@@ -5,17 +5,10 @@
 # Usage: bash build-inside.sh DEBIAN-VERSION < KEY.pgp   only as root in the container that scripts/build-packages.sh
 #        starts: the archive at /src (read-only), results to /out, the key already checked by the host (binary).
 set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=../container-prologue.sh
+. "$(dirname -- "$0")/../container-prologue.sh"  # $key from stdin, die; only as root in a container
 
-key=$(mktemp)
-cat > "$key"  # first step: nothing else may read stdin
-
-die() { echo "$*" >&2; exit 1; }
 [ $# -eq 1 ] || die "usage: $0 DEBIAN-VERSION < KEY.pgp"
-if [ ! -e /.dockerenv ] || [ "$(id -u)" -ne 0 ]; then
-    die "$0 installs packages as root and runs only as root inside a disposable container."
-fi
-[[ ${OWNER:-} =~ ^[0-9]+:[0-9]+$ ]] || die "OWNER must be uid:gid"
-trap 'chown -R "$OWNER" /out' EXIT  # the results belong to the caller, also after a failure
 
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
