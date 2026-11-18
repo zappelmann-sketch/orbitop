@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """scripts/check-distros.sh mit einem Stellvertreter für docker: ein Container je Image, nur schreibgeschützte
-Mounts, das Urteil aus den STEP-Zeilen. Die Schritte in scripts/matrix/ laufen nur im Container."""
+Mounts, der Schlüssel beider Bäume, das Urteil aus den STEP-Zeilen. Die Schritte in scripts/matrix/ laufen nur im
+Container (ihre Helfer: tests/test_matrix_lib.py)."""
 import configparser
 import hashlib
 import os
@@ -12,24 +13,25 @@ from pathlib import Path
 import pytest
 
 from tests.packaging_common import APT_SOURCE, PKG, ROOT, deb822
+from tests.site_stub import gpg, kill_agent, make_keys, needs_git
 
 SCRIPT = ROOT / "scripts" / "check-distros.sh"
 MATRIX = ROOT / "scripts" / "matrix"
 PAGES = "https://zappelmann-sketch.github.io/orbitop/"
+DIGEST = "fake@sha256:" + "0" * 64
 STEPS = ["refresh", "keyring", "install", "import", "tools", "pytest", "version", "upgrade", "remove", "purge",
          "tamper"]
 REFUSED = """STEP refresh ok
 STEP keyring ok
  orbitop : Depends: python3 (>= 3.12) but 3.11.2-1+b1 is to be installed
 STEP install fail"""
-needs_git = pytest.mark.skipif(not (ROOT / ".git").exists(), reason="kopiert git archive HEAD")
 # Schreibt die Argumente je Aufruf nach docker.log, die Dateien der Repo-Kopie nach files.txt und gibt OUTPUT aus.
-DOCKER = """#!/bin/sh
+DOCKER = f"""#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/docker.log"
 case $1 in
-    image) echo "fake@sha256:0" ;;
+    image) echo "{DIGEST}" ;;
     run)
-        for a; do case $a in *:/src:ro) src=${a%:/src:ro} ;; esac; done
+        for a; do case $a in *:/src:ro) src=${{a%:/src:ro}} ;; esac; done
         echo "$src" > "$LOG_DIR/src.txt"
         (cd "$src" && tar -cf - . | tar -tf -) > "$LOG_DIR/files.txt"
         printf '%s\\n' "$OUTPUT"
@@ -38,14 +40,23 @@ esac
 """
 
 
+@pytest.fixture(scope="module")
+def keys(tmp_path_factory):
+    """Zwei Wegwerfschlüssel, je armored exportiert: der Schlüsselbund eines Seitenbaums."""
+    k = make_keys(tmp_path_factory.mktemp("matrix-keys") / "gnupg",
+                  uids=("Test Signing <test@example.com>", "Test Signing Two <test@example.com>"))
+    yield {"fprs": k["fprs"], "asc": [gpg(k["home"], "--armor", "--export", fpr) for fpr in k["fprs"]]}
+    kill_agent(k["home"])
+
+
 def steps(failed=()):
     return "\n".join(f"STEP {s} {'fail' if s in failed else 'ok'}" for s in STEPS)
 
 
-def sites(tmp_path):
-    for name in ("site", "site2"):
+def sites(tmp_path, key=b"no key\n", key2=None):
+    for name, data in (("site", key), ("site2", key if key2 is None else key2)):
         (tmp_path / name / "apt").mkdir(parents=True)
-        (tmp_path / name / "orbitop-archive-keyring.asc").write_text(f"{PAGES} {name}\n")
+        (tmp_path / name / "orbitop-archive-keyring.asc").write_bytes(data)
     return tmp_path / "site", tmp_path / "site2"
 
 
@@ -71,18 +82,20 @@ def run(tmp_path, *args, output="", rc=0):
 
 
 @needs_git
-def test_one_docker_run_per_image_with_ro_mounts(tmp_path):
-    site, site2 = sites(tmp_path)
+def test_one_docker_run_per_image_with_ro_mounts(tmp_path, keys):
+    site, site2 = sites(tmp_path, keys["asc"][0])
     r, calls, results = run(tmp_path, "--site", str(site), "--site2", str(site2), "fake:1", "fake/two:latest",
                             output=steps())
     assert r.returncode == 0, r.stderr
-    assert results == ["RESULT fake:1 fake@sha256:0 pass -", "RESULT fake/two:latest fake@sha256:0 pass -"]
+    assert results == [f"RESULT fake:1 {DIGEST} pass -", f"RESULT fake/two:latest {DIGEST} pass -"]
+    assert f"KEY {keys['fprs'][0]}" in r.stdout.splitlines()
     runs = [c for c in calls if c[0] == "run"]
     src = (tmp_path / "src.txt").read_text().strip()
-    for call, image in zip(runs, ["fake:1", "fake/two:latest"], strict=True):
-        opts = call[:call.index(image)]
-        assert call[call.index(image):] == [image, "bash", "/src/scripts/matrix/inside.sh"]
-        assert opts == ["run", "--rm", "-v", f"{src}:/src:ro", "-v", f"{site}:/site:ro", "-v", f"{site2}:/site2:ro"]
+    assert len(runs) == 2
+    for call in runs:  # vom Digest, den das Ergebnis nennt, nicht vom Tag
+        assert call[call.index(DIGEST):] == [DIGEST, "bash", "/src/scripts/matrix/inside.sh"]
+        assert call[:call.index(DIGEST)] == ["run", "--rm", "-v", f"{src}:/src:ro", "-v", f"{site}:/site:ro", "-v",
+                                             f"{site2}:/site2:ro"]
     files = {Path(ln) for ln in (tmp_path / "files.txt").read_text().splitlines()}
     assert {Path("scripts/check-distros.sh"), Path("orbitop/__init__.py")} <= files
     assert not {f for f in files if {"CLAUDE.md", ".superpowers", ".git", ".claude"} & set(f.parts)}
@@ -114,6 +127,17 @@ def test_sites_must_be_trees_of_build_site(tmp_path):
         assert (r.returncode, calls) == (1, []) and "build-site.sh" in r.stderr, r.stderr
 
 
+@pytest.mark.parametrize("case", ["no-key", "two-keys", "other-key"])
+def test_sites_must_carry_one_and_the_same_key(tmp_path, keys, case):  # die Matrix vertraut dem Schlüssel der Bäume
+    one, two = keys["asc"]
+    key, key2, expect = {"no-key": (b"no key\n", one, "--site:"), "two-keys": (one + two, one + two, "--site:"),
+                         "other-key": (one, two, "--site2 must carry the same key")}[case]
+    site, site2 = sites(tmp_path, key, key2)
+    r, calls, results = run(tmp_path, "--site", str(site), "--site2", str(site2), "fake:1", output=steps())
+    assert (r.returncode, calls, results) == (1, [], []), r.stderr
+    assert expect in r.stderr
+
+
 @needs_git
 @pytest.mark.parametrize("image,output,rc,result", [
     ("debian:bookworm", REFUSED, 1, "pass install"),
@@ -126,10 +150,20 @@ def test_sites_must_be_trees_of_build_site(tmp_path):
     ("debian:trixie", steps(), 1, "fail run"),  # Abbruch ohne fehlgeschlagenen Schritt
     ("debian:trixie", steps(), 0, "pass -"),
 ], ids=["bookworm", "jammy", "trixie-refused", "other-reason", "installs", "keyring", "pytest", "aborted", "pass"])
-def test_expected_refusal_counts_as_pass(tmp_path, image, output, rc, result):
-    site, site2 = sites(tmp_path)
+def test_expected_refusal_counts_as_pass(tmp_path, keys, image, output, rc, result):
+    site, site2 = sites(tmp_path, keys["asc"][0])
     r, _, results = run(tmp_path, "--site", str(site), "--site2", str(site2), image, output=output, rc=rc)
-    assert results == [f"RESULT {image} fake@sha256:0 {result}"], r.stderr
+    assert results == [f"RESULT {image} {DIGEST} {result}"], r.stderr
+    assert r.returncode == (0 if result.startswith("pass ") else 1)  # Exit 1, sobald ein Image nicht besteht
+
+
+@needs_git
+def test_one_failed_image_fails_the_run_after_all_images(tmp_path, keys):
+    site, site2 = sites(tmp_path, keys["asc"][0])
+    r, calls, results = run(tmp_path, "--site", str(site), "--site2", str(site2), "debian:trixie", "debian:bookworm",
+                            output=steps())
+    assert r.returncode == 1 and len([c for c in calls if c[0] == "run"]) == 2
+    assert results == [f"RESULT debian:trixie {DIGEST} pass -", f"RESULT debian:bookworm {DIGEST} fail install"]
 
 
 def tree_hash(d):
@@ -138,7 +172,7 @@ def tree_hash(d):
 
 
 @needs_git
-def test_rewrite_only_inside_container(tmp_path):
+def test_rewrite_only_inside_container(tmp_path, keys):
     """Die Pakete tragen die echte Pages-Adresse; nur die installierten Kopien unter /etc im Container zeigen auf
     file://, und der Rechner ändert die Bäume nie."""
     (source,) = deb822(APT_SOURCE / "orbitop.sources")
@@ -149,8 +183,8 @@ def test_rewrite_only_inside_container(tmp_path):
         assert repo["orbitop"]["baseurl"] == f"{PAGES}rpm/{family}"
     packaged = [APT_SOURCE / "orbitop.sources", *(PKG / "keyring").glob("*.repo")]
     assert all("file:///site" not in f.read_text(encoding="utf-8") for f in packaged)
-    inside = (MATRIX / "inside.sh").read_text(encoding="utf-8")
-    assert f"PAGES={PAGES}\n" in inside  # dieselbe Adresse, sonst ersetzt point nichts
+    lib = (MATRIX / "lib.sh").read_text(encoding="utf-8")
+    assert f"\nPAGES={PAGES} " in lib  # dieselbe Adresse, sonst ersetzt point nichts
     matrix = "".join(f.read_text(encoding="utf-8") for f in sorted(MATRIX.glob("*.sh")))
     targets = re.findall(r"^[^#\n]*\bpoint (\S+) ", matrix, re.M)  # point nur auf installierte Dateien unter /etc
     assert targets and set(targets) == {'"$SOURCE"', '"$REPO"', '"$CONF"'}, targets
@@ -158,7 +192,7 @@ def test_rewrite_only_inside_container(tmp_path):
         ("SOURCE", "/etc/apt/sources.list.d/orbitop.sources"), ("REPO", "/etc/yum.repos.d/orbitop.repo"),
         ("REPO", "/etc/zypp/repos.d/orbitop.repo"), ("CONF", "/etc/pacman.conf")}
     assert "file://" not in SCRIPT.read_text(encoding="utf-8")
-    site, site2 = sites(tmp_path)
+    site, site2 = sites(tmp_path, keys["asc"][0])
     before = tree_hash(site), tree_hash(site2)
     r, _, results = run(tmp_path, "--site", str(site), "--site2", str(site2), "fake:1", output=steps())
     assert results and (tree_hash(site), tree_hash(site2)) == before, r.stderr

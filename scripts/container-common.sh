@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Shared by scripts/build-packages.sh and scripts/build-site.sh, sourced right after set -euo pipefail: the images,
-# option parsing, a work directory with the tracked files, and the disposable container whose output is checked.
+# Shared by scripts/build-packages.sh, scripts/build-site.sh and scripts/check-distros.sh (die, usage, workdir and
+# tracked_files only), sourced right after set -euo pipefail: the images, option parsing, a work directory with the
+# tracked files, and the disposable container whose output is checked.
 # Provides $repo, die, usage (prints $USAGE), options, fresh_out, workdir ($tmp), tracked_files, only_plain, container.
 # shellcheck shell=bash disable=SC2034  # the images are used by the scripts that source this file
 

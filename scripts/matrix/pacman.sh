@@ -1,29 +1,29 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# pacman (Arch Linux) for scripts/matrix/inside.sh, which sources it and provides point, quiet, flip, leftovers and
-# PAGES. The source is set up by hand as in the README: the key with pacman-key, the section [orbitop] at the end
-# of pacman.conf (pacman takes a package from the first repository that has it).
-# shellcheck shell=bash disable=SC2034,SC2154  # inside.sh reads NOISE and TAMPERED, and it sets PAGES
+# pacman (Arch Linux) for scripts/matrix/inside.sh, which sources it after lib.sh. The source is set up by hand as in
+# the README: the key with pacman-key, the section [orbitop] at the end of pacman.conf (pacman takes a package from
+# the first repository that has it).
+# shellcheck shell=bash disable=SC2034,SC2154  # NOISE is read by lib.sh, PAGES and STATE come from it
 
 NOISE='^(warning|error):'
-TAMPERED='invalid or corrupted database (PGP signature)'
 CONF=/etc/pacman.conf
 
 refresh() { pacman -Syu --noconfirm; }  # Arch supports only full upgrades
 
-# keyring ROOT: the image has no local master key, so pacman-key --init first (docs/release.md); the fingerprint is
-# the one the README shows.
+# keyring ROOT: the image has no local master key, so pacman-key --init first (docs/release.md). The fingerprint is
+# that of the key in ROOT; check-distros.sh prints it (KEY), and Task 10 compares it with the archive key.
 keyring() {
     local fpr
-    [ -f /tmp/pacman.conf ] || cp -- "$CONF" /tmp/pacman.conf || return 1  # as it was, for purge
+    [ -f "$STATE/pacman.conf" ] || cp -- "$CONF" "$STATE/pacman.conf" || return 1  # as it was, for purge
     fpr=$(gpg --with-colons --show-keys "$1/orbitop-archive-keyring.asc" | awk -F: '$1 == "fpr" { print $10; exit }') &&
-        echo "$fpr" > /tmp/fpr && pacman-key --init && pacman-key --populate archlinux &&
-        pacman-key --add "$1/orbitop-archive-keyring.asc" && pacman-key --lsign-key "$fpr" &&
+        [[ $fpr =~ ^[0-9A-F]{40}$ ]] && echo "$fpr" > "$STATE/fpr" && pacman-key --init &&
+        pacman-key --populate archlinux && pacman-key --add "$1/orbitop-archive-keyring.asc" &&
+        pacman-key --lsign-key "$fpr" &&
         printf '%s\n' '[orbitop]' 'SigLevel = Required DatabaseRequired' "Server = ${PAGES}arch/\$arch" >> "$CONF" &&
         point "$CONF" "file://$1/"
 }
 
-install() { pacman -Syu orbitop --noconfirm; }
+install_pkg() { pacman -Syu orbitop --noconfirm; }
 
 tools() { pacman -S --needed --noconfirm python-pytest shellcheck desktop-file-utils appstream; }
 
@@ -35,18 +35,22 @@ update_from() { point "$CONF" "file://$1/" && pacman -Syu --noconfirm; }
 files_of() { pacman -Qlq orbitop; }
 owned() { pacman -Qo -- "$1" > /dev/null 2>&1; }
 
-remove() { files_of > /tmp/files && pacman -R orbitop --noconfirm && quiet pacman -Sy; }
+# -Syy: pacman -Sy downloads a database only when it changed.
+remove() { files_of > "$STATE/files" && pacman -R orbitop --noconfirm && quiet pacman -Syy; }
 
-# pacman has no purge: the section leaves pacman.conf, the key the keyring, and pacman -Sc drops the database of
-# the source (README).
+# pacman has no purge: the section leaves pacman.conf (back to the Pages address first: point refuses if pacman
+# changed it), the key the keyring, and pacman -Sc drops the database of the source (README).
 purge() {
-    local fpr
-    fpr=$(cat /tmp/fpr) && sed -i '/^\[orbitop\]$/,$d' "$CONF" &&
-        [ "$(sha256sum < /tmp/pacman.conf)" = "$(sha256sum < "$CONF")" ] &&  # the image has no cmp
-        pacman-key --delete "$fpr" && ! pacman-key --list-keys "$fpr" && ls /var/lib/pacman/sync &&
-        pacman -Sc --noconfirm && leftovers /tmp/files && quiet pacman -Sy && ! ls /var/lib/pacman/sync/orbitop.*
+    local fpr was now
+    fpr=$(cat "$STATE/fpr") && point "$CONF" "$PAGES" && sed -i '/^\[orbitop\]$/,$d' "$CONF" &&
+        was=$(sha256sum < "$STATE/pacman.conf") && now=$(sha256sum < "$CONF") && [ "$was" = "$now" ] &&
+        pacman-key --delete "$fpr" && refused 'No public key' pacman-key --list-keys "$fpr" &&
+        ls /var/lib/pacman/sync && pacman -Sc --noconfirm && leftovers "$STATE/files" && quiet pacman -Syy &&
+        absent '/var/lib/pacman/sync/orbitop.*'
 }
 
 tamper_index() { flip "$1/arch/x86_64/orbitop.db"; }
+
+tamper() { tampered db 'invalid or corrupted database (PGP signature)' tamper_index; }
 
 refresh_index() { pacman -Sy; }
