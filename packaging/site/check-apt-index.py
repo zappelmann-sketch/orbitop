@@ -21,7 +21,7 @@ RELEASE_HASHES = {"MD5Sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512":
 BY_HASH = ("SHA256", "SHA512")  # the copies apt-ftparchive writes with DoByHash
 RELEASE_FIXED = {"Origin": "orbitop", "Label": "orbitop", "Architectures": "all", "Acquire-By-Hash": "yes"}
 RELEASE_DATE = "%a, %d %b %Y %H:%M:%S +0000"  # RFC 2822 in UTC, as apt-ftparchive writes it (C locale)
-DATE_SLACK = timedelta(minutes=10)  # apt refuses a Release dated in the future as "not valid yet"
+DATE_SLACK = timedelta(minutes=10)  # host clock skew; apt itself allows Acquire::Max-FutureTime (10 s)
 
 
 class Refused(Exception):
@@ -115,7 +115,7 @@ def check_packages(apt, packages, debs):
 
 def check_release(apt, suite, component, blobs):
     """(c) The fixed fields, a Date not in the future, per hash exactly Packages and Packages.gz (true size, hash)."""
-    (release,) = paragraphs((apt / f"dists/{suite}/Release").read_text(encoding="utf-8"))
+    (release,) = paragraphs((apt / f"dists/{suite}/Release").read_bytes().decode())  # no newline translation
     date = datetime.strptime(release.pop("Date", ""), RELEASE_DATE).replace(tzinfo=timezone.utc)
     if date > datetime.now(timezone.utc) + DATE_SLACK:
         raise Refused(f"Release Date {date} is in the future: apt would refuse the source as not valid yet")

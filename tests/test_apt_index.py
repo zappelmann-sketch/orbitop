@@ -77,6 +77,9 @@ def forge(apt, case):
     elif case in ("future-date", "bad-date"):
         date = "Fri, 01 Jan 2100 00:00:00 +0000" if case == "future-date" else "01 Jan 2026 00:00:00 +0000"
         release.write_text(re.sub(r"(?m)^Date: .*$", f"Date: {date}", release.read_text()))
+    elif case in ("release-cr", "release-crlf"):  # apt liest \r als Teil des Werts, read_text() machte \n daraus
+        old, new = (b"\nOrigin", b"\rOrigin") if case == "release-cr" else (b"\n", b"\r\n")
+        release.write_bytes(release.read_bytes().replace(old, new))
 
 
 @pytest.mark.parametrize("case, reason", [
@@ -87,7 +90,8 @@ def forge(apt, case):
     ("release-entry", "Release SHA256 lists"), ("release-size", "Release SHA256 lists"),
     ("release-field", "Release fields"), ("space-line", "whitespace-only line"),
     ("tab-line", "whitespace-only line"), ("control-char", "control character"),
-    ("future-date", "is in the future"), ("bad-date", "does not match format")])
+    ("future-date", "is in the future"), ("bad-date", "does not match format"),
+    ("release-cr", "control character"), ("release-crlf", "control character")])
 def test_refuses_a_forged_index(apt, case, reason):
     forge(apt, case)
     r = check(apt)
