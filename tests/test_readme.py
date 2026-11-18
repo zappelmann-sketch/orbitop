@@ -70,6 +70,7 @@ def test_readmes_name_the_package_names():
         assert all(n in EN and n in DE for n in names)
 
 
-def test_no_old_screenshot_and_images_exist():
-    assert not (REPO / "docs" / "screenshot.png").exists()
-    assert all((REPO / "docs" / f).stat().st_size > 0 for f in ("screenshot-overview.png", "screenshot-procs.png"))
+def test_images_are_the_same_and_exist():
+    images = [re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", text) for text in (EN, DE)]
+    assert images[0] and images[0] == images[1]
+    assert all((REPO / f).is_file() and (REPO / f).stat().st_size > 0 for f in images[0]), images[0]
