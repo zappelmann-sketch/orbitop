@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Signs the RPMs of one family with rpmsign and writes repodata/ with createrepo_c, inside a disposable
+# fedora:latest or opensuse/tumbleweed container. The host signs repodata/repomd.xml afterwards (build-site.sh).
+# Usage: bash rpm-inside.sh < KEY.pgp   only as root in the container that build-site.sh starts: the RPMs in /out,
+#        the public key of ORBITOP_KEY (binary) on stdin, the host gpg-agent's extra socket at /gnupg/S.gpg-agent.
+# The secret key never enters the container: gpg here only reaches the host agent through its restricted extra
+# socket, which signs but never hands out a key. There is no other way; without the socket this script stops.
+set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=../container-prologue.sh
+. "$(dirname -- "$0")/../container-prologue.sh"  # $key from stdin, die; only as root in a container
+
+[ $# -eq 0 ] || die "usage: $0 < KEY.pgp"
+tools=(createrepo_c cpio diffutils gawk)
+# shellcheck source=/dev/null  # os-release(5) of the image
+case "$(. /etc/os-release && echo "$ID")" in
+    fedora) dnf -y -q install "${tools[@]}" rpm-sign gnupg2 >/dev/null ;;
+    opensuse-*) zypper -n -q refresh && zypper -n -q install --no-recommends "${tools[@]}" gpg2 >/dev/null ;;
+    *) die "not a Fedora or openSUSE container" ;;
+esac
+
+export GNUPGHOME=/gnupg  # holds only the public key and the mounted socket
+[ -S "$GNUPGHOME/S.gpg-agent" ] || die "the host gpg-agent's extra socket is not mounted at $GNUPGHOME/S.gpg-agent"
+chmod 700 "$GNUPGHOME"
+echo no-autostart > "$GNUPGHOME/gpg.conf"  # never a local agent without the key in its place
+[ "$(gpgconf --list-dirs agent-socket)" = "$GNUPGHOME/S.gpg-agent" ] ||
+    die "gpg in this container does not look for its agent at $GNUPGHOME/S.gpg-agent"
+gpg --batch --quiet --import "$key"
+fpr=$(gpg --batch --with-colons --show-keys "$key" | awk -F: '$1 == "fpr" { print $10; exit }')
+[[ $fpr =~ ^[0-9A-F]{40}$ ]] || die "no fingerprint in the key"
+
+# orbitop-release installs this key; rpm and dnf or zypper verify the source with it.
+release=(/out/orbitop-release-*.noarch.rpm)  # exactly one, build-site.sh checked
+rpm2cpio "${release[0]}" | cpio -i --quiet --to-stdout ./etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop | gpg --dearmor |
+    cmp -s - "$key" || die "the key in ${release[0]#/out/} is not the public key of ORBITOP_KEY"
+
+rpmsign --addsign --define "_gpg_name $fpr" /out/*.rpm ||
+    die "rpmsign failed: the host gpg-agent (extra socket) must hold the secret key of $fpr"
+# The check a client does: the signature verifies with the public key alone.
+gpg --batch --armor --export "$fpr" > /tmp/key.asc
+rpmkeys --import /tmp/key.asc
+for rpm in /out/*.rpm; do
+    check=$(rpm -K "$rpm") || die "no valid signature: $check"
+    echo "$check"
+    [[ $check == *": digests signatures OK" ]] || die "no valid signature: $check"
+done
+createrepo_c --quiet /out

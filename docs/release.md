@@ -58,6 +58,47 @@ Arch specifics:
 - Keyring (pacman-key(8), "Providing a keyring for import"): `/usr/share/pacman/keyrings/orbitop.gpg` (binary) and `orbitop-trusted` with one line `<fingerprint>:3:`. `--populate` locally signs the key, which makes it valid for pacman. The owner trust 3 ("never", in the numbering of `gpg --export-ownertrust`) means the key never helps to validate another key in pacman's keyring. `archlinux-trusted` uses 4 ("marginal"), because three Arch master keys together validate the packager keys; orbitop has no such role. `orbitop.install` runs `pacman-key --populate orbitop` in `post_install` and `post_upgrade`, like `archlinux-keyring` only when `pacman-key -l` works; otherwise it prints a hint to run `pacman-key --init` and `pacman-key --populate orbitop`.
 - Install probe on 2026-11-18 (`pacman -U` of the local file): pacman prints "Locally signing trusted keys in keyring" and "Importing owner trust values", and the key then has validity `f` and owner trust `n` (never). `pacman -Qkk orbitop` reports 0 altered files. After `pacman -R orbitop`, no file of the package is left. The key stays in pacman's keyring; the README explains `pacman-key --delete` (spec 3). The docker image ships pacman's keyring but no local master key. There `pacman-key -l` works, so `--populate` runs and fails with "There is no secret key available to sign with"; pacman prints "command failed to execute correctly", and the installation still succeeds. Without any keyring (`/etc/pacman.d/gnupg` removed), `orbitop.install` prints only its hint. A real Arch system creates the master key during installation; the container matrix (Task 6) has to run `pacman-key --init` first.
 
+## Site
+
+`ORBITOP_KEY=<fingerprint> bash scripts/build-site.sh --packages DIR --out SITE` turns the output of `build-packages.sh` into the signed tree of the `gh-pages` branch (spec 2). `GNUPGHOME` comes from the environment as well, by default the caller's keyring. `SITE` must be empty or missing, and each package must be in `DIR` exactly once, so the source holds only the newest version.
+
+```text
+index.html  .nojekyll  orbitop-archive-keyring.asc  orbitop-archive-keyring.pgp
+apt/dists/stable/InRelease, Release, Release.gpg, main/binary-all/Packages, Packages.gz
+apt/pool/main/o/orbitop/orbitop_<version>-1_all.deb
+apt/pool/main/o/orbitop-apt-source/orbitop-apt-source_<keyring.version>_all.deb
+rpm/fedora/ and rpm/opensuse/: orbitop-<version>-1.noarch.rpm, orbitop-release-<keyring.version>-1.noarch.rpm,
+                               repodata/ (createrepo_c) with repomd.xml, repomd.xml.asc, repomd.xml.key
+arch/x86_64/orbitop-<version>-1-any.pkg.tar.zst, orbitop.db, orbitop.files, each with .sig
+```
+
+The small source packages are in the source too, so a renewed key arrives with the regular update. The directory names, the suite and the component are constants at the top of `build-site.sh`; `tests/test_site.py` keeps them equal to `orbitop.sources` and the `.repo` files. `index.html` comes from `packaging/site/index.html`: English and German, static, no script, no external loads, one link to the README; the script replaces `<FINGERPRINT>` with the fingerprint of `ORBITOP_KEY` in the grouping of `gpg --fingerprint`.
+
+How it signs:
+
+- Before any container starts: `ORBITOP_KEY` must be the fingerprint of a primary key whose secret key is in `GNUPGHOME`, and the gpg-agent must have its extra socket. The public key is exported from `GNUPGHOME`. Each container gets only this public key on stdin and compares it byte by byte with the key the packages install (`orbitop-apt-source`, `orbitop-release`, the Arch package). If they differ, the script stops: every client would reject a source signed with another key.
+- Only gpg on the host signs, always with `--local-user <fingerprint>!` (exactly the primary key). Before the script ends, `gpgv` checks every signature against a keyring that holds only the exported public key.
+- apt: `packaging/site/apt-inside.sh` in `debian:trixie` writes `Packages`, `Packages.gz` and `Release` with `apt-ftparchive`: `Origin` and `Label` `orbitop`, `Suite` and `Codename` `stable`, `Components: main`, `Architectures: all` (see "Debian specifics"), no `Valid-Until` (spec 2). The host writes `InRelease` (`gpg --clearsign`) and `Release.gpg` (`gpg --armor --detach-sign`).
+- RPM: `packaging/site/rpm-inside.sh` runs for each family in its own image, `fedora:latest` and `opensuse/tumbleweed`, with that family's `rpmsign` and `createrepo_c`. `rpmsign --addsign` reaches the host gpg-agent only through its extra socket, mounted at `/gnupg/S.gpg-agent`. gpg in the container has the public key and `no-autostart`, nothing else. gpg-agent(1) intends this socket for exactly this: signing elsewhere "without exposing the private keys" (below). Without the socket, or if `rpmsign` fails, the script stops; there is no other way, and never a key file in the container. Then `rpm -K` with only the public key must report `digests signatures OK`, and `createrepo_c` writes `repodata/`. The host writes `repomd.xml.asc` (`gpg --armor --detach-sign`) and `repomd.xml.key` (the armored public key). The signed RPMs differ from the unsigned ones in `DIR`, and from build to build, because the signature carries its time.
+- Arch: `packaging/site/arch-inside.sh` in `archlinux:latest` runs `repo-add` without a key and turns `orbitop.db` and `orbitop.files` into regular files (Pages serves no symlinks). The host writes a binary `.sig` beside the package and both databases. pacman 7.1 fetches the package's `.sig` from the server; `repo-add` embeds package signatures only with `--include-sigs` (below), which is not needed.
+
+Who verifies what:
+
+- apt checks `InRelease` against `/etc/apt/keyrings/orbitop-archive-keyring.pgp` (`Signed-By`), and each package by its hash in the signed `Packages`.
+- dnf checks `repomd.xml.asc` (`repo_gpgcheck=1`) and the signature in each package (`gpgcheck=1`) with the key named in `gpgkey=`.
+- zypper checks `repomd.xml.asc` and, with `pkg_gpgcheck=1`, each package.
+- pacman checks `orbitop.db.sig` (`DatabaseRequired`) and the package's `.sig` (`Required`) with the key that `pacman-key` trusts.
+
+Probe on 2026-11-18 with a throwaway key (Ed25519, no passphrase, `GNUPGHOME` in the scratch directory with an agent of its own), the packages from `build-packages.sh` and the site served read-only via `file://` in disposable containers:
+
+- `gpg --verify` reports `VALIDSIG` with the fingerprint for `InRelease`, `Release.gpg`, both `repomd.xml.asc`, `orbitop.db.sig`, `orbitop.files.sig` and the package `.sig`.
+- `rpm -K` reports `digests SIGNATURES NOT OK` for all four RPMs before the key is imported and `digests signatures OK` after `rpmkeys --import`, on Fedora 45 (rpm 6.1.0) and Tumbleweed (rpm 4.20.1). Over the extra socket, gpg 2.4.9 (Fedora) and 2.5.24 (Tumbleweed) signed with the host's gpg-agent 2.4.8; they print a warning about the older agent and "problem with fast path key listing: Forbidden - ignored", the restricted socket refusing a command they do not need.
+- Debian 13: `apt-get update` exits 0 without `W:`, `E:` or `N:`, and `apt-get download orbitop` works. With one changed byte in `InRelease`: "Message has been manipulated", "The repository … is not signed", exit 100.
+- Fedora 45: on the first `dnf makecache` dnf imports the key "From: file:///etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop", and `repoquery` lists both packages. With a changed `repomd.xml`: "repomd.xml GPG signature verification error: Bad PGP signature". dnf skips the repository and still exits 0 (`skip_if_unavailable`, see "Sources", dnf5.conf(5)). Installing the local `orbitop-release` prints "skipped OpenPGP checks for 1 package from repository: @commandline".
+- Tumbleweed: after `rpm --import` of `orbitop-archive-keyring.asc`, `zypper install` of the signed `orbitop-release` works without `--allow-unsigned-rpm`. `zypper refresh orbitop` reads the key from `gpgkey=`, and `zypper lr` shows `GPG Check: (rp) Yes`. With a changed `repomd.xml`: "Signature verification failed for repomd.xml", exit 4.
+- Arch: after `pacman-key --add` and `--lsign-key`, `pacman -Sy` with `SigLevel = Required DatabaseRequired` works, and so does `pacman -Swdd orbitop` ("checking package integrity"). A changed `orbitop.db` gives "signature from "Test Signing <test@example.com>" is invalid". A missing package `.sig` stops the download, and the `.sig` of another file gives "invalid or corrupted package (PGP signature)".
+- Refusals: with `ORBITOP_KEY` set to a second key, `apt-inside.sh` stops with "the key in orbitop-apt-source_2026.11.18_all.deb is not the public key of ORBITOP_KEY" before anything is signed. With `extra-socket none` in `gpg-agent.conf`, the script stops before any container. With an agent that has no secret key behind the socket, `rpm-inside.sh` stops with "rpmsign failed: the host gpg-agent (extra socket) must hold the secret key of …". Without the socket mount, it stops with "the host gpg-agent's extra socket is not mounted at /gnupg/S.gpg-agent".
+
 ## Sources
 
 Read on 2026-11-18 before building. Quotes are verbatim.
@@ -121,6 +162,10 @@ Read on 2026-11-18 for the RPM and Arch packages (Task 4). docs.fedoraproject.or
 - **ArchWiki, "Arch package guidelines"**, "Package dependencies" (last edited 2 May 2026): "Do not rely on transitive dependencies in any of the PKGBUILD#Dependencies, as they might break, if one of the dependencies is updated." On namcap: "This tool can analyze both the PKGBUILD file and the resulting package tarball and will warn you about bad permissions, missing dependencies, redundant dependencies, and other common mistakes."
 - **ArchWiki, "Python package guidelines"**: `arch-wiki-docs` 20261101-1 has no English copy of this page, only translations; the Russian one (last edited 3 September 2026) says on `setup.py install`: "--optimize=1 заранее компилирует оптимизированные файлы байткода (.opt-1.pyc), чтобы их мог отслеживать pacman, вместо ленивого их создания при запуске программы", i.e. "--optimize=1 pre-compiles optimized byte-code files (.opt-1.pyc) so that pacman can track them, instead of creating them lazily when the program starts".
   Result: `package()` compiles the caches, so pacman tracks them.
+- **gpg-agent(1)**, GnuPG 2.4.8 (local man page), `--extra-socket`: "The extra socket is created by default […] To disable the creation of the socket use ``none'' or ``/dev/null'' for name." "The intended use for this extra socket is to setup a Unix domain socket forwarding from a remote machine to this socket on the local machine. A gpg running on the remote machine may then connect to the local gpg-agent and use its private keys. This enables decrypting or signing data on a remote machine without exposing the private keys to the remote machine."
+  Result: `rpmsign` in the container gets only this socket (spec 4).
+- **repo-add(8)**, pacman 7.1.0 in `archlinux:latest` (`repo-add --help`): "--include-sigs include package PGP signatures in the repository database (if available)".
+  Result: the package's `.sig` lies beside it on the site; pacman fetches it from there.
 
 ## Lint notes
 
