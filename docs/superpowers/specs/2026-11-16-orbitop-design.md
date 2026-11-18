@@ -29,6 +29,7 @@ Geprüfte Lizenzen der Abhängigkeiten: PyGObject LGPL-2.1+, GTK 4 LGPL-2.1+, We
 
 1. **Stufe 1 – das Programm** (dieses Dokument, Ziele unten). Läuft auf dem Notebook des Users und ist für fremde Hardware gebaut.
 2. **Stufe 2 – Paket, Release und Update-Kanal.** Wird **vor ihrer Umsetzung in einer eigenen Design-Runde** festgelegt. Bisheriger Stand der Absprache:
+   - **Ersetzt am 2026-11-18** durch `docs/superpowers/specs/2026-11-18-orbitop-stufe-2-pakete-update-kanal-design.md`. Die eingebaute Update-Prüfung ist gestrichen; Updates kommen über die Paketverwaltung. Das Repository ist seit 2026-11-18 öffentlich.
    - GitHub-Release mit `.deb`-Datei zum Herunterladen.
    - Eingebaute Update-Prüfung: orbitop fragt bei GitHub nach einem neueren Release, zeigt „Update verfügbar“, lädt das Paket nach Klick herunter und installiert es nach Passworteingabe.
    - Offen für Stufe 2: Signatur und Prüfsumme der Downloads, Bauen in GitHub Actions, eigene APT-Quelle ja oder nein, Mindestversion von Ubuntu und Debian, Wartungsablauf bei neuen Ubuntu-Versionen.
