@@ -47,7 +47,7 @@
   - Auf dem echten Rechner gilt weiter: nur `--dry-run`.
 - Das Repository bleibt privat. Nie `gh repo edit --visibility` oder Ähnliches. Die README ist trotzdem für die öffentliche Nutzung geschrieben.
 - Das Release (Task 9) entsteht erst nach der Schlussprüfung des Controllers: Review des ganzen Zweigs, Security-Audit mit Fix-Welle, Lastmessung und Merge in `main`.
-- **Budget gilt für beide Fälle** (Spec „Eigenlast“): für die Standardauswahl der Spalten und für alle eingeblendeten Spalten.
+- **Budget gilt für beide Fälle** (Spec „Eigenlast“): für die Standardauswahl der Spalten und für alle eingeblendeten Spalten. Später eingeschränkt durch die Ausnahme des Users (Spec „Messung Eigenlast“, Hebel): „Alle Spalten“ dauerhaft über 9 % ist hingenommen, die Standardauswahl bleibt bei ≤ 9 %.
 - **Messverfahren** (Task 3, 4 kurz, Task 5 vollständig):
   1. Instanz starten wie unter „Sicherheitsregeln“, für den Prozess-Reiter zusätzlich `ORBITOP_SNAPSHOT=$S/<lage>.png ORBITOP_TAB=procs`.
   2. Mess-PID holen: `pgrep -P <pid von dbus-run-session> -f bin/orbitop`.

@@ -181,7 +181,7 @@ Reihenfolge und Darstellung:
 - Mit `scripts/measure-load.py` wie in Stufe 1, in drei Lagen: ausgeblendet, Übersicht sichtbar, Prozess-Reiter mit **allen** Spalten eingeblendet.
 - Das Budget bleibt unverändert.
 
-**Das Budget gilt für beide Fälle:** für die Standardauswahl und für alle eingeblendeten Spalten (Entscheidung des Planers nach dem Builder-Check).
+**Das Budget gilt für beide Fälle:** für die Standardauswahl und für alle eingeblendeten Spalten (Entscheidung des Planers nach dem Builder-Check). Später eingeschränkt durch die Ausnahme des Users (unten, „Messung Eigenlast“, Hebel): „Alle Spalten“ dauerhaft über 9 % ist hingenommen, die Standardauswahl bleibt bei ≤ 9 %.
 
 **Hebel, falls das Budget reißt** (in dieser Reihenfolge):
 1. nur die Felder eingeblendeter Spalten senden
@@ -304,7 +304,7 @@ Aufteilung je Prozess (Mittel beider Läufe):
 
 Messung nach Hebel 4 (2026-11-17/18, f896963), Verfahren wie oben mit Aufteilung je Thread. Alle Läufe der Tabelle sind ungestört (GTK-Hauptthread ≤ 0,15 %, Compositor ≤ 0,12 %), Lastmittel (1 min) 0,09 bis 1,25. Verworfen:
 - „alle Spalten“ 14,00 (195): gestört, GTK-Hauptthread 1,51 %, Compositor 0,93 %.
-- „alle Spalten“ 9,78 (196): Fremdlast. Während des Laufs startete `lynis` (Sicherheitsprüfung, nicht von orbitop) rund 25 000 kurze Prozesse. Alle Threads lagen 12 bis 15 % höher, auch `intel_gpu_top`. Der Dauerlauf direkt danach (9,24) fiel teilweise in dieselbe Zeit; ob `lynis` noch im Messfenster lief, ist offen. Er liegt zwischen den beiden anderen und bleibt in der Tabelle.
+- „alle Spalten“ 9,78 (196): Fremdlast. Während des Laufs startete `lynis` (Sicherheitsprüfung, nicht von orbitop) rund 25 000 kurze Prozesse. Alle Threads lagen 12 bis 15 % höher, auch `intel_gpu_top`. Der Dauerlauf direkt danach (9,24) lief ebenfalls unter starker Fremdlast: In seinem Messfenster entstanden 39 232 neue PIDs, in den anderen Dauerläufen rund 1 000. Er liegt zwischen den beiden anderen und bleibt in der Tabelle.
 
 Aufteilung je Prozess nach Hebel 4 (Mittel der ungestörten Läufe), in Klammern 328ccd6 aus derselben Sitzung:
 - Ausgeblendet: orbitop 1,80 %, `intel_gpu_top` 1,05 %, WebKit 0 %.
@@ -313,7 +313,7 @@ Aufteilung je Prozess nach Hebel 4 (Mittel der ungestörten Läufe), in Klammern
 - Prozesse alle Spalten kurz: WebKit 4,10 % (4,52), orbitop 3,53 % (3,57), `intel_gpu_top` 0,99 % (1,02). Summe 8,62 (9,10).
 - Prozesse alle Spalten Dauer: WebKit 4,21 %, orbitop 3,99 %, `intel_gpu_top` 1,01 %. Summe 9,22.
 - Hebel 4 spart rund 0,4 bis 0,5 Punkte, ganz im WebKit-Webprozess: Er parst die Liste (~170 KB) nur noch je Prozess-Takt statt jede Sekunde. orbitop selbst bleibt gleich, denn die Zeilen waren schon je Prozess-Takt kodiert.
-- 328ccd6 lag in dieser Sitzung bei „alle Spalten“ kurz zwischen 8,90 und 9,30 %, in der Endmessung davor bei 9,11 %. Die Lage schwankt also zwischen Sitzungen um etwa ±0,2 Punkte. Der Vergleich gilt deshalb nur innerhalb derselben Sitzung.
+- 328ccd6 lag in dieser Sitzung bei „alle Spalten“ kurz zwischen 8,90 und 9,30 %, in der Endmessung davor bei 9,11 %. Die rund ±0,2 Punkte sind Streuung von Lauf zu Lauf, keine Schwankung zwischen den Sitzungen: Das Mittel von 328ccd6 war in beiden Sitzungen gleich (9,11 und 9,10).
 
 PSS ausgeblendet: 134 MB statt 169 MB in Stufe 1 (8f29d08). Schon 8b5664b zeigte 133 MB, der Unterschied stammt also nicht aus Task 5. Die Ursache ist nicht untersucht.
 
