@@ -8,37 +8,21 @@
 #        1+SUFFIX, RPM release 1.SUFFIX, Arch pkgrel 1.1 (pacman allows only digits there).
 # The builds run in packaging/{debian,rpm,arch}/build-inside.sh; this script only checks, prepares and starts them.
 set -euo pipefail
+# shellcheck source-path=SCRIPTDIR source=container-common.sh
+. "$(dirname -- "$0")/container-common.sh"  # images, die, usage, options, fresh_out, workdir, container
 
-DEB_IMAGE=debian:trixie
-FEDORA_IMAGE=fedora:latest
-SUSE_IMAGE=opensuse/tumbleweed
-ARCH_IMAGE=archlinux:latest
 REVISION=1
-
-usage() { echo "usage: $0 --out DIR --pubkey FILE [--suffix SUFFIX]" >&2; exit 2; }
-die() { echo "$*" >&2; exit 1; }
+USAGE="$0 --out DIR --pubkey FILE [--suffix SUFFIX]"
 
 out="" pubkey="" suffix=""
-while [ $# -gt 0 ]; do
-    [ $# -ge 2 ] || usage
-    case "$1" in
-        --out) out=$2 ;;
-        --pubkey) pubkey=$2 ;;
-        --suffix) suffix=$2 ;;
-        *) usage ;;
-    esac
-    shift 2
-done
+options out pubkey suffix -- "$@"
 [ -n "$out" ] && [ -n "$pubkey" ] || usage
 [[ -z $suffix || $suffix =~ ^[a-z0-9]+$ ]] || die "--suffix: only a-z and 0-9"
-if [ -e "$out" ] && [ -n "$(ls -A -- "$out")" ]; then
-    die "--out must be empty or missing, so that no old package is mistaken for a new one: $out"
-fi
+fresh_out "$out" "so that no old package is mistaken for a new one"
 
-tmp=$(mktemp -d)
-trap 'gpgconf --homedir "$tmp/gnupg" --kill all 2>/dev/null; rm -rf -- "$tmp"' EXIT
+workdir
 mkdir -m 700 "$tmp/gnupg"  # a fresh keyring: the check never reads or changes the caller's GNUPGHOME
-gpg() { command gpg --homedir "$tmp/gnupg" --batch "$@"; }
+gpg() { command gpg --homedir "$tmp/gnupg" --no-options --batch "$@"; }
 # Exactly one public key: it becomes the trust anchor of the source, and nothing else (a second key, a secret
 # key under a PUBLIC header) ever reaches the container, which gets only the checked binary form.
 if [ ! -f "$pubkey" ] || [ "$(head -n 1 -- "$pubkey")" != "-----BEGIN PGP PUBLIC KEY BLOCK-----" ] ||
@@ -50,24 +34,19 @@ if [ "$(grep -c '^pub:' "$tmp/key.txt")" -ne 1 ] || grep -qE '^(sec|ssb):' "$tmp
     die "--pubkey must hold exactly one public key and no secret key: $pubkey"
 fi
 grep -m 1 '^fpr:' "$tmp/key.txt"
+# The minimal form, as build-site.sh exports it: the source containers compare the packaged key byte by byte.
+gpg --quiet --import "$tmp/key.pgp"
+gpg --export --export-options export-minimal > "$tmp/key.pgp"
 
 mkdir -p -- "$out"
 out=$(cd -- "$out" && pwd -P)
-repo=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
-mkdir "$tmp/src"
-git -C "$repo" archive HEAD | tar -C "$tmp/src" -xf -  # only committed files, never local ones such as CLAUDE.md
+tracked_files
 version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$tmp/src/orbitop/__init__.py")
 [[ $version =~ ^[0-9]+(\.[0-9]+)*$ ]] || die "no version in orbitop/__init__.py"
 # One disposable container per build: the archive read-only, only DIR writable, the checked key on stdin.
-container() {
-    local image=$1
-    shift
-    docker run --rm -i -e OWNER="$(id -u):$(id -g)" -v "$tmp/src:/src:ro" -v "$out:/out" "$image" bash "$@" \
-        < "$tmp/key.pgp"
-}
-container "$DEB_IMAGE" /src/packaging/debian/build-inside.sh "$version-$REVISION${suffix:++$suffix}"
+container "$out" "$DEB_IMAGE" -- /src/packaging/debian/build-inside.sh "$version-$REVISION${suffix:++$suffix}"
 for image in "$FEDORA_IMAGE" "$SUSE_IMAGE"; do
-    container "$image" /src/packaging/rpm/build-inside.sh "$version" "$REVISION${suffix:+.$suffix}"
+    container "$out" "$image" -- /src/packaging/rpm/build-inside.sh "$version" "$REVISION${suffix:+.$suffix}"
 done
-container "$ARCH_IMAGE" /src/packaging/arch/build-inside.sh "$version" "$REVISION${suffix:+.1}"
+container "$out" "$ARCH_IMAGE" -- /src/packaging/arch/build-inside.sh "$version" "$REVISION${suffix:+.1}"
 ls -lR -- "$out"

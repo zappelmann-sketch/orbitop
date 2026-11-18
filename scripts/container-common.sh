@@ -1,0 +1,66 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Shared by scripts/build-packages.sh and scripts/build-site.sh, sourced right after set -euo pipefail: the images,
+# option parsing, a work directory with the tracked files, and the disposable container whose output is checked.
+# Provides $repo, die, usage (prints $USAGE), options, fresh_out, workdir ($tmp), tracked_files, only_plain, container.
+# shellcheck shell=bash disable=SC2034  # the images are used by the scripts that source this file
+
+DEB_IMAGE=debian:trixie
+FEDORA_IMAGE=fedora:latest
+SUSE_IMAGE=opensuse/tumbleweed
+ARCH_IMAGE=archlinux:latest
+
+repo=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd -P)
+
+die() { echo "$*" >&2; exit 1; }
+usage() { echo "usage: $USAGE" >&2; exit 2; }
+
+# options NAME… -- ARG…: each pair "--NAME VALUE" in ARG sets the variable NAME; anything else is a usage error.
+options() {
+    local names=" "
+    while [ "$1" != -- ]; do names+="$1 " && shift; done
+    shift
+    while [ $# -gt 0 ]; do
+        [ $# -ge 2 ] && [[ $1 == --* && $names == *" ${1#--} "* ]] || usage
+        printf -v "${1#--}" '%s' "$2"
+        shift 2
+    done
+}
+
+# fresh_out DIR WHY: DIR must be empty or missing.
+fresh_out() {
+    if [ -e "$1" ] && [ -n "$(ls -A -- "$1")" ]; then die "--out must be empty or missing, $2: $1"; fi
+}
+
+# workdir: sets $tmp, a new directory that is removed on exit (with the gpg-agent of $tmp/gnupg, if there is one).
+workdir() {
+    tmp=$(mktemp -d)
+    trap '[ ! -d "$tmp/gnupg" ] || gpgconf --homedir "$tmp/gnupg" --kill all 2>/dev/null; rm -rf -- "$tmp"' EXIT
+}
+
+# tracked_files: $tmp/src holds the files of HEAD (git archive), never local ones such as CLAUDE.md.
+tracked_files() {
+    mkdir "$tmp/src"
+    git -C "$repo" archive HEAD | tar -C "$tmp/src" -xf -
+}
+
+# only_plain DIR: DIR comes from a container (as root); host tools may touch it only if it holds nothing but regular
+# files and directories, none setuid or setgid. A planted symlink would make them read or write elsewhere, a FIFO
+# would block them, a device would open the host's.
+only_plain() {
+    local odd
+    odd=$(find "$1" -mindepth 1 \( \( ! -type f ! -type d \) -o -perm /6000 \) -print -quit)
+    [ -z "$odd" ] || die "refusing $1: it holds something other than plain files and directories: $odd"
+}
+
+# container DIR IMAGE [DOCKER-OPTION…] -- SCRIPT [ARG…]: one disposable container without the MKNOD capability, the
+# tracked files read-only at /src, DIR writable at /out and $tmp/key.pgp on stdin; afterwards DIR must be plain.
+container() {
+    local dir=$1 image=$2 opts=()
+    shift 2
+    while [ "$1" != -- ]; do opts+=("$1") && shift; done
+    shift
+    docker run --rm -i --cap-drop MKNOD -e OWNER="$(id -u):$(id -g)" -v "$tmp/src:/src:ro" -v "$dir:/out" \
+        "${opts[@]}" "$image" bash "$@" < "$tmp/key.pgp"
+    only_plain "$dir"
+}

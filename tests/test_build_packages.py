@@ -41,18 +41,24 @@ def keys(tmp_path_factory):
     subprocess.run(["gpgconf", "--homedir", str(home), "--kill", "all"], capture_output=True)
 
 
-def build(tmp_path, *args):
-    """Lauf mit docker-Stellvertreter: schreibt die Argumente nach docker.log und stdin nach stdin.bin."""
+def build(tmp_path, *args, plant=""):
+    """Lauf mit docker-Stellvertreter: schreibt die Argumente nach docker.log und stdin nach stdin.bin; PLANT legt
+    etwas Fremdes in /out, wie es ein Container als root könnte."""
     fake = tmp_path / "bin"
     fake.mkdir(exist_ok=True)
     (fake / "docker").write_text(f"""#!/bin/sh
 printf '%s\\n' "$@" >> {tmp_path}/docker.log
-for a; do case $a in *:/out) mkdir -p "${{a%:/out}}/deb" ;; esac; done
+for a; do case $a in *:/out) out=${{a%:/out}} && mkdir -p "$out/deb" ;; esac; done
 cat >> {tmp_path}/stdin.bin
+case $PLANT in
+    symlink) ln -s {tmp_path}/victim.txt "$out/deb/orbitop_9.9.9-1_all.deb" ;;
+    fifo) mkfifo "$out/deb/fifo" ;;
+    setuid) touch "$out/deb/x" && chmod 4755 "$out/deb/x" ;;
+esac
 """)
     (fake / "docker").chmod(0o755)
     r = subprocess.run(["bash", str(ROOT / "scripts" / "build-packages.sh"), *args], capture_output=True, text=True,
-                       env={**os.environ, "PATH": f"{fake}:{os.environ['PATH']}"})
+                       env={**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "PLANT": plant})
     log = tmp_path / "docker.log"
     return r, log.read_text().splitlines() if log.exists() else []
 
@@ -89,7 +95,7 @@ def test_build_runs_disposable_containers(tmp_path, keys):
               "archlinux:latest": ("arch", __version__, "1.1")}  # K6: Prüfbau mit Suffix je Format
     assert len(runs) == len(images)
     for args in runs:
-        assert args[:2] == ["--rm", "-i"], args
+        assert args[:4] == ["--rm", "-i", "--cap-drop", "MKNOD"], args
         mounts = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
         assert [m.rsplit(":", 1)[-1] for m in mounts] == ["ro", "/out"]
         assert not [a for a in args if a in ("--privileged", "--cap-add", "--network=host")]
@@ -97,3 +103,13 @@ def test_build_runs_disposable_containers(tmp_path, keys):
         assert args[args.index("bash") + 1:] == [f"/src/packaging/{fmt}/build-inside.sh", *versions]
     # Jeder Container bekommt nur den schon geprüften Schlüssel, binär wie im Paket
     assert (tmp_path / "stdin.bin").read_bytes() == keys["binary"].read_bytes() * 4
+
+
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")
+@pytest.mark.parametrize("plant", ["symlink", "fifo", "setuid"])
+def test_build_refuses_odd_container_output(tmp_path, keys, plant):  # build-site.sh liest DIR später als Eingabe
+    (tmp_path / "victim.txt").write_text("unchanged\n")
+    r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), plant=plant)
+    assert r.returncode == 1 and "refusing" in r.stderr, r.stderr
+    assert calls.count("run") == 1  # Abbruch gleich nach dem ersten Container
+    assert (tmp_path / "victim.txt").read_text() == "unchanged\n"

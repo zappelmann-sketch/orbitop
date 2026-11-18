@@ -105,7 +105,8 @@ def test_apt_source_inputs_pinned():  # gleiche Version, gleiche Bytes
 
 
 def header_files():
-    return [p for p in [*PKG.rglob("*"), ROOT / "scripts" / "build-packages.sh", ROOT / "scripts" / "build-site.sh"]
+    scripts = [ROOT / "scripts" / n for n in ("build-packages.sh", "build-site.sh", "container-common.sh")]
+    return [p for p in [*PKG.rglob("*"), *scripts]
             if p.is_file() and p not in NO_HEADER and "__pycache__" not in p.parts]
 
 
