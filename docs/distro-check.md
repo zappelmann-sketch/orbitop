@@ -6,8 +6,9 @@ The setup and the test suite of orbitop, run for real in disposable Docker conta
 - Date: 2026-11-18
 - Docker: 29.9.3 (x86_64 host with an Intel GPU)
 - Each image runs once as
-  `docker run --rm -v <repo>:/src:ro <image> bash /src/scripts/check-distros.sh --inside`:
+  `docker run --rm -v <copy>:/src:ro <image> bash /src/scripts/check-distros.sh --inside`:
   no `--privileged`, no added capabilities, no other mounts, and `setup-privileges.sh` without `--allow-*` options.
+  `<copy>` is a temporary copy of the files tracked by git (in a release tree: of the whole tree), removed afterwards.
 - Steps inside the container:
   1. `refresh`: refresh the package index (`apt-get update`, `pacman -Syu --noconfirm`; dnf and zypper refresh on their own).
   2. `setup`: `bash scripts/setup-privileges.sh` as root, without options.

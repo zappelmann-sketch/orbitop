@@ -146,6 +146,39 @@ def test_check_distros_refuses_outside_container(tmp_path):  # installiert echt 
     assert r.returncode == 1 and "container" in r.stderr and "STEP" not in r.stdout
 
 
+FAKE_DOCKER = """#!/bin/sh
+printf 'ARGS %s\\n' "$*" >> "$FAKE_LOG"
+case "$1" in
+    image) echo "fake@sha256:0" ;;
+    run)
+        while [ "$1" != -v ]; do shift; done
+        src=${2%:/src:ro}
+        echo "SRC $src" >> "$FAKE_LOG"
+        (cd "$src" && find . | sed 's/^/FILE /') >> "$FAKE_LOG"
+        echo "STEP refresh ok" ;;
+esac
+"""
+
+
+def test_check_distros_mounts_only_a_copy_of_tracked_files(tmp_path):  # nie CLAUDE.md, .superpowers oder .git
+    (tmp_path / "bin").mkdir()
+    (tmp_path / "bin" / "docker").write_text(FAKE_DOCKER)
+    (tmp_path / "bin" / "docker").chmod(0o755)
+    log = tmp_path / "docker.log"
+    r = subprocess.run(["bash", str(ROOT / "scripts" / "check-distros.sh"), "fake:1"], capture_output=True, text=True,
+                       cwd=tmp_path, env={**os.environ, "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}",
+                                          "FAKE_LOG": str(log)})
+    assert r.returncode == 0 and "RESULT fake:1 fake@sha256:0 pass -" in r.stdout.splitlines(), r.stderr
+    lines = log.read_text().splitlines()
+    src = Path(next(ln[4:] for ln in lines if ln.startswith("SRC ")))
+    files = {Path(ln[5:]) for ln in lines if ln.startswith("FILE ")}
+    assert any(f"run --rm -v {src}:/src:ro fake:1 bash /src/scripts/check-distros.sh --inside" in ln for ln in lines)
+    assert src.resolve() != ROOT and ROOT not in src.resolve().parents
+    assert Path("scripts/check-distros.sh") in files and Path("orbitop/killhelper.py") in files
+    assert not {f for f in files if {"CLAUDE.md", ".superpowers", ".git", ".claude"} & set(f.parts)}
+    assert not src.exists()  # nach dem Lauf entfernt
+
+
 def test_capture_mount_filter_keeps_only_plain_mounts():
     lines = [
         "nas.local:/volume1 /data/nas nfs4 rw,relatime 0 0",

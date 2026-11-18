@@ -2,7 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Checks setup-privileges.sh, the runtime and the tests in disposable distribution containers (docs/distro-check.md).
-# Usage: bash check-distros.sh [image …]   one "docker run --rm" per image, this repository mounted read-only at /src
+# Usage: bash check-distros.sh [image …]   one "docker run --rm" per image, a copy of the tracked files at /src (ro)
 #        bash check-distros.sh --inside    only as root inside such a container: installs packages for real
 set -euo pipefail
 
@@ -72,7 +72,7 @@ print("VERSIONS python", sys.version.split()[0], "pygobject", gi.__version__, "g
     step pytest run_tests
     step dry-run as_tester bash scripts/setup-privileges.sh --dry-run
     step version as_tester python3 bin/orbitop --version
-    echo "PYTHON $(python3 --version 2>&1 || true)"
+    echo "PYTHON $(python3 --version 2>&1)"
     exit "$failed"
 }
 
@@ -83,7 +83,14 @@ host() {
     done
     repo=$(cd -- "$(dirname -- "$0")/.." && pwd -P)
     log=$(mktemp)
-    trap 'rm -f -- "$log"' EXIT
+    copy=$(mktemp -d)
+    trap 'rm -rf -- "$log" "$copy"' EXIT
+    # A container sees only the tracked files, never local ones such as CLAUDE.md or .git; a release tree has no others.
+    if [ -e "$repo/.git" ]; then
+        git -C "$repo" ls-files -z | tar -C "$repo" --null -T - -cf - | tar -C "$copy" -xf -
+    else
+        cp -a -- "$repo/." "$copy"
+    fi
     for image in "$@"; do
         if ! docker pull "$image"; then
             results+=("RESULT $image - fail pull")
@@ -91,7 +98,7 @@ host() {
         fi
         digest=$(docker image inspect --format '{{index .RepoDigests 0}}' "$image")
         rc=0
-        docker run --rm -v "$repo:/src:ro" "$image" bash /src/scripts/check-distros.sh --inside 2>&1 |
+        docker run --rm -v "$copy:/src:ro" "$image" bash /src/scripts/check-distros.sh --inside 2>&1 |
             tee "$log" || rc=$?
         first=$(sed -n '/^STEP .* fail$/{s/^STEP //;s/ fail$//;p;q}' "$log")
         if [ "$rc" -eq 0 ] && [ -z "$first" ]; then
