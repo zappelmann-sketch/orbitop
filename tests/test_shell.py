@@ -381,6 +381,16 @@ def test_unix_signal_add_falls_back_without_glibunix(monkeypatch, block):
         assert shell._unix_signal_add() == GLib.unix_signal_add
 
 
+def test_unix_signal_add_really_adds_a_signal_source():  # Triage 12: der Rückfall lief auf Ubuntu 24.04 nie echt
+    with warnings.catch_warnings():  # GLib.unix_signal_add ist im neuen PyGObject veraltet
+        warnings.simplefilter("ignore", DeprecationWarning)
+        ids = [add(GLib.PRIORITY_DEFAULT, signal.SIGUSR2, lambda *a: True)
+               for add in (shell._unix_signal_add(), GLib.unix_signal_add)]
+    names = [GLib.MainContext.default().find_source_by_id(i).get_name() for i in ids]
+    assert [GLib.source_remove(i) for i in ids] == [True, True]
+    assert all(n.startswith("GUnixSignalSource") for n in names), names
+
+
 # ---- Lebenszyklus ----
 def test_shutdown_stops_worker_then_closes_sampler(rig):
     rig.s._shutdown(None)

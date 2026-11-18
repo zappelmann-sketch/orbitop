@@ -254,10 +254,13 @@ def test_check_runtime_python_too_old(tmp_path, monkeypatch):  # Review Focus 5
         load_texts("en")["error.python_old"].format(version="3.11.2")
 
 
-@pytest.mark.skipif(not shutil.which("python3.11"), reason="kein Python 3.11")
+PY311 = shutil.which("python3.11", path="/usr/bin:/bin")  # im selben PATH wie der Aufruf
+
+
+@pytest.mark.skipif(not PY311, reason="kein Python 3.11")
 def test_python_3_11_gets_clear_message(tmp_path):  # Review Focus 5 (Debian 12)
     code = f"import sys; sys.path.insert(0, {str(REPO)!r}); from orbitop.app import main; sys.exit(main([]))"
-    r = subprocess.run(["python3.11", "-I", "-B", "-c", code], capture_output=True, text=True, cwd=tmp_path,
+    r = subprocess.run([PY311, "-I", "-B", "-c", code], capture_output=True, text=True, cwd=tmp_path,
                        env={"LANG": "en_US.UTF-8", "PATH": "/usr/bin:/bin"})
     assert (r.returncode, "3.12" in r.stderr, "Traceback" in r.stderr) == (2, True, False), r.stderr
 
