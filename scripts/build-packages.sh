@@ -16,7 +16,7 @@ usage() { echo "usage: $0 --out DIR --pubkey FILE [--suffix SUFFIX]" >&2; exit 2
 die() { echo "$*" >&2; exit 1; }
 
 inside_deb() {
-    local version=$1 work deb report rc=0
+    local version=$1 work apt deb report rc=0
     if [ ! -e /.dockerenv ] || [ "$(id -u)" -ne 0 ]; then
         die "--inside-deb installs packages as root and runs only as root inside a disposable container."
     fi
@@ -30,16 +30,23 @@ inside_deb() {
     cd "$work/orbitop"
     cp -a packaging/debian debian
     python3 -I packaging/changelog.py debian "$METAINFO" "$version" > debian/changelog
+    # orbitop-apt-source: its own source tree with only its inputs, so that nothing of orbitop reaches it.
+    apt=$work/orbitop-apt-source
+    mkdir "$apt"
+    cp -a packaging/apt-source/debian "$apt/debian"
+    cp packaging/keyring/orbitop.sources "$apt/"
+    python3 -I packaging/changelog.py apt-source "$(cat packaging/keyring.version)" > "$apt/debian/changelog"
     export GNUPGHOME=$work/gnupg
     mkdir -m 700 "$GNUPGHOME"
-    gpg --batch --dearmor > debian/orbitop-archive-keyring.pgp
+    gpg --batch --dearmor > "$apt/orbitop-archive-keyring.pgp"
     # Only a public key goes into the package, never a secret one.
-    gpg --batch --show-keys --with-colons debian/orbitop-archive-keyring.pgp > "$work/key.txt"
+    gpg --batch --show-keys --with-colons "$apt/orbitop-archive-keyring.pgp" > "$work/key.txt"
     if ! grep -q '^pub:' "$work/key.txt" || grep -qE '^(sec|ssb):' "$work/key.txt"; then
         die "--pubkey is not a public key"
     fi
     grep -m 1 '^fpr:' "$work/key.txt"
     dpkg-buildpackage -b -us -uc
+    (cd "$apt" && dpkg-buildpackage -b -us -uc)
     # pkexec runs this file as root: no packaging tool may change it (dh_python3 once dropped "-I" from its shebang).
     dpkg-deb --fsys-tarfile "$work"/orbitop_*_all.deb | tar -xO ./usr/lib/orbitop/killhelper |
         cmp - orbitop/killhelper.py || die "the packaged helper differs from orbitop/killhelper.py"

@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Package source of orbitop (package orbitop-archive-keyring); updates arrive with the regular system update.
+# Package source of orbitop (package orbitop-apt-source); updates arrive with the regular system update.
 Types: deb
 URIs: https://zappelmann-sketch.github.io/orbitop/apt
 Suites: stable

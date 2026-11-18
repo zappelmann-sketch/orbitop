@@ -17,12 +17,3 @@ Suggests: intel-gpu-tools
 Description: System monitor for CPU, memory, GPU, network and processes
  orbitop shows the load of your computer at a glance: processor, memory,
  graphics card, network, disks, sensors and the running processes.
-
-Package: orbitop-archive-keyring
-Section: misc
-Architecture: all
-Depends: ${misc:Depends}
-Description: OpenPGP key and apt source of the orbitop package repository
- Installs the signing key of the orbitop package repository and the apt
- source that uses it, so that new versions of orbitop arrive with the
- regular system update.

@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
+import hashlib
 import importlib.util
 import os
 import re
@@ -18,8 +19,13 @@ APP = "io.github.zappelmann_sketch.orbitop"
 METAINFO = ROOT / "data" / f"{APP}.metainfo.xml"
 NOREPLY = "235797375+zappelmann-sketch@users.noreply.github.com"
 SHARE = "/usr/share/orbitop/"
+APT_SOURCE = PKG / "apt-source" / "debian"
 # einzeilige Datendateien, die kein Kommentarformat kennen
-NO_HEADER = {PKG / "debian" / "source" / "format", PKG / "keyring.version"}
+NO_HEADER = {PKG / "debian" / "source" / "format", APT_SOURCE / "source" / "format", PKG / "keyring.version"}
+# Eingaben von orbitop-apt-source außer dem Schlüssel, je packaging/keyring.version. Ändert sich eine, steigt die
+# Version, und hier kommt ein Eintrag dazu; sonst gäbe es zwei verschiedene Pakete mit derselben Version.
+# Nur vor der ersten Veröffentlichung (Task 10) darf ein Eintrag ersetzt werden.
+APT_SOURCE_INPUTS = {"2026.11.18": "57f821f7ac098f5057b249cbb65c27c649d88fc00dbb6af8ed7c64e13623a76a"}
 
 
 def load_changelog():  # über den Pfad: "packaging" ist auch der Name einer PyPI-Bibliothek, die pytest lädt
@@ -135,7 +141,29 @@ def test_debian_depends_match_app_packages():
     assert "pkexec" in depends
     assert not [d for d in depends if "keyring" in d]  # K3: das Hauptpaket hängt nie vom Keyring-Paket ab
     assert relations(main["Suggests"]) == ["intel-gpu-tools"]
-    assert main["Architecture"] == package("orbitop-archive-keyring")["Architecture"] == "all"
+    assert main["Architecture"] == "all"
+    assert [p.get("Package") for p in deb822(PKG / "debian" / "control")[1:]] == ["orbitop"]
+
+
+def test_apt_source_package():  # eigenes Quellpaket: lintian erlaubt sources.list.d nur in Paketen *-apt-source
+    source, pkg = deb822(APT_SOURCE / "control")
+    assert (source["Source"], pkg["Package"], pkg["Architecture"]) == ("orbitop-apt-source",) * 2 + ("all",)
+    assert relations(pkg["Depends"]) == ["${misc:Depends}"]
+    assert source["Maintainer"] == deb822(PKG / "debian" / "control")[0]["Maintainer"]
+    assert not list(PKG.rglob("*lintian-overrides"))  # kein Tag wird unterdrückt
+
+
+def apt_source_inputs():
+    version = (PKG / "keyring.version").read_text().strip()
+    h = hashlib.sha256(load_changelog().apt_source(version).encode())
+    for p in sorted([PKG / "keyring" / "orbitop.sources", *(p for p in APT_SOURCE.rglob("*") if p.is_file())]):
+        h.update(b"\0" + str(p.relative_to(PKG)).encode() + b"\0" + p.read_bytes())
+    return version, h.hexdigest()
+
+
+def test_apt_source_inputs_pinned():  # gleiche Version, gleiche Bytes; der Bau prüft das zusätzlich
+    version, digest = apt_source_inputs()
+    assert APT_SOURCE_INPUTS.get(version) == digest
 
 
 def test_description_matches_metainfo():
@@ -248,6 +276,17 @@ def test_changelog_from_metainfo():
 
 def test_changelog_top_entry_carries_build_version():  # K6: Prüfbau mit Suffix
     assert load_changelog().debian(META, "0.2.0-1+check1").startswith("orbitop (0.2.0-1+check1) stable;")
+
+
+def test_changelog_apt_source_only_from_keyring_version():  # nie aus der metainfo oder der orbitop-Version
+    changelog = load_changelog()
+    assert changelog.apt_source("2026.11.18") == (
+        "orbitop-apt-source (2026.11.18) stable; urgency=medium\n\n"
+        "  * Signing key and package source as of 2026-11-18.\n\n"
+        f" -- zappelmann-sketch <{NOREPLY}>  Wed, 18 Nov 2026 00:00:00 +0000\n")
+    for bad in ("2026.13.01", "2026-11-18", "2026.11.18-1"):
+        with pytest.raises(ValueError):
+            changelog.apt_source(bad)
 
 
 def test_changelog_refuses_version_without_release():  # __version__ neuer als die metainfo: Bau bricht ab

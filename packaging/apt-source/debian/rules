@@ -1,0 +1,14 @@
+#!/usr/bin/make -f
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Own source package, so that changelog, SOURCE_DATE_EPOCH and version come only from packaging/keyring.version:
+# the same version gives the same bytes, whatever orbitop is built alongside. build-packages.sh copies
+# orbitop.sources, the key orbitop-archive-keyring.pgp and debian/changelog next to this directory.
+
+%:
+	dh $@
+
+override_dh_auto_install:
+	install -D -m 0644 orbitop.sources debian/orbitop-apt-source/etc/apt/sources.list.d/orbitop.sources
+	install -D -m 0644 orbitop-archive-keyring.pgp \
+		debian/orbitop-apt-source/usr/share/keyrings/orbitop-archive-keyring.pgp

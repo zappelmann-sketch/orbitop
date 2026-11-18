@@ -1,25 +1,16 @@
 #!/usr/bin/make -f
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Before the build, build-packages.sh puts debian/changelog (from the metainfo) and the key
-# debian/orbitop-archive-keyring.pgp into the copy in the container; neither is ever in the repository.
+# Before the build, build-packages.sh writes debian/changelog from the metainfo into the copy in the container;
+# it is never in the repository. orbitop-apt-source has its own source package in packaging/apt-source/.
 
 %:
 	dh $@
 
 override_dh_auto_install:
 	bash packaging/install-tree.sh debian/orbitop
-	install -D -m 0644 packaging/keyring/orbitop.sources \
-		debian/orbitop-archive-keyring/etc/apt/sources.list.d/orbitop.sources
-	install -D -m 0644 debian/orbitop-archive-keyring.pgp \
-		debian/orbitop-archive-keyring/usr/share/keyrings/orbitop-archive-keyring.pgp
 
 # Shebangs stay as they are: otherwise dh_python3 turns the root helper's "#!/usr/bin/python3 -I" into
 # "#! /usr/bin/python3" without -I. Byte-compiling in postinst and prerm stays (Python Policy 5.3).
 override_dh_python3:
 	dh_python3 --no-shebang-rewrite
-
-# The keyring package carries the date of its key as version, not the version of orbitop.
-override_dh_gencontrol:
-	dh_gencontrol -porbitop-archive-keyring -- -v$(shell cat packaging/keyring.version)
-	dh_gencontrol --remaining-packages

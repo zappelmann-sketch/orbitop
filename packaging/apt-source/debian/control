@@ -1,0 +1,18 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+Source: orbitop-apt-source
+Section: misc
+Priority: optional
+Maintainer: zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>
+Build-Depends: debhelper-compat (= 13)
+Standards-Version: 4.7.2
+Homepage: https://github.com/zappelmann-sketch/orbitop
+Rules-Requires-Root: no
+
+Package: orbitop-apt-source
+Architecture: all
+Depends: ${misc:Depends}
+Description: OpenPGP key and apt source of the orbitop package repository
+ Installs the signing key of the orbitop package repository and the apt
+ source that uses it, so that new versions of orbitop arrive with the
+ regular system update.
