@@ -13,12 +13,15 @@ import hashlib
 import io
 import sys
 import tarfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 PACKAGES_HASHES = {"MD5sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
 RELEASE_HASHES = {"MD5Sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
 BY_HASH = ("SHA256", "SHA512")  # the copies apt-ftparchive writes with DoByHash
 RELEASE_FIXED = {"Origin": "orbitop", "Label": "orbitop", "Architectures": "all", "Acquire-By-Hash": "yes"}
+RELEASE_DATE = "%a, %d %b %Y %H:%M:%S +0000"  # RFC 2822 in UTC, as apt-ftparchive writes it (C locale)
+DATE_SLACK = timedelta(minutes=10)  # apt refuses a Release dated in the future as "not valid yet"
 
 
 class Refused(Exception):
@@ -26,13 +29,20 @@ class Refused(Exception):
 
 
 def paragraphs(text):
-    """deb822 paragraphs as dicts; a continuation line is kept with its newline, a repeated field is refused."""
+    """deb822 paragraphs as dicts; a continuation line is kept with its newline, a repeated field is refused.
+
+    Only an empty line ends a paragraph: apt reads a line of blanks as a continuation line, so it is refused, and so is
+    any character but printable ones, space and tab, which apt and this parser might split or strip differently."""
     paras, cur, key = [], {}, None
     for line in text.split("\n"):
-        if not line.strip():
+        if not line:
             if cur:
                 paras.append(cur)
             cur, key = {}, None
+        elif not line.strip(" \t"):
+            raise Refused(f"whitespace-only line {line!r}: apt does not end a paragraph there")
+        elif not line.replace("\t", " ").isprintable():
+            raise Refused(f"control character or other whitespace in {line!r}")
         elif line[0] in " \t":
             if key is None:
                 raise Refused(f"continuation line without a field: {line!r}")
@@ -41,7 +51,7 @@ def paragraphs(text):
             key, sep, value = line.partition(":")
             if not sep or key in cur:
                 raise Refused(f"bad or repeated field: {line!r}")
-            cur[key] = value.strip()
+            cur[key] = value.strip(" \t")
     return paras + [cur] if cur else paras
 
 
@@ -104,9 +114,11 @@ def check_packages(apt, packages, debs):
 
 
 def check_release(apt, suite, component, blobs):
-    """(c) The fixed fields and, per hash, exactly Packages and Packages.gz with their true size and hash."""
+    """(c) The fixed fields, a Date not in the future, per hash exactly Packages and Packages.gz (true size, hash)."""
     (release,) = paragraphs((apt / f"dists/{suite}/Release").read_text(encoding="utf-8"))
-    release.pop("Date", None)
+    date = datetime.strptime(release.pop("Date", ""), RELEASE_DATE).replace(tzinfo=timezone.utc)
+    if date > datetime.now(timezone.utc) + DATE_SLACK:
+        raise Refused(f"Release Date {date} is in the future: apt would refuse the source as not valid yet")
     for field, algo in RELEASE_HASHES.items():
         listed = sorted(tuple(line.split()) for line in release.pop(field, "").split("\n") if line.strip())
         true = sorted((digest(b, algo), str(len(b)), path.split("/", 2)[2]) for path, b in blobs.items())

@@ -69,6 +69,14 @@ def forge(apt, case):
                                   release.read_text(), count=1))
     elif case == "release-field":
         release.write_text("Signed-By: 0000000000000000000000000000000000000000\n" + release.read_text())
+    elif case in ("space-line", "tab-line"):  # apt liest die Zeile als Folgezeile und verschmilzt beide Stanzas
+        blank = " " if case == "space-line" else "\t"
+        write_index(apt, "stable", "main", f"{blank}\n".join(stanza(apt, d) for d in DEBS))
+    elif case == "control-char":  # apt behält \x1c im Hash, str.strip() hätte es entfernt
+        write_index(apt, "stable", "main", text.replace(sha, sha + "\x1c", 1))
+    elif case in ("future-date", "bad-date"):
+        date = "Fri, 01 Jan 2100 00:00:00 +0000" if case == "future-date" else "01 Jan 2026 00:00:00 +0000"
+        release.write_text(re.sub(r"(?m)^Date: .*$", f"Date: {date}", release.read_text()))
 
 
 @pytest.mark.parametrize("case, reason", [
@@ -77,7 +85,9 @@ def forge(apt, case):
     ("conflicts", "differs from its deb in ['Conflicts']"), ("third-stanza", "Packages lists"),
     ("by-hash", "is no copy"), ("missing-by-hash", "missing"), ("gz", "apt index:"),
     ("release-entry", "Release SHA256 lists"), ("release-size", "Release SHA256 lists"),
-    ("release-field", "Release fields")])
+    ("release-field", "Release fields"), ("space-line", "whitespace-only line"),
+    ("tab-line", "whitespace-only line"), ("control-char", "control character"),
+    ("future-date", "is in the future"), ("bad-date", "does not match format")])
 def test_refuses_a_forged_index(apt, case, reason):
     forge(apt, case)
     r = check(apt)

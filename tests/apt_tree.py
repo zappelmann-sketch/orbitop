@@ -70,7 +70,7 @@ def write_index(apt, suite, component, packages=None):
                 (index / "by-hash" / field).mkdir(parents=True, exist_ok=True)
                 (index / "by-hash" / field / h).write_bytes(data)
     head = (f"Acquire-By-Hash: yes\nArchitectures: all\nCodename: {suite}\nComponents: {component}\n"
-            f"Date: Wed, 18 Nov 2026 12:00:00 +0000\nLabel: orbitop\nOrigin: orbitop\nSuite: {suite}\n")
+            f"Date: Thu, 01 Jan 2026 00:00:00 +0000\nLabel: orbitop\nOrigin: orbitop\nSuite: {suite}\n")
     (apt / "dists" / suite / "Release").write_text(head + "".join(f"{f}:{v}\n" for f, v in lines.items()))
 
 
