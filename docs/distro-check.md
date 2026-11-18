@@ -4,7 +4,7 @@ The setup and the test suite of orbitop, run for real in disposable Docker conta
 [`scripts/check-distros.sh`](../scripts/check-distros.sh). Only the distributions marked `pass` are supported.
 
 - Date: 2026-11-18. The five supported images ran a second time that day, after `setup-privileges.sh` started to pick
-  the package manager from os-release: same digests, same versions, all `pass`. Debian 12 and Ubuntu 22.04 are from
+  the package manager from os-release: same digests, same versions, all `pass` (openSUSE only on a further run after commit a568c23, see below). Debian 12 and Ubuntu 22.04 are from
   the first run.
 - Docker: 29.9.3 (x86_64 host with an Intel GPU)
 - Each image runs once as
