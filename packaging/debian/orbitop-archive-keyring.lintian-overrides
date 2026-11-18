@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Third-party package source: the keyring package "MAY also include the /etc/apt/sources.list.d/deriv.sources"
+# file (Debian Wiki, DebianRepository/UseThirdParty). The tag targets packages of the Debian archive; docs/release.md.
+package-installs-apt-sources [etc/apt/sources.list.d/orbitop.sources]
