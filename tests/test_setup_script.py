@@ -197,7 +197,7 @@ case "$1" in
         while [ "$1" != -v ]; do shift; done
         src=${2%:/src:ro}
         echo "SRC $src" >> "$FAKE_LOG"
-        (cd "$src" && find . | sed 's/^/FILE /') >> "$FAKE_LOG"
+        (cd "$src" && tar -cf - . | tar -tf - | sed 's/^/FILE /') >> "$FAKE_LOG"  # find fehlt im openSUSE-Image
         echo "STEP refresh ok" ;;
 esac
 """
