@@ -31,8 +31,17 @@ esac
 case $step:$PLANT in
     apt-inside.sh:symlink) ln -s "$VICTIM" "$out/dists/stable/InRelease" ;;
     apt-inside.sh:fifo) mkfifo "$out/dists/stable/Release.gpg" ;;
+    apt-inside.sh:cap) touch "$out/dists/stable/capfile" ;;
+    apt-inside.sh:changed-apt) printf x >> "$out/pool/main/o/orbitop/orbitop_0.2.0-1_all.deb" ;;
     arch-inside.sh:setgid) chmod 2755 "$out/orbitop.db" ;;
+    arch-inside.sh:changed-arch) printf x >> "$out/orbitop-0.2.0-1-any.pkg.tar.zst" ;;
+    arch-inside.sh:extra) echo evil > "$out/evil-1-1-any.pkg.tar.zst" ;;
 esac
+"""
+# getcap -r -- DIR wie das echte, das ohne Rechte keine Datei mit Capability sieht: "capfile" trägt eine.
+GETCAP = """#!/bin/sh
+for a; do d=$a; done
+find "$d" -name capfile -printf '%p cap_setuid=ep\\n'
 """
 
 
@@ -59,9 +68,9 @@ def kill_agent(home):
     subprocess.run(["gpgconf", "--homedir", str(home), "--kill", "all"], capture_output=True)
 
 
-def run(tmp_path, key, *, packages=PACKAGES, fpr=None, socket=None, env=()):
-    """build-site.sh mit docker-Stellvertreter; Pakete, die schon da sind (auch als Symlink), bleiben.
-    Gibt das Ergebnis und die docker-Aufrufe zurück, je Aufruf die Liste seiner Argumente."""
+def run(tmp_path, key, *, packages=PACKAGES, fpr=None, socket=None, env=(), stubs=()):
+    """build-site.sh mit Stellvertretern für docker und getcap (und STUBS: Name -> Skript); Pakete, die schon da
+    sind (auch als Symlink), bleiben. Gibt das Ergebnis und die docker-Aufrufe zurück, je Aufruf seine Argumente."""
     pkgs = tmp_path / "pkgs"
     for name in packages:
         (pkgs / name).parent.mkdir(parents=True, exist_ok=True)
@@ -69,7 +78,8 @@ def run(tmp_path, key, *, packages=PACKAGES, fpr=None, socket=None, env=()):
             (pkgs / name).write_bytes(name.encode())
     fake = tmp_path / "bin"
     fake.mkdir()
-    (fake / "docker").write_text(DOCKER)
+    for name, text in {"docker": DOCKER, "getcap": GETCAP, **dict(stubs)}.items():
+        (fake / name).write_text(text)
     if socket:  # gpgconf meldet einen anderen Ort des extra-socket
         (fake / "gpgconf").write_text(f"""#!/bin/sh
 [ "$1 $2" = "--list-dirs agent-extra-socket" ] && {{ echo {socket}; exit 0; }}

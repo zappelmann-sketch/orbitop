@@ -9,6 +9,7 @@ import pytest
 
 from orbitop import __version__
 from tests.packaging_common import ROOT
+from tests.site_stub import GETCAP
 
 PUBLIC = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nAAAA\n-----END PGP PUBLIC KEY BLOCK-----\n"
 SECRET = "-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nAAAA\n-----END PGP PRIVATE KEY BLOCK-----\n"
@@ -54,9 +55,12 @@ case $PLANT in
     symlink) ln -s {tmp_path}/victim.txt "$out/deb/orbitop_9.9.9-1_all.deb" ;;
     fifo) mkfifo "$out/deb/fifo" ;;
     setuid) touch "$out/deb/x" && chmod 4755 "$out/deb/x" ;;
+    cap) touch "$out/deb/capfile" ;;
 esac
 """)
-    (fake / "docker").chmod(0o755)
+    (fake / "getcap").write_text(GETCAP)
+    for f in fake.iterdir():
+        f.chmod(0o755)
     r = subprocess.run(["bash", str(ROOT / "scripts" / "build-packages.sh"), *args], capture_output=True, text=True,
                        env={**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "PLANT": plant})
     log = tmp_path / "docker.log"
@@ -95,7 +99,7 @@ def test_build_runs_disposable_containers(tmp_path, keys):
               "archlinux:latest": ("arch", __version__, "1.1")}  # K6: Prüfbau mit Suffix je Format
     assert len(runs) == len(images)
     for args in runs:
-        assert args[:4] == ["--rm", "-i", "--cap-drop", "MKNOD"], args
+        assert args[:6] == ["--rm", "-i", "--cap-drop", "MKNOD", "--cap-drop", "SETFCAP"], args
         mounts = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
         assert [m.rsplit(":", 1)[-1] for m in mounts] == ["ro", "/out"]
         assert not [a for a in args if a in ("--privileged", "--cap-add", "--network=host")]
@@ -106,7 +110,7 @@ def test_build_runs_disposable_containers(tmp_path, keys):
 
 
 @pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")
-@pytest.mark.parametrize("plant", ["symlink", "fifo", "setuid"])
+@pytest.mark.parametrize("plant", ["symlink", "fifo", "setuid", "cap"])
 def test_build_refuses_odd_container_output(tmp_path, keys, plant):  # build-site.sh liest DIR später als Eingabe
     (tmp_path / "victim.txt").write_text("unchanged\n")
     r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), plant=plant)

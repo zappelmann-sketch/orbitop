@@ -45,22 +45,30 @@ tracked_files() {
 }
 
 # only_plain DIR: DIR comes from a container (as root); host tools may touch it only if it holds nothing but regular
-# files and directories, none setuid or setgid. A planted symlink would make them read or write elsewhere, a FIFO
-# would block them, a device would open the host's.
+# files and directories, none setuid or setgid and none with file capabilities. A planted symlink would make them read
+# or write elsewhere, a FIFO would block them, a device would open the host's; setuid, setgid or a capability would
+# give root's rights to whoever runs the file. Any error of find or getcap is a refusal too.
 only_plain() {
-    local odd
-    odd=$(find "$1" -mindepth 1 \( \( ! -type f ! -type d \) -o -perm /6000 \) -print -quit)
+    local odd getcap caps
+    odd=$(find "$1" -mindepth 1 \( \( ! -type f ! -type d \) -o -perm /6000 \) -print -quit) ||
+        die "refusing $1: find cannot check all of it"
     [ -z "$odd" ] || die "refusing $1: it holds something other than plain files and directories: $odd"
+    getcap=$(PATH=$PATH:/usr/sbin:/sbin command -v getcap) ||
+        die "refusing $1: getcap (libcap2-bin or libcap) is missing, so file capabilities cannot be checked"
+    # getcap exits 0 even for errors and prints them; it prints nothing for a tree without capabilities.
+    caps=$("$getcap" -r -- "$1" 2>&1) || die "refusing $1: getcap failed: $caps"
+    [ -z "$caps" ] || die "refusing $1: file capabilities, or getcap failed: $caps"
 }
 
-# container DIR IMAGE [DOCKER-OPTION…] -- SCRIPT [ARG…]: one disposable container without the MKNOD capability, the
-# tracked files read-only at /src, DIR writable at /out and $tmp/key.pgp on stdin; afterwards DIR must be plain.
+# container DIR IMAGE [DOCKER-OPTION…] -- SCRIPT [ARG…]: one disposable container without the MKNOD and SETFCAP
+# capabilities, the tracked files read-only at /src, DIR writable at /out and $tmp/key.pgp on stdin; afterwards DIR
+# must be plain.
 container() {
     local dir=$1 image=$2 opts=()
     shift 2
     while [ "$1" != -- ]; do opts+=("$1") && shift; done
     shift
-    docker run --rm -i --cap-drop MKNOD -e OWNER="$(id -u):$(id -g)" -v "$tmp/src:/src:ro" -v "$dir:/out" \
-        "${opts[@]}" "$image" bash "$@" < "$tmp/key.pgp"
+    docker run --rm -i --cap-drop MKNOD --cap-drop SETFCAP -e OWNER="$(id -u):$(id -g)" -v "$tmp/src:/src:ro" \
+        -v "$dir:/out" "${opts[@]}" "$image" bash "$@" < "$tmp/key.pgp"
     only_plain "$dir"
 }

@@ -105,7 +105,7 @@ def test_build_site_gives_containers_public_key_and_socket_only_for_rpmsign(tmp_
     agent = [f"type=bind,source={socket},target=/gnupg/S.gpg-agent"]
     steps = []
     for args in (c[1:] for c in calls[2:]):
-        assert args[:4] == ["--rm", "-i", "--cap-drop", "MKNOD"], args
+        assert args[:6] == ["--rm", "-i", "--cap-drop", "MKNOD", "--cap-drop", "SETFCAP"], args
         assert not [a for a in args if a in ("--privileged", "--cap-add", "--network=host")]
         volumes = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
         assert [v.rsplit(":", 1)[-1] for v in volumes] == ["ro", "/out"], volumes

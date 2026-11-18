@@ -44,11 +44,15 @@ gpgconf --launch gpg-agent
 # must show the primary key (or the listing failed) and no keygrip of another key.
 mine=$(gpg --with-colons --with-keygrip --list-secret-keys -- "$fpr" | awk -F: '$1 == "grp" { print $10 }')
 held=$(gpg-connect-agent --no-autostart 'KEYINFO --list' /bye | awk '$2 == "KEYINFO" { print $3 }')
-if [[ ! ${mine%%$'\n'*} =~ ^[0-9A-F]{40}$ ]] || ! grep -qxF -- "${mine%%$'\n'*}" <<< "$held" ||
-    grep -qvxF -f <(echo "$mine") <<< "$held"; then
-    die "the gpg-agent of GNUPGHOME must hold ORBITOP_KEY and no other key; use a GNUPGHOME of its own" \
-        "(docs/release.md, Site)"
+grip=${mine%%$'\n'*}
+if [[ ! $grip =~ ^[0-9A-F]{40}$ ]] || ! grep -qxF -- "$grip" <<< "$held"; then
+    die "the gpg-agent of GNUPGHOME does not list ORBITOP_KEY (KEYINFO --list)"
 fi
+# grep exits 1 when every keygrip is one of ours and 2 on an error: only 0 and 1 are answers.
+others=$(grep -vxF -f <(printf '%s\n' "$mine") <<< "$held" || [ $? -eq 1 ]) ||
+    die "the keys of the gpg-agent of GNUPGHOME could not be compared"
+[ -z "$others" ] || die "the gpg-agent of GNUPGHOME must hold ORBITOP_KEY and no other key; use a GNUPGHOME of" \
+    "its own (docs/release.md, Site)"
 socket=$(gpgconf --list-dirs agent-extra-socket)
 [ -S "$socket" ] || die "rpmsign needs the gpg-agent's extra socket, and there is none at $socket (extra-socket none?)"
 
@@ -67,6 +71,13 @@ put() {  # put PATTERN DIR: exactly one file per package, so that the source hol
     [ -f "${found[0]}" ] && [ ! -L "${found[0]}" ] || die "--packages: not a regular file: ${found[0]}"
     mkdir -p -- "$out/$2"
     cp -- "${found[0]}" "$out/$2/"
+    (cd -- "$out" && sha256sum -- "$2/${found[0]##*/}") >> "$tmp/inputs.sha256"
+}
+# unchanged DIR: after its container, the packages in DIR are still byte for byte those from --packages, so that the
+# host signs no package a container replaced.
+unchanged() {
+    (cd -- "$out" && grep -F "  $1/" "$tmp/inputs.sha256" | sha256sum --check --quiet --strict -) ||
+        die "refusing $1: a package there is not the one from --packages any more"
 }
 put 'deb/orbitop_*_all.deb' "$APT_DIR/pool/$APT_COMPONENT/o/orbitop"
 put 'deb/orbitop-apt-source_*_all.deb' "$APT_DIR/pool/$APT_COMPONENT/o/orbitop-apt-source"
@@ -87,6 +98,7 @@ tools "$SUSE_TOOLS" "$SUSE_IMAGE"
 
 # apt: Packages, by-hash and Release from the container, InRelease and Release.gpg from here.
 container "$out/$APT_DIR" "$DEB_IMAGE" -- /src/packaging/site/apt-inside.sh "$APT_SUITE" "$APT_COMPONENT"
+unchanged "$APT_DIR"
 dists=$out/$APT_DIR/dists/$APT_SUITE
 sign --clearsign -o "$dists/InRelease" "$dists/Release"
 sign --armor --detach-sign -o "$dists/Release.gpg" "$dists/Release"
@@ -107,7 +119,9 @@ done
 # Arch: repo-add in the container, then a binary .sig beside the package and both databases; pacman fetches each one
 # from the server (repo-add embeds no package signature without --include-sigs, and pacman 7 does not need it).
 container "$out/$ARCH_DIR" "$ARCH_IMAGE" --network none -- /src/packaging/site/arch-inside.sh
-for file in "$out/$ARCH_DIR"/*.pkg.tar.zst "$out/$ARCH_DIR/orbitop.db" "$out/$ARCH_DIR/orbitop.files"; do
+unchanged "$ARCH_DIR"
+pkg=$(grep -F "  $ARCH_DIR/" "$tmp/inputs.sha256" | awk '{ print $2 }')  # only the package from --packages
+for file in "$out/$pkg" "$out/$ARCH_DIR/orbitop.db" "$out/$ARCH_DIR/orbitop.files"; do
     sign --no-armor --detach-sign -o "$file.sig" "$file"
     verify "$file.sig" "$file"
 done
