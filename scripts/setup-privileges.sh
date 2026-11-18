@@ -32,13 +32,44 @@ root=/
 [ "$dry_run" -eq 1 ] && root=${ORBITOP_SYSROOT:-/}
 root=${root%/}
 
+# The distribution decides, as package_manager in orbitop/app.py (tests/test_setup_script.py keeps them equal):
+# ID, then each word of ID_LIKE from os-release(5), read line by line and never sourced.
+os_release=$root/etc/os-release
+[ -s "$os_release" ] || os_release=$root/usr/lib/os-release
+id="" id_like=""
+if [ -f "$os_release" ]; then
+    while IFS= read -r line || [ -n "$line" ]; do
+        case "$line" in
+            ID=*) id=${line#ID=} ;;
+            ID_LIKE=*) id_like=${line#ID_LIKE=} ;;
+        esac
+    done < "$os_release"
+fi
+read -ra words <<< "$id $id_like"  # split without pathname expansion
 manager=none
-for m in apt-get dnf pacman zypper; do
-    if command -v "$m" >/dev/null; then
-        manager=$m
-        break
-    fi
+for word in "${words[@]}"; do
+    case "${word//[\"\']/}" in
+        debian|ubuntu) manager=apt-get ;;
+        fedora|rhel|centos) manager=dnf ;;
+        arch) manager=pacman ;;
+        suse|opensuse|opensuse-*) manager=zypper ;;
+        *) continue ;;
+    esac
+    break
 done
+# Another distribution's manager may be installed too (apt on Arch); without the named one, the first one found.
+if [ "$manager" != none ] && ! command -v "$manager" >/dev/null; then
+    echo "os-release names $manager, but it is not installed; looking for apt-get, dnf, pacman or zypper instead."
+    manager=none
+fi
+if [ "$manager" = none ]; then
+    for m in apt-get dnf pacman zypper; do
+        if command -v "$m" >/dev/null; then
+            manager=$m
+            break
+        fi
+    done
+fi
 # The override is matched against the fixed list below and never reaches a command line.
 [ "$dry_run" -eq 1 ] && manager=${ORBITOP_PKG_MANAGER:-$manager}
 

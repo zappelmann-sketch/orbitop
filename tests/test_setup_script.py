@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 import os
+import re
 import shutil
 import subprocess
 from pathlib import Path
@@ -99,6 +100,48 @@ def test_unknown_manager_names_packages_and_still_installs_helper(manager):
                and "README" in ln for ln in lines)
     assert lines[lines.index(HELPER_LINES[0]):][:2] == HELPER_LINES
     assert not any(ln.startswith(("WOULD: apt-get", "WOULD: dnf", "WOULD: pacman", "WOULD: zypper")) for ln in lines)
+
+
+FIXED_PATH = "/usr/sbin:/usr/bin:/sbin:/bin"  # PATH im Skript
+FALLBACK = [m for m in INSTALL if shutil.which(m, path=FIXED_PATH)][:1]  # der erste installierte
+
+
+def detected(tmp_path, text, where="etc"):
+    """(Hinweis, Installzeilen) eines Probelaufs mit diesem os-release: Der Hinweis nennt den Paketmanager der
+    Distribution, wenn er hier fehlt; die Installzeile den, der installieren würde."""
+    (tmp_path / where).mkdir(parents=True)
+    (tmp_path / where / "os-release").write_text(text)
+    env = {k: v for k, v in os.environ.items() if k != "ORBITOP_PKG_MANAGER"}
+    out = subprocess.run(["bash", SCRIPT, "--dry-run"], env={**env, "ORBITOP_SYSROOT": str(tmp_path)},
+                         capture_output=True, text=True, check=True).stdout
+    hint = re.search(r"^os-release names (\S+), but it is not installed", out, re.M)
+    return (hint[1] if hint else None), [m for m, cmd in INSTALL.items() if f"WOULD: {cmd} " in out]
+
+
+@pytest.mark.parametrize("text,where", [
+    ("NAME=Ubuntu\nID=ubuntu\nID_LIKE=debian\n", "etc"),
+    ("ID=debian\n", "etc"),
+    ('ID="fedora"\n', "etc"),
+    ("ID=arch\n", "usr/lib"),  # ohne /etc/os-release
+    ('ID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n', "etc"),
+    ('ID=linuxmint\nID_LIKE="ubuntu debian"\n', "etc"),
+    ("ID=endeavouros\nID_LIKE=arch", "etc"),  # letzte Zeile ohne Zeilenende
+    ("ID=rocky\nID_LIKE='rhel centos fedora'\n", "etc"),
+    ('ID=sles\nID_LIKE="suse"\n', "etc"),
+    ("ID_LIKE=debian\nID=arch\n", "etc"),  # ID vor ID_LIKE, egal in welcher Zeile
+])
+def test_manager_from_os_release_equals_app(tmp_path, text, where):  # Triage 8: dieselbe Zuordnung wie die App
+    got = detected(tmp_path, text, where)
+    want = app.package_manager(str(tmp_path))
+    if shutil.which(want, path=FIXED_PATH):
+        assert got == (None, [want])
+    else:  # per command -v bestätigt: fehlt er, nennt ihn der Hinweis, und der erste gefundene installiert
+        assert got == (want, FALLBACK)
+
+
+@pytest.mark.parametrize("text", ["ID=nixos\n", "", "ID=*\nID_LIKE=*\n"])
+def test_without_known_os_release_first_installed_manager(tmp_path, text):  # Rückfall wie vorher
+    assert detected(tmp_path, text) == (None, FALLBACK)
 
 
 @pytest.mark.parametrize("tree", ["intel-laptop", "amd-desktop", "arm-board", "vm"])
