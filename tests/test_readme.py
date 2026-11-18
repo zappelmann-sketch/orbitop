@@ -117,10 +117,40 @@ def test_stage_1_scripts_are_gone():  # Spec 7: nur der Umstieg nennt noch den a
         assert "/usr/local/libexec" not in without_section(text, MOVE[name]), name
 
 
-def test_hints_name_a_section_of_the_readme():  # hint.igt_noperm und hint.rapl_noperm verweisen auf die README
+def slug(heading):
+    """Anker, den GitHub für eine Überschrift vergibt."""
+    return re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-")
+
+
+def test_hints_link_a_section_of_the_readme():  # das Paket liefert keine README mit: die Texte nennen ihre Adresse
     texts = {lang: json.loads((REPO / "orbitop" / "locale" / f"{lang}.json").read_text(encoding="utf-8"))
              for lang in ("en", "de")}
-    for lang, text, section in (("en", EN, "Graphics and power"), ("de", DE, "Grafik und Leistung")):
-        assert f"\n## {section}\n" in text
-        for key in ("hint.igt_noperm", "hint.rapl_noperm"):
-            assert "README" in texts[lang][key] and section in texts[lang][key], (lang, key)
+    for lang, name, text, power in (("en", "README.md", EN, "Graphics and power"),
+                                    ("de", "README.de.md", DE, "Grafik und Leistung")):
+        links = {"hint.igt_noperm": power, "hint.rapl_noperm": power, "result.nohelper": "Installation"}
+        for key, section in links.items():
+            assert f"\n## {section}\n" in text, (lang, section)
+            url = f"https://github.com/zappelmann-sketch/orbitop/blob/main/{name}#{slug(section)}"
+            assert url in texts[lang][key], (lang, key)
+
+
+def fingerprint(text):
+    """Der Fingerabdruck aus dem ersten Codeblock unter dem Abschnitt zum Signierschlüssel."""
+    section = re.search(r"^### (Signing key|Signierschlüssel)\n(.*?)^### ", text, re.M | re.S)[2]
+    return code_blocks(section)[0].strip()
+
+
+def test_key_check_needs_exactly_one_key_and_its_fingerprint():  # Audit Task 7, F1: ein zweiter Schlüssel in der Datei
+    for text, rule in ((EN, "exactly one key"), (DE, "genau einen Schlüssel")):
+        assert rule in text
+        assert f"using EDDSA key {fingerprint(text)}" in text  # gpgv nimmt jeden Schlüssel der Datei an
+        first_curl = next(block for block in code_blocks(text) if "curl " in block)
+        assert first_curl.startswith('cd "$(mktemp -d)"\n')  # F3: eigener Ordner für die Downloads
+
+
+def test_uninstall_deletes_every_key_of_orbitop():  # Audit Task 7, F2: nach einer Erneuerung gibt es zwei
+    for text in (EN, DE):
+        assert "rpmkeys --list | grep -F 'orbitop archive signing key' | " in text
+        trusted = "/usr/share/pacman/keyrings/orbitop-trusted"
+        keys = text.index(f"cut -d: -f1 {trusted} | xargs -r -n1 sudo pacman-key --delete")
+        assert keys < text.index("sudo pacman -R orbitop")  # die Liste geht mit dem Paket

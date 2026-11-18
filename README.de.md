@@ -79,19 +79,20 @@ Paketquelle und Release-Dateien sind mit einem Schlüssel signiert: Ed25519, Use
 <FINGERPRINT>
 ```
 
-Der Fingerabdruck steht hier in der README im Repository, nicht nur auf der Seite der Paketquelle. Laden Sie den Schlüssel in beiden Formen und lassen Sie sich den Fingerabdruck zeigen; das ändert nichts am Rechner:
+Der Fingerabdruck steht hier in der README im Repository, nicht nur auf der Seite der Paketquelle. Die Schritte unten brauchen `curl` und GnuPG (`gpg`, unter Debian und Ubuntu auch `gpgv`). Fehlt eines, installieren Sie es: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2` oder `sudo pacman -S curl gnupg`. Laden Sie den Schlüssel in einem neuen, privaten Verzeichnis in beiden Formen und lassen Sie ihn sich zeigen; das ändert nichts am Rechner:
 
 ```sh
+cd "$(mktemp -d)"
 curl -LO https://zappelmann-sketch.github.io/orbitop/orbitop-archive-keyring.asc
 curl -LO https://zappelmann-sketch.github.io/orbitop/orbitop-archive-keyring.pgp
 gpg --show-keys orbitop-archive-keyring.asc orbitop-archive-keyring.pgp
 ```
 
-Beide Male muss die Zeile unter `pub` genau der Fingerabdruck oben sein. Sonst brechen Sie hier ab. Die Schritte Ihrer Distribution führen Sie im selben Verzeichnis aus. `gpg` und `gpgv` gehören zu GnuPG; fehlen sie, installieren Sie es aus Ihrer Distribution.
+Jede Datei muss genau einen Schlüssel enthalten: Die Ausgabe zeigt genau zwei Schlüssel, einen je Datei, und unter jeder Zeile `pub` genau den Fingerabdruck oben. Zeigt sie mehr Schlüssel oder einen anderen Fingerabdruck, brechen Sie ab: Mit einem zweiten Schlüssel in der Datei könnte auch dieser signieren. Die Schritte Ihrer Distribution führen Sie im selben Terminal in diesem Verzeichnis aus.
 
 ### Ubuntu und Debian
 
-Das Paket der Quelle laden und gegen die signierten Prüfsummen des Releases prüfen:
+Das Paket laden, das die Quelle einrichtet, und gegen die signierten Prüfsummen des Releases prüfen:
 
 ```sh
 curl -LO https://github.com/zappelmann-sketch/orbitop/releases/latest/download/orbitop-apt-source.deb
@@ -101,7 +102,7 @@ gpgv --keyring ./orbitop-archive-keyring.pgp SHA256SUMS.asc SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
 ```
 
-`gpgv` muss `Good signature from "orbitop archive signing key"` melden und `sha256sum` `orbitop-apt-source.deb: OK` ausgeben. Danach:
+`gpgv` muss `using EDDSA key <FINGERPRINT>` mit genau dem Fingerabdruck oben und `Good signature from "orbitop archive signing key"` melden und `sha256sum` `orbitop-apt-source.deb: OK` ausgeben. Danach:
 
 ```sh
 sudo apt install ./orbitop-apt-source.deb
@@ -109,7 +110,7 @@ sudo apt update
 sudo apt install orbitop
 ```
 
-`orbitop-apt-source` legt drei Dateien unter `/etc/apt/` an: die Quelle `sources.list.d/orbitop.sources`, ihren Schlüssel `keyrings/orbitop-archive-keyring.pgp` und das Pinning `preferences.d/orbitop.pref`. `apt policy orbitop` zeigt danach die Quelle mit Priorität 100. Meldet apt, dass der Download ohne Sandbox als root erfolgt, ist das harmlos: Der Benutzer `_apt` kann die Datei in Ihrem Home-Verzeichnis nicht lesen.
+`orbitop-apt-source` legt drei Dateien unter `/etc/apt/` an: die Quelle `sources.list.d/orbitop.sources`, ihren Schlüssel `keyrings/orbitop-archive-keyring.pgp` und das Pinning `preferences.d/orbitop.pref`. `apt policy orbitop` zeigt danach die Quelle mit Priorität 100. Meldet apt, dass der Download ohne Sandbox als root erfolgt, ist das harmlos: Der Benutzer `_apt` kann die Datei in Ihrem privaten Verzeichnis nicht lesen.
 
 ### Fedora
 
@@ -236,7 +237,7 @@ Nichts. Last, Takt, Grafikspeicher, Temperatur und Leistung kommen vom Kernel-Tr
 
 ### NVIDIA
 
-Last, Speicher, Temperatur, Leistung und Takt kommen von `nvidia-smi`. Das Programm kommt mit dem proprietären Treiber von NVIDIA (unter Ubuntu etwa über „Zusätzliche Treiber“; der Befehl steckt in `nvidia-utils-<version>`). Ohne es zeigt orbitop statt der NVIDIA-Werte einen Hinweis.
+Last, Speicher, Temperatur, Leistung und Takt kommen von `nvidia-smi`. Das Programm kommt mit dem proprietären Treiber von NVIDIA (unter Ubuntu etwa über „Zusätzliche Treiber“; der Befehl steckt in `nvidia-utils-<version>`). Fehlt es, zeigt orbitop statt der NVIDIA-Werte einen Hinweis.
 
 ### Intel
 
@@ -253,7 +254,7 @@ Die Zähler aller Prozesse liest `intel_gpu_top` nur mit der Freigabe unten. Ohn
 
 ### Intel-GPU-Zähler für alle Prozesse (bis 0.3.0)
 
-Das gibt `/usr/bin/intel_gpu_top` die Datei-Fähigkeit `cap_perfmon`. Risiko: Danach kann jedes lokale Konto das Programm starten und die GPU-Zähler und die RAPL-Paketleistung lesen. Der Kernel sperrt diese Werte, weil sie Seitenkanalangriffe über den Stromverbrauch erlauben (Platypus, CVE-2020-8694). Schalten Sie das nur ein, wenn Sie das für jedes Konto auf dem Rechner hinnehmen. orbitop tut das nie von sich aus; Version 0.3.0 ersetzt diese Befehle durch einen Schalter, der nach dem Admin-Passwort fragt.
+Der folgende Befehl gibt `/usr/bin/intel_gpu_top` die Datei-Fähigkeit `cap_perfmon`. Risiko: Danach kann jedes lokale Konto das Programm starten und die GPU-Zähler und die RAPL-Paketleistung lesen. Der Kernel sperrt diese Werte, weil sie Seitenkanalangriffe über den Stromverbrauch erlauben (Platypus, CVE-2020-8694). Schalten Sie das nur ein, wenn Sie das für jedes Konto auf dem Rechner hinnehmen. orbitop tut das nie von sich aus; Version 0.3.0 ersetzt diese Befehle durch einen Schalter, der nach dem Admin-Passwort fragt.
 
 ```sh
 sudo setcap cap_perfmon=ep /usr/bin/intel_gpu_top
@@ -307,12 +308,11 @@ Das behält die Quelle. Die vollständige Deinstallation entfernt auch die Quell
 
 ```sh
 sudo dnf remove orbitop-release
-rpmkeys --list
-sudo rpmkeys --delete <key>
-sudo rm -rf /var/cache/libdnf5/orbitop-*
+rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | xargs -r -n1 sudo rpmkeys --delete
+sudo sh -c 'rm -rf /var/cache/libdnf5/orbitop-*'
 ```
 
-`<key>` ist der Fingerabdruck aus [Signierschlüssel](#signierschlüssel) in Kleinbuchstaben, so wie ihn `rpmkeys --list` zeigt.
+`rpmkeys --list` zeigt jeden Schlüssel der rpm-Datenbank mit seiner User-ID, unter Fedora als Fingerabdruck in Kleinbuchstaben. Die zweite Zeile löscht jeden Schlüssel mit der User-ID `orbitop archive signing key`, auch einen erneuerten, den ein Update gebracht hat. Die dritte Zeile läuft als root, damit das Muster die Verzeichnisse findet.
 
 ### openSUSE
 
@@ -324,22 +324,21 @@ Das behält die Quelle. Die vollständige Deinstallation entfernt auch die Quell
 
 ```sh
 sudo zypper remove orbitop-release
-rpmkeys --list
-sudo rpmkeys --delete <key>
+rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | xargs -r -n1 sudo rpmkeys --delete
 ```
 
-`<key>` ist das, was `rpmkeys --list` vor `orbitop archive signing key` zeigt: die Schlüssel-ID und ein Datum, etwa `e4d2a98f-6afdccd0`.
+`rpmkeys --list` zeigt jeden Schlüssel der rpm-Datenbank mit seiner User-ID, unter openSUSE als `<key id>-<date>`, Version und Release seines Pakets `gpg-pubkey-<key id>-<date>`. Die zweite Zeile löscht jeden Schlüssel mit der User-ID `orbitop archive signing key`, auch einen erneuerten, den ein Update gebracht hat.
 
 ### Arch Linux
 
 ```sh
+cut -d: -f1 /usr/share/pacman/keyrings/orbitop-trusted | xargs -r -n1 sudo pacman-key --delete
 sudo pacman -R orbitop
 ```
 
-Danach den Abschnitt `[orbitop]` (seine drei Zeilen) aus `/etc/pacman.conf` löschen, dann den Schlüssel aus dem Schlüsselbund von pacman entfernen und die Datenbank der Quelle, die pacman bis `pacman -Sc` aufhebt:
+Die erste Zeile entfernt jeden Schlüssel von orbitop aus dem Schlüsselbund von pacman: alle Schlüssel in der Liste des Pakets, die mit `pacman -R` verschwindet. Darin steht der Schlüssel, den Sie bei der Installation hinzugefügt haben, und ein erneuerter, den ein Update gebracht hat. Danach meldet `pacman-key --list-keys 'orbitop archive signing key'` „No public key“. Dann den Abschnitt `[orbitop]` (seine drei Zeilen) aus `/etc/pacman.conf` löschen und die Datenbank der Quelle entfernen, die pacman bis `pacman -Sc` aufhebt. Nach einer Rückfrage leert `pacman -Sc` auch den Cache der nicht mehr installierten Pakete, nicht nur die von orbitop.
 
 ```sh
-sudo pacman-key --delete <FINGERPRINT>
 sudo pacman -Sc
 ```
 
@@ -356,9 +355,17 @@ Einen Autostart für alle Benutzer entfernen Sie wie unter [Für alle Benutzer](
 
 ## Umstieg von 0.1.0
 
-orbitop 0.1.0 lief aus einem entpackten Archiv oder einem Checkout. Sein Setup hat einen Root-Helfer in `/usr/local/libexec/orbitop/` installiert und für den eigenen Benutzer einen Starter, ein Symbol und einen Autostart-Eintrag, die auf dieses Verzeichnis zeigen. Das Paket ersetzt all das, und die Skripte von 0.1.0 gibt es nicht mehr. Die alten Dateien entfernen Sie deshalb von Hand.
+orbitop 0.1.0 lief aus einem entpackten Archiv oder einem Checkout. Sein Setup hat einen Root-Helfer in `/usr/local/libexec/orbitop/` installiert und für den eigenen Benutzer einen Starter, ein Symbol und einen Autostart-Eintrag, die auf das Verzeichnis des Archivs oder Checkouts zeigen. Das Paket ersetzt all das, und die Skripte von 0.1.0 gibt es nicht mehr. Die alten Dateien entfernen Sie deshalb von Hand.
 
-Halten Sie zuerst fest, was Sie hatten: ob der Autostart an war, ob `getcap /usr/bin/intel_gpu_top` die Fähigkeit `cap_perfmon` zeigt und ob es `/etc/udev/rules.d/70-orbitop-rapl.rules` gibt. Dann orbitop 0.1.0 beenden (sein Fenster aus dem Anwendungsmenü zeigen, dann Strg+Q) und seine Dateien entfernen:
+Halten Sie zuerst fest, was Sie hatten: den Autostart-Eintrag, die Fähigkeit `cap_perfmon` auf `intel_gpu_top` und die RAPL-Regel. Jeder dieser Befehle zeigt eines davon; ein Fehler oder keine Ausgabe heißt, es fehlt:
+
+```sh
+ls ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
+getcap /usr/bin/intel_gpu_top
+ls /etc/udev/rules.d/70-orbitop-rapl.rules
+```
+
+Dann orbitop 0.1.0 beenden (sein Fenster aus dem Anwendungsmenü zeigen, dann Strg+Q) und seine Dateien entfernen:
 
 ```sh
 rm -f ~/.local/share/applications/io.github.zappelmann_sketch.orbitop.desktop

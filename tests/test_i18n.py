@@ -112,12 +112,12 @@ def test_no_text_names_the_stage_1_scripts():  # Spec 6.5: sie entfallen, die Hi
         assert not bad, bad
 
 
-def test_rapl_hint_names_readme_and_risk():
+def test_rapl_hint_names_the_risk():
     assert "side channel" in json_of("en")["hint.rapl_noperm"]
     assert "Seitenkanal" in json_of("de")["hint.rapl_noperm"]
 
 
-def test_igt_noperm_hint_names_readme_and_risk():
+def test_igt_noperm_hint_names_the_risk():
     for lang in ("en", "de"):
         assert "CVE-2020-8694" in json_of(lang)["hint.igt_noperm"]
 
