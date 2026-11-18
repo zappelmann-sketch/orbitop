@@ -138,7 +138,7 @@ Das Wie hat der User dem Planer überlassen. Der Weg zur Veröffentlichung (unte
   | Starter | `/usr/bin/orbitop` |
   | Programm (Python, Oberfläche, Schriften, `locale`) | privates Verzeichnis, Vorschlag `/usr/share/orbitop/` |
   | Root-Helfer | Vorschlag `/usr/libexec/orbitop/` |
-  | polkit-Actions | `/usr/share/polkit-1/actions/io.github.zappelmann_sketch.orbitop.policy` |
+  | polkit-Actions | `/usr/share/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy` (polkit(8) erlaubt keinen Unterstrich im Namensraum; Plan K8) |
   | Starter-Eintrag, Symbol, AppStream | `/usr/share/applications/`, `/usr/share/icons/hicolor/…`, `/usr/share/metainfo/` |
   | Autostart-Vorlage (nicht aktiv) | `/usr/share/orbitop/autostart.desktop` mit `Exec=orbitop --hidden` und `TryExec=orbitop` |
   | Lizenz, Copyright | `/usr/share/doc/orbitop/` oder `%license`, je nach Format |
