@@ -5,4 +5,4 @@ Types: deb
 URIs: https://zappelmann-sketch.github.io/orbitop/apt
 Suites: stable
 Components: main
-Signed-By: /usr/share/keyrings/orbitop-archive-keyring.pgp
+Signed-By: /etc/apt/keyrings/orbitop-archive-keyring.pgp

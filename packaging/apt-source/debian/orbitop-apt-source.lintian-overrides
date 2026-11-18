@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Debian Wiki, DebianRepository/UseThirdParty: the keyring package "MAY also include ... the
+# /etc/apt/preferences.d/deriv.pref file", and "the preferences file MUST allow automatic upgrades
+# (Pin-Priority: 100)". Lintian exempts no package name from this tag; docs/release.md, "Lint notes".
+package-installs-apt-preferences [etc/apt/preferences.d/orbitop.pref]

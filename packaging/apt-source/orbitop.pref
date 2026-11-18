@@ -1,0 +1,6 @@
+Explanation: SPDX-License-Identifier: GPL-3.0-or-later
+Explanation: Copyright © 2026 zappelmann-sketch
+Explanation: The orbitop source may install and upgrade its own packages, but never replace one of the distribution.
+Package: *
+Pin: origin zappelmann-sketch.github.io
+Pin-Priority: 100

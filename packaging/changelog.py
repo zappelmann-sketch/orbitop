@@ -18,13 +18,26 @@ def _rfc2822(day: datetime) -> str:
     return email.utils.format_datetime(day.replace(tzinfo=timezone.utc))
 
 
+def _items(description) -> list[str]:
+    """Absätze und Listenpunkte (<p>, <ul>/<ol> mit <li>) ohne Übersetzungen, Text samt <code>/<em>."""
+    elements = []
+    for child in description if description is not None else ():
+        if child.get(LANG):
+            continue
+        if child.tag == "p":
+            elements.append(child)
+        elif child.tag in ("ul", "ol"):
+            elements += [li for li in child.iterfind("li") if not li.get(LANG)]
+    return [t for t in (" ".join("".join(e.itertext()).split()) for e in elements) if t]
+
+
 def _releases(metainfo: str) -> list[tuple[str, str, list[str]]]:
     """(Version, RFC-2822-Datum, Änderungen) je <release>, in der Reihenfolge der metainfo (neueste zuerst)."""
     out = []
     for rel in ET.fromstring(metainfo).iterfind("releases/release"):
         version = rel.get("version")
         date = _rfc2822(datetime.fromisoformat(rel.get("date")))
-        items = [" ".join(e.text.split()) for e in rel.iterfind("description/*") if not e.get(LANG) and e.text]
+        items = _items(rel.find("description"))
         out.append((version, date, items or [f"Release {version}."]))
     return out
 
@@ -54,11 +67,13 @@ def apt_source(version: str) -> str:
 
 
 def rpm(metainfo: str) -> str:
-    """%changelog: "* Wed Nov 18 2026 Name <Mail> - 0.1.0-1" und je Änderung eine Zeile "- …"."""
+    """%changelog: "* Wed Nov 18 2026 Name <Mail> - 0.1.0-1" und je Änderung eine Zeile "- …".
+    "%" wird zu "%%", weil rpm auch im %changelog Makros expandiert."""
     entries = []
     for v, date, items in _releases(metainfo):
         day, num, month, year = date.replace(",", "").split()[:4]
-        body = "\n".join(textwrap.fill(t, 79, initial_indent="- ", subsequent_indent="  ") for t in items)
+        body = "\n".join(textwrap.fill(t.replace("%", "%%"), 79, initial_indent="- ", subsequent_indent="  ")
+                         for t in items)
         entries.append(f"* {day} {month} {num} {year} {MAINTAINER} - {v}-1\n{body}\n")
     return "\n".join(entries)
 
