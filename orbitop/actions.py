@@ -81,9 +81,12 @@ def _precheck(pid: int, start: int, root: str) -> str | None:
             return "mismatch"
         if s["state"] in "ZX":
             return "zombie"
-        with open(f"{root}/proc/{pid}/cmdline", "rb") as f:
-            if is_kernel(pid, s["ppid"], f.read(1)):  # dieselbe Regel wie killhelper.send
-                return "kernel"
+        cmdline = b""
+        if s["ppid"] in (0, 2):  # wie killhelper.send: nur dort zählt sie; ein hängendes Lesen sperrte das Beenden
+            with open(f"{root}/proc/{pid}/cmdline", "rb") as f:
+                cmdline = f.read(1)
+        if is_kernel(pid, s["ppid"], cmdline):  # dieselbe Regel wie killhelper.send
+            return "kernel"
     except (OSError, ValueError, IndexError):
         return "gone"
     return None

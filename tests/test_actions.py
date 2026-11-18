@@ -184,6 +184,24 @@ def test_kernel_thread_needs_no_prompt(tmp_path, ppid, cmdline, want, prompts):
     assert is_alive(4243, 77, str(tmp_path)) is (want != "gone")
 
 
+def test_precheck_reads_cmdline_only_for_kernel_thread_candidates(tmp_path):  # Audit: hängendes Lesen sperrt Beenden
+    foreign_proc(tmp_path, 4244, 77, "S", ppid=1000, cmdline=None)
+    fifo = tmp_path / "proc" / "4244" / "cmdline"
+    os.mkfifo(fifo)  # ohne Schreiber blockiert schon das Öffnen, wie ein hängendes /proc/<pid>/cmdline
+    out = []
+    t = threading.Thread(target=lambda: out.append(actions._precheck(4244, 77, str(tmp_path))), daemon=True)
+    t.start()
+    t.join(2)
+    blocked = t.is_alive()
+    if blocked:  # Regression: den Leser freigeben, damit der Test scheitert statt zu hängen
+        os.close(os.open(fifo, os.O_WRONLY | os.O_NONBLOCK))
+        t.join(2)
+    assert (blocked, out) == (False, [None])
+    foreign_proc(tmp_path, 4245, 77, "S", ppid=2, cmdline=b"")
+    foreign_proc(tmp_path, 1, 77, "S", ppid=0, cmdline=b"/sbin/init\0")
+    assert [actions._precheck(pid, 77, str(tmp_path)) for pid in (4245, 1)] == ["kernel", "kernel"]
+
+
 def helper(*args):
     return subprocess.run([sys.executable, "-I", HELPER, *args], capture_output=True, timeout=20).returncode
 
