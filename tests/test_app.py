@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -176,7 +177,7 @@ def _clear_lang(monkeypatch, lang):
 
 
 @pytest.mark.parametrize("missing,package", [("WebKit", "gir1.2-webkit-6.0"), ("Gtk", "gir1.2-gtk-4.0")])
-def test_check_runtime_reports_missing_package(monkeypatch, missing, package):  # Review Focus 5
+def test_check_runtime_reports_missing_package(tmp_path, monkeypatch, missing, package):  # Review Focus 5
     _clear_lang(monkeypatch, "en_US.UTF-8")
     calls = []
 
@@ -184,21 +185,23 @@ def test_check_runtime_reports_missing_package(monkeypatch, missing, package):  
         calls.append((ns, v))
         if ns == missing:
             raise ValueError(f"Namespace {ns} not available")
-    msg = check_runtime(req)
+    msg = check_runtime(req, root=str(tmp_path))
     assert package in msg
-    assert msg == load_texts("en")["error.runtime_missing"].format(package=package)
+    assert msg == load_texts("en")["error.runtime_missing"].format(package=package,
+                                                                   command=f"sudo apt install {package}")
     assert ("Gtk", "4.0") in calls
 
 
-def test_check_runtime_speaks_german(monkeypatch):
+def test_check_runtime_speaks_german(tmp_path, monkeypatch):
     _clear_lang(monkeypatch, "de_DE.UTF-8")
 
     def req(ns, v):
         if ns == "WebKit":
             raise ValueError("Namespace WebKit not available")
-    msg = check_runtime(req)
-    assert msg == load_texts("de")["error.runtime_missing"].format(package="gir1.2-webkit-6.0")
-    assert msg != load_texts("en")["error.runtime_missing"].format(package="gir1.2-webkit-6.0")
+    msg = check_runtime(req, root=str(tmp_path))
+    fmt = {"package": "gir1.2-webkit-6.0", "command": "sudo apt install gir1.2-webkit-6.0"}
+    assert msg == load_texts("de")["error.runtime_missing"].format(**fmt)
+    assert msg != load_texts("en")["error.runtime_missing"].format(**fmt)
 
 
 def test_check_runtime_ok():
@@ -207,14 +210,61 @@ def test_check_runtime_ok():
     assert calls == [("Gtk", "4.0"), ("WebKit", "6.0")]
 
 
-def test_check_runtime_reports_missing_pygobject(monkeypatch):
+def test_check_runtime_reports_missing_pygobject(tmp_path, monkeypatch):
     _clear_lang(monkeypatch, "en_US.UTF-8")
     monkeypatch.setitem(sys.modules, "gi", None)  # import gi wirft dann ImportError
-    assert check_runtime() == load_texts("en")["error.runtime_missing"].format(package="python3-gi")
+    assert check_runtime(root=str(tmp_path)) == load_texts("en")["error.runtime_missing"].format(
+        package="python3-gi", command="sudo apt install python3-gi")
 
 
-@pytest.mark.parametrize("args,rc,out", [(["--version"], 0, "orbitop 0.1.0"), ([], 2, "python3-gi")])
+@pytest.mark.parametrize("text,where,manager", [
+    ('ID=ubuntu\nID_LIKE=debian\n', "etc", "apt-get"), ('ID=linuxmint\nID_LIKE="ubuntu debian"\n', "etc", "apt-get"),
+    ('ID=fedora\n', "etc", "dnf"), ('ID=arch\n', "etc", "pacman"), ("ID='manjaro'\nID_LIKE=arch\n", "etc", "pacman"),
+    ('ID="opensuse-tumbleweed"\nID_LIKE="opensuse suse"\n', "etc", "zypper"), ('ID=gentoo\n', "etc", "apt-get"),
+    ('ID=fedora\n', "usr/lib", "dnf"), (None, None, "apt-get")])
+def test_package_manager_from_os_release(tmp_path, text, where, manager):
+    if text is not None:
+        (tmp_path / where).mkdir(parents=True)
+        (tmp_path / where / "os-release").write_text(text, encoding="utf-8")
+    assert app.package_manager(str(tmp_path)) == manager
+
+
+def test_package_manager_prefers_etc_over_usr_lib(tmp_path):  # os-release(5): /etc zuerst
+    for where, text in (("etc", "ID=arch\n"), ("usr/lib", "ID=fedora\n")):
+        (tmp_path / where).mkdir(parents=True)
+        (tmp_path / where / "os-release").write_text(text, encoding="utf-8")
+    assert app.package_manager(str(tmp_path)) == "pacman"
+
+
+def test_check_runtime_names_package_of_running_distro(tmp_path, monkeypatch):
+    _clear_lang(monkeypatch, "en_US.UTF-8")
+    (tmp_path / "etc").mkdir()
+    (tmp_path / "etc" / "os-release").write_text("ID=fedora\n", encoding="utf-8")
+
+    def req(ns, v):
+        if ns == "WebKit":
+            raise ValueError("Namespace WebKit not available")
+    assert check_runtime(req, root=str(tmp_path)) == load_texts("en")["error.runtime_missing"].format(
+        package="webkitgtk6.0", command="sudo dnf install webkitgtk6.0")
+
+
+def test_check_runtime_python_too_old(tmp_path, monkeypatch):  # Review Focus 5
+    _clear_lang(monkeypatch, "en_US.UTF-8")
+    assert check_runtime(lambda *a: None, root=str(tmp_path), version=(3, 11, 2)) == \
+        load_texts("en")["error.python_old"].format(version="3.11.2")
+
+
+@pytest.mark.skipif(not shutil.which("python3.11"), reason="kein Python 3.11")
+def test_python_3_11_gets_clear_message(tmp_path):  # Review Focus 5 (Debian 12)
+    code = f"import sys; sys.path.insert(0, {str(REPO)!r}); from orbitop.app import main; sys.exit(main([]))"
+    r = subprocess.run(["python3.11", "-I", "-B", "-c", code], capture_output=True, text=True, cwd=tmp_path,
+                       env={"LANG": "en_US.UTF-8", "PATH": "/usr/bin:/bin"})
+    assert (r.returncode, "3.12" in r.stderr, "Traceback" in r.stderr) == (2, True, False), r.stderr
+
+
+@pytest.mark.parametrize("args,rc,out", [(["--version"], 0, "orbitop 0.1.0"), ([], 2, None)])
 def test_without_pygobject_no_traceback(tmp_path, args, rc, out):
+    out = out or app.PACKAGES[app.package_manager()][0]  # main liest das echte /etc/os-release
     code = (f"import sys; sys.path.insert(0, {str(REPO)!r}); sys.modules['gi'] = None; import orbitop.sampler; "
             "from orbitop.app import main; sys.exit(main(sys.argv[1:]))")
     r = subprocess.run([sys.executable, "-I", "-c", code, *args], capture_output=True, text=True, cwd=tmp_path)

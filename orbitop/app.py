@@ -10,36 +10,66 @@ import time
 import traceback
 from urllib.parse import unquote, urlsplit
 
-from orbitop import __version__
+from orbitop import __version__, sysfs
 from orbitop.layout import validate
 from orbitop.i18n import detect_language, load_texts
 
 MAX_MESSAGE = 4096
 PERIOD_S = 1.0  # tick_system und Schnappschuss
 PROCS_PERIOD_S = 2.0  # tick_procs, im eigenen Thread
-RUNTIME = (("Gtk", "4.0", "gir1.2-gtk-4.0"), ("WebKit", "6.0", "gir1.2-webkit-6.0"))
+RUNTIME = (("Gtk", "4.0"), ("WebKit", "6.0"))
+# je Paketmanager PyGObject, GTK 4, WebKitGTK 6.0, dahinter weitere Laufzeitpakete; gleich mit setup-privileges.sh (Test)
+PACKAGES = {
+    "apt-get": ("python3-gi", "gir1.2-gtk-4.0", "gir1.2-webkit-6.0"),
+    "dnf": ("python3-gobject", "gtk4", "webkitgtk6.0"),
+    "pacman": ("python-gobject", "gtk4", "webkitgtk-6.0"),
+    "zypper": ("python3-gobject", "typelib-1_0-Gtk-4_0", "typelib-1_0-WebKit-6_0", "python3-gobject-Gdk"),
+}
+INSTALL_HINT = {"apt-get": "sudo apt install {package}", "dnf": "sudo dnf install {package}",
+                "pacman": "sudo pacman -S {package}", "zypper": "sudo zypper install {package}"}
+DISTRO = {"debian": "apt-get", "ubuntu": "apt-get", "fedora": "dnf", "rhel": "dnf", "centos": "dnf",
+          "arch": "pacman", "suse": "zypper", "opensuse": "zypper"}
 SCHEME, UI_HOST = "orbitop", "ui"  # die Seite läuft unter orbitop://ui/…, nie unter file://
 # nur Typen, die orbitop/ui/ enthält (.txt: Lizenztexte der Schriften)
 MIME = {".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".ttf": "font/ttf", ".txt": "text/plain"}
 
 
-def _missing(package: str) -> str:
-    return load_texts(detect_language(os.environ))["error.runtime_missing"].format(package=package)
+def package_manager(root: str = "/") -> str:
+    """Paketmanager der laufenden Distribution aus ID und ID_LIKE von os-release(5), sonst apt-get."""
+    text = (sysfs.read_str(sysfs.path(root, "/etc/os-release"))
+            or sysfs.read_str(sysfs.path(root, "/usr/lib/os-release")) or "")
+    fields = dict(ln.partition("=")[::2] for ln in text.splitlines())
+    for word in (fields.get("ID", "") + " " + fields.get("ID_LIKE", "")).split():
+        word = word.strip("\"'")
+        manager = DISTRO.get("opensuse" if word.startswith("opensuse-") else word)
+        if manager:
+            return manager
+    return "apt-get"
 
 
-def check_runtime(require_version=None) -> str | None:
-    """Fehlertext in der Systemsprache, wenn PyGObject, GTK 4 oder WebKitGTK 6.0 fehlt, sonst None."""
+def _missing(index: int, root: str) -> str:
+    manager = package_manager(root)
+    package = PACKAGES[manager][index]
+    return load_texts(detect_language(os.environ))["error.runtime_missing"].format(
+        package=package, command=INSTALL_HINT[manager].format(package=package))
+
+
+def check_runtime(require_version=None, root: str = "/", version=sys.version_info) -> str | None:
+    """Fehlertext in der Systemsprache, wenn Python zu alt ist oder PyGObject, GTK 4 oder WebKitGTK 6.0 fehlt."""
+    if version < (3, 12):
+        return load_texts(detect_language(os.environ))["error.python_old"].format(
+            version=".".join(map(str, version[:3])))
     if require_version is None:
         try:
             import gi  # erst hier, nie auf Modulebene: sampler importiert encode aus diesem Modul
         except ImportError:
-            return _missing("python3-gi")
+            return _missing(0, root)
         require_version = gi.require_version
-    for namespace, version, package in RUNTIME:
+    for index, (namespace, ns_version) in enumerate(RUNTIME, 1):
         try:
-            require_version(namespace, version)
+            require_version(namespace, ns_version)
         except ValueError:
-            return _missing(package)
+            return _missing(index, root)
     return None
 
 

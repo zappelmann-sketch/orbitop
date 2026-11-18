@@ -3,7 +3,7 @@
 # Copyright © 2026 zappelmann-sketch
 # Installs the runtime packages and the root-owned kill helper, and grants the few privileges orbitop optionally uses.
 # Usage: sudo bash setup-privileges.sh [--dry-run] [--allow-rapl] [--allow-perfmon]
-# With --dry-run, detection reads from ${ORBITOP_SYSROOT:-/} so it can be tested against fake trees.
+# With --dry-run, detection reads from ${ORBITOP_SYSROOT:-/} and ORBITOP_PKG_MANAGER overrides the package manager.
 set -euo pipefail
 export PATH=/usr/sbin:/usr/bin:/sbin:/bin
 umask 022  # directories created on the way to the helper must stay readable for orbitop's trust check
@@ -31,6 +31,16 @@ fi
 root=/
 [ "$dry_run" -eq 1 ] && root=${ORBITOP_SYSROOT:-/}
 root=${root%/}
+
+manager=none
+for m in apt-get dnf pacman zypper; do
+    if command -v "$m" >/dev/null; then
+        manager=$m
+        break
+    fi
+done
+# The override is matched against the fixed list below and never reaches a command line.
+[ "$dry_run" -eq 1 ] && manager=${ORBITOP_PKG_MANAGER:-$manager}
 
 rapl_rules=/etc/udev/rules.d/70-orbitop-rapl.rules
 rapl_rule='ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"'
@@ -64,9 +74,33 @@ if [ -L "$helper_src" ] || [ ! -f "$helper_src" ]; then
     exit 1
 fi
 
-packages=(gir1.2-webkit-6.0)
-[ "$has_intel_gfx" -eq 1 ] && packages+=(intel-gpu-tools)
-run apt-get install -y "${packages[@]}"
+# Same lists as PACKAGES in orbitop/app.py; tests/test_setup_script.py keeps them equal.
+case "$manager" in
+    apt-get)
+        install=(apt-get install -y)
+        packages=(python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0)
+        intel_tools="intel-gpu-tools" ;;
+    dnf)
+        install=(dnf install -y)
+        packages=(python3-gobject gtk4 webkitgtk6.0)
+        intel_tools="igt-gpu-tools" ;;
+    pacman)
+        install=(pacman -S --needed --noconfirm)
+        packages=(python-gobject gtk4 webkitgtk-6.0)
+        intel_tools="intel-gpu-tools" ;;
+    zypper)
+        install=(zypper --non-interactive install)
+        packages=(python3-gobject typelib-1_0-Gtk-4_0 typelib-1_0-WebKit-6_0 python3-gobject-Gdk)
+        intel_tools="igt-gpu-tools" ;;
+    *)
+        manager=none ;;
+esac
+if [ "$manager" = none ]; then
+    echo "No supported package manager found (apt-get, dnf, pacman, zypper). Install PyGObject, GTK 4 and WebKitGTK 6.0 yourself (Debian names: python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0), see README.md."
+else
+    [ "$has_intel_gfx" -eq 1 ] && packages+=("$intel_tools")
+    run "${install[@]}" "${packages[@]}"
+fi
 
 run install -d -o root -g root -m 0755 "$(dirname -- "$helper")"
 run install -o root -g root -m 0755 "$helper_src" "$helper"

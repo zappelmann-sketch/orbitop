@@ -7,6 +7,8 @@ from pathlib import Path
 
 import pytest
 
+from orbitop import app
+
 ROOT = Path(__file__).resolve().parent.parent
 TREES = ROOT / "tests" / "fixtures" / "roots"
 
@@ -16,8 +18,14 @@ RULE = ('ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", '
 SCRIPT = str(ROOT / "scripts" / "setup-privileges.sh")
 
 
-def dry_run(tree, *args):
-    env = {**os.environ, "ORBITOP_SYSROOT": str(TREES / tree)}
+INSTALL = {"apt-get": "apt-get install -y", "dnf": "dnf install -y", "pacman": "pacman -S --needed --noconfirm",
+           "zypper": "zypper --non-interactive install"}
+INTEL_TOOL = {"apt-get": "intel-gpu-tools", "dnf": "igt-gpu-tools", "pacman": "intel-gpu-tools",
+              "zypper": "igt-gpu-tools"}
+
+
+def dry_run(tree, *args, manager="apt-get"):
+    env = {**os.environ, "ORBITOP_SYSROOT": str(TREES / tree), "ORBITOP_PKG_MANAGER": manager}
     r = subprocess.run(["bash", SCRIPT, "--dry-run", *args],
                        env=env, capture_output=True, text=True, check=True)
     return r.stdout
@@ -25,7 +33,7 @@ def dry_run(tree, *args):
 
 def test_intel_plans_webkit_igt_without_setcap_by_default():  # F-2: cap_perfmon nur auf Wunsch
     out = dry_run("intel-laptop")
-    assert "WOULD: apt-get install -y gir1.2-webkit-6.0 intel-gpu-tools" in out
+    assert "WOULD: apt-get install -y python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 intel-gpu-tools" in out
     assert "setcap" not in out and "cap_perfmon" not in out
     assert "rapl" not in out.lower().replace("--allow-rapl", "")
 
@@ -75,6 +83,22 @@ def test_vm_plans_only_webkit():
 HELPER_LINES = ["WOULD: install -d -o root -g root -m 0755 /usr/local/libexec/orbitop",
                 f"WOULD: install -o root -g root -m 0755 {ROOT}/orbitop/killhelper.py "
                 "/usr/local/libexec/orbitop/killhelper.py"]
+
+
+@pytest.mark.parametrize("manager", list(INSTALL))
+def test_installs_runtime_packages_per_manager(manager):  # hält die Listen gleich mit app.PACKAGES
+    line = f"WOULD: {INSTALL[manager]} {' '.join(app.PACKAGES[manager])}"
+    assert line in dry_run("vm", manager=manager).splitlines()
+    assert f"{line} {INTEL_TOOL[manager]}" in dry_run("intel-laptop", manager=manager).splitlines()
+
+
+@pytest.mark.parametrize("manager", ["none", "rm -rf /"])
+def test_unknown_manager_names_packages_and_still_installs_helper(manager):
+    lines = dry_run("vm", manager=manager).splitlines()
+    assert any("No supported package manager" in ln and "python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0" in ln
+               and "README" in ln for ln in lines)
+    assert lines[lines.index(HELPER_LINES[0]):][:2] == HELPER_LINES
+    assert not any(ln.startswith(("WOULD: apt-get", "WOULD: dnf", "WOULD: pacman", "WOULD: zypper")) for ln in lines)
 
 
 @pytest.mark.parametrize("tree", ["intel-laptop", "amd-desktop", "arm-board", "vm"])
