@@ -18,7 +18,7 @@ MAX_MESSAGE = 4096
 PERIOD_S = 1.0  # tick_system und Schnappschuss
 PROCS_PERIOD_S = 2.0  # tick_procs, im eigenen Thread
 RUNTIME = (("Gtk", "4.0"), ("WebKit", "6.0"))
-# je Paketmanager PyGObject, GTK 4, WebKitGTK 6.0, dahinter weitere Laufzeitpakete; gleich mit setup-privileges.sh (Test)
+# je Paketmanager PyGObject, GTK 4, WebKitGTK 6.0, dahinter weitere Laufzeitpakete; gleich mit Paketen und README (Tests)
 PACKAGES = {
     "apt-get": ("python3-gi", "gir1.2-gtk-4.0", "gir1.2-webkit-6.0"),
     "dnf": ("python3-gobject", "gtk4", "webkitgtk6.0"),

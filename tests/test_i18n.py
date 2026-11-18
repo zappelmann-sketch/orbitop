@@ -106,15 +106,20 @@ def test_nohelper_points_to_the_readme():
         assert "README" in text and "setup-privileges" not in text
 
 
-def test_rapl_hint_names_flag_and_risk():
+def test_no_text_names_the_stage_1_scripts():  # Spec 6.5: sie entfallen, die Hinweise verweisen auf die README
     for lang in ("en", "de"):
-        assert "--allow-rapl" in json_of(lang)["hint.rapl_noperm"]
+        bad = {k: v for k, v in json_of(lang).items() if re.search(r"setup-privileges|install-user|--allow-", v)}
+        assert not bad, bad
 
 
-def test_igt_noperm_hint_names_flag_and_risk():
+def test_rapl_hint_names_readme_and_risk():
+    assert "side channel" in json_of("en")["hint.rapl_noperm"]
+    assert "Seitenkanal" in json_of("de")["hint.rapl_noperm"]
+
+
+def test_igt_noperm_hint_names_readme_and_risk():
     for lang in ("en", "de"):
-        text = json_of(lang)["hint.igt_noperm"]
-        assert "--allow-perfmon" in text and "CVE-2020-8694" in text
+        assert "CVE-2020-8694" in json_of(lang)["hint.igt_noperm"]
 
 
 def test_igt_missing_hint_names_the_own_process_fallback():  # ohne intel_gpu_top zeigt die Kachel fdinfo eigener Prozesse

@@ -10,7 +10,7 @@ orbitop zeigt CPU, GPU, Arbeitsspeicher, Leistung, Temperaturen, Lüfter, Netzwe
 
 orbitop ist ein GTK-4-Fenster mit einer WebKitGTK-6.0-Ansicht, geschrieben in Python, nur mit der Standardbibliothek und PyGObject. Es läuft auf jeder Hardware: Ein fehlender Sensor erscheint als „nicht vorhanden“ und führt zu keinem Fehler. Die Oberfläche gibt es auf Deutsch und Englisch, sie folgt der Systemsprache.
 
-**Stand:** Version 0.1.0. orbitop läuft aus dem entpackten Release-Archiv oder aus einem Checkout dieses Repositorys. Ein `.deb`-, `.rpm`-, AUR- oder Flatpak-Paket und einen Update-Kanal gibt es noch nicht.
+**Stand:** Version 0.2.0. orbitop gibt es als Paket für Ubuntu, Debian, Fedora, openSUSE und Arch Linux aus einer eigenen, signierten Paketquelle. Neue Versionen kommen mit dem normalen System-Update; orbitop selbst geht nie ins Internet.
 
 ## Funktionen
 
@@ -38,9 +38,9 @@ Der Prozess-Reiter stuft jeden Prozess ein: arbeitet, wartet, Dauerlast, angehal
 
 - „Beenden“ schickt SIGTERM und sieht 5 s später nach, ob der Prozess noch läuft. Läuft er noch, wird „Sofort beenden“ (SIGKILL) hervorgehoben. Beides fragt vorher nach.
 - Unmittelbar vor dem Signal prüft orbitop PID und Startzeit erneut. So trifft eine neu vergebene PID nie einen anderen Prozess.
-- Eigene Prozesse bekommen das Signal direkt. Prozesse anderer Benutzer beendet orbitop nur über `pkexec` und den root-eigenen Helfer, den `setup-privileges.sh` installiert. PID 1 und Kernel-Threads lassen sich nicht beenden.
+- Eigene Prozesse bekommen das Signal direkt. Prozesse anderer Benutzer beendet orbitop nur über `pkexec` und den root-eigenen Helfer aus dem Paket, `/usr/lib/orbitop/killhelper`; polkit fragt jedes Mal nach dem Admin-Passwort. PID 1 und Kernel-Threads lassen sich nicht beenden.
 
-Das Schließen des Fensters blendet es nur aus. orbitop liest die Prozessliste im Hintergrund weiter, damit die Zustände beim nächsten Öffnen schon feststehen. Strg+Q oder „orbitop beenden“ im Dialog „Über“ beendet es.
+Das Schließen des Fensters blendet es nur aus. orbitop liest die Prozessliste im Hintergrund weiter, damit die Zustände beim nächsten Öffnen schon feststehen. Strg+Q oder „orbitop beenden“ im Dialog „Über“ beendet es. Im Dialog „Über“ liegt auch der Schalter „Beim Anmelden starten“ (siehe [Start und Autostart](#start-und-autostart)).
 
 ## Screenshots
 
@@ -49,6 +49,350 @@ Das Schließen des Fensters blendet es nur aus. orbitop liest die Prozessliste i
 ![Reiter Prozesse](docs/screenshot-procs.png)
 
 Beide Bilder zeigen Demodaten aus `tests/ui/demo.html`, kein laufendes System. Prozessnamen, Befehlszeilen und Benutzer sind anonymisiert; die Hardwarenamen (CPU, Schnittstellen, Datenträger, Sensoren) stammen vom Referenzlaptop. Die Demoseite zeigt die deutsche Oberfläche.
+
+## Installation
+
+orbitop wird für den ganzen Rechner installiert, aus seiner eigenen Paketquelle auf GitHub Pages, `https://zappelmann-sketch.github.io/orbitop/`. Ein kleines Paket aus dem Release richtet diese Quelle mit ihrem Signierschlüssel ein. Danach kommen orbitop und seine Updates aus der Quelle wie jedes andere Paket. Keines der Pakete schaltet einen Autostart oder eine Freigabe ein.
+
+### Unterstützte Distributionen
+
+<!-- supported:start -->
+| Geprüfte Distribution | Davon abgeleitet, nicht eigens geprüft |
+|---|---|
+| Ubuntu 26.04 | |
+| Ubuntu 24.04 | Linux Mint 22, Pop!_OS 24.04 |
+| Debian 13 | |
+| Fedora 45 | |
+| Arch Linux | Manjaro, EndeavourOS |
+| openSUSE Tumbleweed | |
+<!-- supported:end -->
+
+Geprüft am 2026-11-18 mit `scripts/check-distros.sh` in wegwerfbaren Docker-Containern: die erste Installation wie unten, die Testsuite, `orbitop --version`, das Update auf eine neuere Version, Deinstallation und Purge ohne Reste und ein veränderter Paketindex, den die Paketverwaltung ablehnen muss. Die Container haben keinen Bildschirm, deshalb gehörten das Fenster selbst und der Helfer über `pkexec` nicht zur Prüfung. Einzelheiten stehen in [`docs/distro-check.md`](docs/distro-check.md).
+
+Nicht unterstützt: Debian 12 (Python 3.11) und Ubuntu 22.04 (Python 3.10). orbitop braucht Python 3.12 oder neuer, deshalb lehnt apt die Installation dort ab. Abgeleitete Distributionen nehmen die Schritte ihrer Basis. Auf anderen Distributionen lässt sich orbitop aus dem Quellcode starten (siehe [Aus dem Quellcode starten](#aus-dem-quellcode-starten)); dort ist es nicht geprüft.
+
+### Signierschlüssel
+
+Paketquelle und Release-Dateien sind mit einem Schlüssel signiert: Ed25519, User-ID `orbitop archive signing key`. Sein Fingerabdruck:
+
+```text
+<FINGERPRINT>
+```
+
+Der Fingerabdruck steht hier in der README im Repository, nicht nur auf der Seite der Paketquelle. Laden Sie den Schlüssel in beiden Formen und lassen Sie sich den Fingerabdruck zeigen; das ändert nichts am Rechner:
+
+```sh
+curl -LO https://zappelmann-sketch.github.io/orbitop/orbitop-archive-keyring.asc
+curl -LO https://zappelmann-sketch.github.io/orbitop/orbitop-archive-keyring.pgp
+gpg --show-keys orbitop-archive-keyring.asc orbitop-archive-keyring.pgp
+```
+
+Beide Male muss die Zeile unter `pub` genau der Fingerabdruck oben sein. Sonst brechen Sie hier ab. Die Schritte Ihrer Distribution führen Sie im selben Verzeichnis aus. `gpg` und `gpgv` gehören zu GnuPG; fehlen sie, installieren Sie es aus Ihrer Distribution.
+
+### Ubuntu und Debian
+
+Das Paket der Quelle laden und gegen die signierten Prüfsummen des Releases prüfen:
+
+```sh
+curl -LO https://github.com/zappelmann-sketch/orbitop/releases/latest/download/orbitop-apt-source.deb
+curl -LO https://github.com/zappelmann-sketch/orbitop/releases/latest/download/SHA256SUMS
+curl -LO https://github.com/zappelmann-sketch/orbitop/releases/latest/download/SHA256SUMS.asc
+gpgv --keyring ./orbitop-archive-keyring.pgp SHA256SUMS.asc SHA256SUMS
+sha256sum --ignore-missing -c SHA256SUMS
+```
+
+`gpgv` muss `Good signature from "orbitop archive signing key"` melden und `sha256sum` `orbitop-apt-source.deb: OK` ausgeben. Danach:
+
+```sh
+sudo apt install ./orbitop-apt-source.deb
+sudo apt update
+sudo apt install orbitop
+```
+
+`orbitop-apt-source` legt drei Dateien unter `/etc/apt/` an: die Quelle `sources.list.d/orbitop.sources`, ihren Schlüssel `keyrings/orbitop-archive-keyring.pgp` und das Pinning `preferences.d/orbitop.pref`. `apt policy orbitop` zeigt danach die Quelle mit Priorität 100. Meldet apt, dass der Download ohne Sandbox als root erfolgt, ist das harmlos: Der Benutzer `_apt` kann die Datei in Ihrem Home-Verzeichnis nicht lesen.
+
+### Fedora
+
+```sh
+sudo rpm --import orbitop-archive-keyring.asc
+curl -LO https://github.com/zappelmann-sketch/orbitop/releases/latest/download/orbitop-release-fedora.rpm
+rpm -K orbitop-release-fedora.rpm
+sudo dnf install ./orbitop-release-fedora.rpm
+sudo dnf install orbitop
+```
+
+`rpm --import` übernimmt den Schlüssel, den Sie oben geprüft haben. `rpm -K` muss `orbitop-release-fedora.rpm: digests signatures OK` ausgeben. dnf selbst prüft lokale Pakete nicht und meldet, dass es die OpenPGP-Prüfung für ein Paket übersprungen hat; diese Prüfung hat `rpm -K` erledigt. `orbitop-release` legt die Quelle `/etc/yum.repos.d/orbitop.repo` und ihren Schlüssel `/etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop` an. Bei der ersten Nutzung der Quelle fragt dnf einmal, ob es diesen Schlüssel für den signierten Paketindex übernehmen soll: den angezeigten Fingerabdruck vergleichen, dann mit `y` antworten.
+
+### openSUSE
+
+```sh
+sudo rpm --import orbitop-archive-keyring.asc
+curl -LO https://github.com/zappelmann-sketch/orbitop/releases/latest/download/orbitop-release-opensuse.rpm
+rpm -K orbitop-release-opensuse.rpm
+sudo zypper install ./orbitop-release-opensuse.rpm
+sudo zypper install orbitop
+```
+
+`rpm -K` muss `orbitop-release-opensuse.rpm: digests signatures OK` ausgeben. Ohne vorheriges `rpm --import` lehnt zypper das Paket ab, weil sein Schlüssel fehlt. `orbitop-release` legt die Quelle `/etc/zypp/repos.d/orbitop.repo` und ihren Schlüssel an. zypper prüft danach den Paketindex und jedes Paket der Quelle: `zypper lr orbitop` zeigt bei `GPG Check` den Wert `(rp) Yes`.
+
+### Arch Linux
+
+Für Arch gibt es kein Paket der Quelle; sie wird einmal von Hand eingetragen. Auf einer normalen Arch-Installation ist der Schlüsselbund von pacman schon eingerichtet. Nur wenn er nie eingerichtet wurde (etwa in einem frischen Container, wo `pacman-key --lsign-key` scheitert), zuerst diese zwei Befehle ausführen:
+
+```sh
+sudo pacman-key --init
+sudo pacman-key --populate archlinux
+```
+
+Den oben geprüften Schlüssel hinzufügen und lokal signieren:
+
+```sh
+sudo pacman-key --add orbitop-archive-keyring.asc
+sudo pacman-key --lsign-key <FINGERPRINT>
+```
+
+Dann diesen Abschnitt ganz am Ende von `/etc/pacman.conf` anhängen, etwa mit `sudo nano /etc/pacman.conf`:
+
+```ini
+[orbitop]
+SigLevel = Required DatabaseRequired
+Server = https://zappelmann-sketch.github.io/orbitop/arch/$arch
+```
+
+Der Abschnitt muss der letzte sein: Haben zwei Repositorys ein Paket gleichen Namens, nimmt pacman es aus dem zuerst genannten, und so gewinnt immer ein Paket der offiziellen Repositorys. pacman prüft die Signaturen der Paketdatenbank und jedes Pakets. Dann orbitop installieren:
+
+```sh
+sudo pacman -Syu orbitop
+```
+
+Bei der Installation trägt orbitop seinen Schlüssel auch selbst in den Schlüsselbund von pacman ein (`pacman-key --populate orbitop`), damit ein erneuerter Schlüssel mit einem Update ankommt.
+
+## Updates
+
+Neue Versionen von orbitop kommen mit dem normalen System-Update:
+
+| Distribution | Befehl |
+|---|---|
+| Ubuntu, Debian | `sudo apt update` und `sudo apt upgrade` oder die Aktualisierungsverwaltung |
+| Fedora | `sudo dnf upgrade` |
+| openSUSE Tumbleweed | `sudo zypper dup` |
+| Arch Linux | `sudo pacman -Syu` |
+
+Die Quelle kann keine Pakete Ihrer Distribution ersetzen. Unter Debian und Ubuntu ist sie auf Priorität 100 gepinnt, dnf und zypper ziehen ihr die Repositorys der Distribution vor (Priorität 99 statt 100), und unter Arch steht ihr Abschnitt zuletzt. orbitop selbst gibt es nur in dieser Quelle, deshalb wird es trotzdem aktualisiert.
+
+### Nach einem Ubuntu-Release-Upgrade
+
+Ein Upgrade auf eine neue Ubuntu-Version schaltet jede Paketquelle ab, die nicht von Ubuntu selbst stammt, auch diese: Es fügt `/etc/apt/sources.list.d/orbitop.sources` die Zeile `Enabled: no` hinzu. Die Quelle liefert jeder Ubuntu-Version dieselbe Suite `stable`, deshalb schalten Sie sie danach wieder ein:
+
+```sh
+sudo sed -i '/^Enabled: no$/d' /etc/apt/sources.list.d/orbitop.sources
+sudo apt update
+```
+
+Damit ist die Datei wieder genau so, wie `orbitop-apt-source` sie angelegt hat.
+
+## Start und Autostart
+
+orbitop steht im Anwendungsmenü, und `orbitop` startet es aus einem Terminal. Die Pakete richten nie einen Autostart ein.
+
+### Für den eigenen Benutzer
+
+Im Dialog „Über“ (der Info-Knopf in der Kopfleiste) „Beim Anmelden starten“ einschalten. Ab der nächsten Anmeldung startet orbitop ausgeblendet (`--hidden`); ein Start aus dem Menü zeigt das Fenster. Der Schalter tut dasselbe wie diese Befehle:
+
+```sh
+mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
+cp /usr/share/orbitop/autostart.desktop "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
+```
+
+Zum Ausschalten den Schalter umlegen oder die Datei löschen:
+
+```sh
+rm "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
+```
+
+### Für alle Benutzer
+
+Ein Admin schaltet den Autostart für alle Benutzer ein:
+
+```sh
+sudo cp /usr/share/orbitop/autostart.desktop /etc/xdg/autostart/io.github.zappelmann_sketch.orbitop.desktop
+```
+
+und wieder aus:
+
+```sh
+sudo rm /etc/xdg/autostart/io.github.zappelmann_sketch.orbitop.desktop
+```
+
+Wer ihn nicht möchte, legt den Schalter um. orbitop schreibt dann einen Eintrag mit `Hidden=true` unter demselben Namen in den eigenen Autostart-Ordner des Benutzers, und der geht dem in `/etc/xdg/autostart/` vor (freedesktop.org, „Desktop Application Autostart Specification“). Wer diese Datei löscht, hat den Autostart wieder. Die Datei in `/etc/xdg/autostart/` gehört dem Admin, nicht dem Paket: Sie bleibt nach einer Deinstallation liegen, startet dann aber nichts mehr (`TryExec=orbitop`).
+
+## Grafik und Leistung
+
+orbitop zeigt jede GPU mit den Werten, die der Kernel liefert. Was jede Grafik darüber hinaus braucht:
+
+### AMD
+
+Nichts. Last, Takt, Grafikspeicher, Temperatur und Leistung kommen vom Kernel-Treiber `amdgpu`.
+
+### NVIDIA
+
+Last, Speicher, Temperatur, Leistung und Takt kommen von `nvidia-smi`. Das Programm kommt mit dem proprietären Treiber von NVIDIA (unter Ubuntu etwa über „Zusätzliche Treiber“; der Befehl steckt in `nvidia-utils-<version>`). Ohne es zeigt orbitop statt der NVIDIA-Werte einen Hinweis.
+
+### Intel
+
+Ohne Werkzeug zeigt orbitop die Auslastung der Intel-Grafik durch eigene Prozesse. Die Last aller Prozesse und die Paketleistung kommen von `intel_gpu_top` aus den Intel-GPU-Werkzeugen. Die Pakete schlagen sie nur vor, deshalb installieren Sie sie selbst:
+
+| Distribution | Befehl |
+|---|---|
+| Ubuntu, Debian | `sudo apt install intel-gpu-tools` |
+| Fedora | `sudo dnf install igt-gpu-tools` |
+| openSUSE | `sudo zypper install igt-gpu-tools` |
+| Arch Linux | `sudo pacman -S intel-gpu-tools` |
+
+Die Zähler aller Prozesse liest `intel_gpu_top` nur mit der Freigabe unten. Ohne sie zeigt orbitop weiter die eigenen Prozesse und einen Hinweis.
+
+### Intel-GPU-Zähler für alle Prozesse (bis 0.3.0)
+
+Das gibt `/usr/bin/intel_gpu_top` die Datei-Fähigkeit `cap_perfmon`. Risiko: Danach kann jedes lokale Konto das Programm starten und die GPU-Zähler und die RAPL-Paketleistung lesen. Der Kernel sperrt diese Werte, weil sie Seitenkanalangriffe über den Stromverbrauch erlauben (Platypus, CVE-2020-8694). Schalten Sie das nur ein, wenn Sie das für jedes Konto auf dem Rechner hinnehmen. orbitop tut das nie von sich aus; Version 0.3.0 ersetzt diese Befehle durch einen Schalter, der nach dem Admin-Passwort fragt.
+
+```sh
+sudo setcap cap_perfmon=ep /usr/bin/intel_gpu_top
+```
+
+`getcap /usr/bin/intel_gpu_top` zeigt den Stand. Ein Update der Intel-GPU-Werkzeuge entfernt die Fähigkeit; danach den Befehl erneut ausführen. Rücknahme:
+
+```sh
+sudo setcap -r /usr/bin/intel_gpu_top
+```
+
+### Leistung des CPU-Pakets (bis 0.3.0)
+
+orbitop liest die Leistung des CPU-Pakets aus den RAPL-Energiezählern (`/sys/class/powercap/intel-rapl:*`), die der Kernel nur root lesen lässt. Ohne sie kommt die Paketleistung von `intel_gpu_top`, wenn es `cap_perfmon` hat (oben). Diese udev-Regel macht die Zähler lesbar. Risiko: Dann kann jedes lokale Konto und jede Flatpak-App sie lesen, und das erlaubt Seitenkanalangriffe über den Stromverbrauch (Platypus, CVE-2020-8694).
+
+```sh
+echo 'ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"' | sudo tee /etc/udev/rules.d/70-orbitop-rapl.rules
+sudo udevadm control --reload
+sudo udevadm trigger --subsystem-match=powercap --action=add
+```
+
+Rücknahme: die Regel löschen, dann den Rechner neu starten.
+
+```sh
+sudo rm /etc/udev/rules.d/70-orbitop-rapl.rules
+```
+
+## Deinstallation
+
+Erst orbitop aus dem Anwendungsmenü starten, damit das Fenster erscheint (eine beim Anmelden gestartete Instanz läuft eventuell ausgeblendet), dann mit Strg+Q beenden.
+
+### Ubuntu und Debian
+
+```sh
+sudo apt remove orbitop
+```
+
+Das entfernt orbitop und behält die Paketquelle mit ihrem Schlüssel. So läuft `apt update` weiter, und `sudo apt install orbitop` holt orbitop zurück. Die vollständige Deinstallation entfernt auch Quelle, Schlüssel und Pinning:
+
+```sh
+sudo apt purge orbitop orbitop-apt-source
+```
+
+### Fedora
+
+```sh
+sudo dnf remove orbitop
+```
+
+Das behält die Quelle. Die vollständige Deinstallation entfernt auch die Quelle, den Schlüssel in der rpm-Datenbank und die Kopie des Schlüssels, die dnf für die Quelle aufhebt:
+
+```sh
+sudo dnf remove orbitop-release
+rpmkeys --list
+sudo rpmkeys --delete <key>
+sudo rm -rf /var/cache/libdnf5/orbitop-*
+```
+
+`<key>` ist der Fingerabdruck aus [Signierschlüssel](#signierschlüssel) in Kleinbuchstaben, so wie ihn `rpmkeys --list` zeigt.
+
+### openSUSE
+
+```sh
+sudo zypper remove orbitop
+```
+
+Das behält die Quelle. Die vollständige Deinstallation entfernt auch die Quelle und den Schlüssel in der rpm-Datenbank:
+
+```sh
+sudo zypper remove orbitop-release
+rpmkeys --list
+sudo rpmkeys --delete <key>
+```
+
+`<key>` ist das, was `rpmkeys --list` vor `orbitop archive signing key` zeigt: die Schlüssel-ID und ein Datum, etwa `e4d2a98f-6afdccd0`.
+
+### Arch Linux
+
+```sh
+sudo pacman -R orbitop
+```
+
+Danach den Abschnitt `[orbitop]` (seine drei Zeilen) aus `/etc/pacman.conf` löschen, dann den Schlüssel aus dem Schlüsselbund von pacman entfernen und die Datenbank der Quelle, die pacman bis `pacman -Sc` aufhebt:
+
+```sh
+sudo pacman-key --delete <FINGERPRINT>
+sudo pacman -Sc
+```
+
+### Eigene Dateien
+
+Die Pakete fassen nie Dateien in Home-Verzeichnissen an. orbitop legt das Spaltenlayout in `~/.config/orbitop/` ab und, bei eingeschaltetem Schalter, einen Autostart-Eintrag. Beides entfernen:
+
+```sh
+rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/orbitop"
+rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
+```
+
+Einen Autostart für alle Benutzer entfernen Sie wie unter [Für alle Benutzer](#für-alle-benutzer), eine Freigabe aus [Grafik und Leistung](#grafik-und-leistung) wie dort beschrieben.
+
+## Umstieg von 0.1.0
+
+orbitop 0.1.0 lief aus einem entpackten Archiv oder einem Checkout. Sein Setup hat einen Root-Helfer in `/usr/local/libexec/orbitop/` installiert und für den eigenen Benutzer einen Starter, ein Symbol und einen Autostart-Eintrag, die auf dieses Verzeichnis zeigen. Das Paket ersetzt all das, und die Skripte von 0.1.0 gibt es nicht mehr. Die alten Dateien entfernen Sie deshalb von Hand.
+
+Halten Sie zuerst fest, was Sie hatten: ob der Autostart an war, ob `getcap /usr/bin/intel_gpu_top` die Fähigkeit `cap_perfmon` zeigt und ob es `/etc/udev/rules.d/70-orbitop-rapl.rules` gibt. Dann orbitop 0.1.0 beenden (sein Fenster aus dem Anwendungsmenü zeigen, dann Strg+Q) und seine Dateien entfernen:
+
+```sh
+rm -f ~/.local/share/applications/io.github.zappelmann_sketch.orbitop.desktop
+rm -f ~/.local/share/icons/hicolor/scalable/apps/io.github.zappelmann_sketch.orbitop.svg
+rm -f ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
+sudo rm -r /usr/local/libexec/orbitop
+```
+
+Der alte Starter heißt wie der des Pakets und würde ihn verdecken. Die Fähigkeit `cap_perfmon` und die RAPL-Regel bleiben, wie sie sind: Sie entsprechen denen in [Grafik und Leistung](#grafik-und-leistung), und 0.3.0 ersetzt beide durch einen Schalter. Danach können Sie das Verzeichnis von 0.1.0 löschen.
+
+Dann das Paket wie unter [Installation](#installation) installieren und im Dialog „Über“ „Beim Anmelden starten“ einschalten, wenn der Autostart vorher an war. Unter Ubuntu und Debian zeigt `apt policy orbitop` danach die Paketquelle.
+
+## Aus dem Quellcode starten
+
+Für die Entwicklung läuft orbitop auch aus einem Checkout ohne das Paket. Die Laufzeitpakete Ihrer Distribution aus der Tabelle unten installieren, dann:
+
+```sh
+git clone https://github.com/zappelmann-sketch/orbitop.git
+cd orbitop
+bin/orbitop
+```
+
+Ohne installiertes Paket gehen zwei Dinge nicht: Prozesse anderer Benutzer zu beenden braucht den root-eigenen Helfer aus dem Paket (orbitop zeigt stattdessen einen Hinweis und fragt nach keinem Passwort), und der Schalter „Beim Anmelden starten“ bleibt gesperrt, solange der Befehl `orbitop` nicht installiert ist. Beim Start prüft orbitop die Python-Version, PyGObject, GTK 4 und WebKitGTK 6.0. Fehlt etwas, nennt es das Paket der laufenden Distribution und den Befehl zum Installieren; bei einer unbekannten Distribution nimmt es die Debian-Namen. Zu den Tests siehe [Tests](#tests).
+
+### Paketnamen
+
+| Distribution | Paketmanager | Laufzeitpakete | Intel-GPU-Werkzeuge |
+|---|---|---|---|
+| Debian, Ubuntu | `apt-get` | `python3-gi` `gir1.2-gtk-4.0` `gir1.2-webkit-6.0` | `intel-gpu-tools` |
+| Fedora | `dnf` | `python3-gobject` `gtk4` `webkitgtk6.0` | `igt-gpu-tools` |
+| Arch Linux | `pacman` | `python-gobject` `gtk4` `webkitgtk-6.0` | `intel-gpu-tools` |
+| openSUSE | `zypper` | `python3-gobject` `typelib-1_0-Gtk-4_0` `typelib-1_0-WebKit-6_0` `python3-gobject-Gdk` | `igt-gpu-tools` |
+
+Die Pakete von orbitop hängen von denselben Laufzeitpaketen und von polkit ab.
 
 ## Tech-Stack-Analyse
 
@@ -86,11 +430,12 @@ Beide Bilder zeigen Demodaten aus `tests/ui/demo.html`, kein laufendes System. P
 
 ### Sicherheitsmodell
 
-- Die Seite spricht mit Python nur über `parse_message` in `orbitop/app.py`. Die Schleuse nimmt die Nachrichten `ready`, `view`, `layout`, `terminate` und `quit` an, prüft jeden Wert auf Typ und Wertebereich, verwirft unbekannte Schlüssel und begrenzt die Größe auf 4096 Zeichen. Alles andere wird verworfen.
+- Die Seite spricht mit Python nur über `parse_message` in `orbitop/app.py`. Die Schleuse nimmt die Nachrichten `ready`, `view`, `layout`, `terminate`, `autostart` und `quit` an, prüft jeden Wert auf Typ und Wertebereich, verwirft unbekannte Schlüssel und begrenzt die Größe auf 4096 Zeichen. Alles andere wird verworfen.
 - Prozessnamen, Befehlszeilen und Benutzer kommen nur als Text (`textContent`) in die Seite, nie als HTML.
-- orbitop öffnet keinen Port und baut keine Netzwerkverbindung auf.
-- Einen Prozess eines anderen Benutzers beendet orbitop mit `pkexec /usr/bin/python3 -I /usr/local/libexec/orbitop/killhelper.py`. Vorher prüft es per `lstat`, dass der Helfer eine reguläre Datei und kein Symlink ist und dass er und jedes Verzeichnis bis `/` root gehören und für Gruppe und andere nicht beschreibbar sind. Sonst zeigt es einen Hinweis und fragt nach keinem Passwort.
+- orbitop öffnet keinen Port und baut keine Netzwerkverbindung auf. Updates kommen nur über die Paketverwaltung.
+- Einen Prozess eines anderen Benutzers beendet orbitop mit `pkexec /usr/lib/orbitop/killhelper <pid> <startzeit> <signal>`. Die polkit-Action `io.github.zappelmann-sketch.orbitop.terminate` gilt nur für dieses Programm (`org.freedesktop.policykit.exec.path`) und fragt jedes Mal nach dem Admin-Passwort (`auth_admin`); der Dialog zeigt PID, Startzeit und Signal. Vorher prüft orbitop per `lstat`, dass der Helfer eine reguläre Datei und kein Symlink ist und dass er und jedes Verzeichnis bis `/` root gehören und für Gruppe und andere nicht beschreibbar sind. Sonst zeigt es einen Hinweis und fragt nach keinem Passwort.
 - Der Helfer öffnet ein pidfd, bevor er PID und Startzeit prüft. So erreicht das Signal genau den geprüften Prozess. PID 1 und Kernel-Threads lehnt er ab.
+- Der Schalter „Beim Anmelden starten“ schreibt oder löscht nur seinen eigenen Eintrag im Autostart-Ordner des Benutzers, atomar; die Seite meldet nur an oder aus, nie einen Pfad.
 - `intel_gpu_top` und `nvidia-smi` startet orbitop mit Argumentlisten, nie über eine Shell, und nur aus dem festen Pfad `/usr/local/bin:/usr/bin:/bin`.
 
 ### Tests
@@ -98,7 +443,7 @@ Beide Bilder zeigen Demodaten aus `tests/ui/demo.html`, kein laufendes System. P
 - pytest. Jeder Leser nimmt ein Argument `root`, deshalb laufen die Tests gegen nachgebaute `/proc`- und `/sys`-Bäume in `tests/fixtures/roots/`: `intel-laptop` (auf dem Referenzlaptop aufgenommen), `amd-desktop`, `arm-board` und `vm`.
 - `tests/ui/check.html` prüft die Seite im kopflosen Chrome bei zwei Fenstergrößen. Ohne Chrome oder Chromium überspringen sich diese Tests.
 - Die Testsuite ruft auch ShellCheck, `desktop-file-validate` und `appstreamcli` auf und braucht deshalb pytest, ShellCheck, desktop-file-utils und AppStream.
-- `scripts/check-distros.sh` führt das Setup und die Testsuite in wegwerfbaren Docker-Containern aus, einer je Distribution. Die Ergebnisse stehen in [`docs/distro-check.md`](docs/distro-check.md).
+- `scripts/check-distros.sh` installiert, testet, aktualisiert und entfernt die Pakete aus der signierten Paketquelle in wegwerfbaren Docker-Containern, einem je Distribution. Die Ergebnisse stehen in [`docs/distro-check.md`](docs/distro-check.md). Wie die Pakete gebaut und signiert werden, steht in [`docs/release.md`](docs/release.md).
 
 ```sh
 python3 -m pytest -q
@@ -120,145 +465,14 @@ shell.py            GTK 4 window, WebKitGTK 6.0 view, orbitop://ui/
    |  window.orbitop.receive(msg)
    v
 orbitop/ui/app.js   page, chart.js draws the charts
-   |  postMessage: ready, view, layout, terminate, quit
+   |  postMessage: ready, view, layout, terminate, autostart, quit
    v
 app.py parse_message
-   |-- layout    -> layout.py  -> ~/.config/orbitop/layout.json
-   '-- terminate -> actions.py -> own process: signal
-                               -> other user: pkexec killhelper.py
+   |-- layout    -> layout.py    -> ~/.config/orbitop/layout.json
+   |-- autostart -> autostart.py -> ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
+   '-- terminate -> actions.py   -> own process: signal
+                                 -> other user: pkexec /usr/lib/orbitop/killhelper
 ```
-
-## Voraussetzungen
-
-- Linux mit Python 3.12 oder neuer
-- PyGObject, GTK 4 und WebKitGTK 6.0, jeweils mit der Typelib für GObject Introspection (`Gtk-4.0`, `WebKit-6.0`)
-- Optional: `intel_gpu_top` aus den Intel-GPU-Werkzeugen, für die Intel-GPU-Last aller Prozesse und die Paketleistung (mit `--allow-perfmon`, siehe [Rechte und Risiken](#rechte-und-risiken))
-- Optional: `nvidia-smi` für NVIDIA-GPUs. Es kommt mit dem proprietären Treiber, etwa in `nvidia-utils-<version>`.
-
-Beim Start prüft orbitop die Python-Version, PyGObject, GTK 4 und WebKitGTK 6.0. Fehlt etwas, nennt es das Paket der laufenden Distribution und den Befehl zum Installieren; bei einer unbekannten Distribution nimmt es die Debian-Namen.
-
-### Unterstützte Distributionen
-
-<!-- supported:start -->
-| Geprüfte Distribution | Davon abgeleitet, nicht eigens geprüft |
-|---|---|
-| Ubuntu 26.04 | |
-| Ubuntu 24.04 | Linux Mint 22, Pop!_OS 24.04 |
-| Debian 13 | |
-| Fedora 45 | |
-| Arch Linux | Manjaro, EndeavourOS |
-| openSUSE Tumbleweed | |
-<!-- supported:end -->
-
-Geprüft am 2026-11-18 mit `scripts/check-distros.sh` in wegwerfbaren Docker-Containern: Setup, Import von GTK 4 und WebKitGTK 6.0, Testsuite, Probelauf. Die Container haben keinen Bildschirm, deshalb gehörten das Fenster selbst, der Helfer über `pkexec` und die Optionen `--allow-*` nicht zur Prüfung. Einzelheiten stehen in [`docs/distro-check.md`](docs/distro-check.md).
-
-Nicht unterstützt: Debian 12 (Python 3.11) und Ubuntu 22.04 (Python 3.10). Beide liefern WebKitGTK 6.0, und das Setup läuft durch, aber orbitop braucht Python 3.12 oder neuer und startet dort nicht.
-
-### Paketnamen
-
-| Distribution | Paketmanager | Laufzeitpakete | Intel-GPU-Werkzeuge |
-|---|---|---|---|
-| Debian, Ubuntu | `apt-get` | `python3-gi` `gir1.2-gtk-4.0` `gir1.2-webkit-6.0` | `intel-gpu-tools` |
-| Fedora | `dnf` | `python3-gobject` `gtk4` `webkitgtk6.0` | `igt-gpu-tools` |
-| Arch Linux | `pacman` | `python-gobject` `gtk4` `webkitgtk-6.0` | `intel-gpu-tools` |
-| openSUSE | `zypper` | `python3-gobject` `typelib-1_0-Gtk-4_0` `typelib-1_0-WebKit-6_0` `python3-gobject-Gdk` | `igt-gpu-tools` |
-
-`setup-privileges.sh` installiert diese Pakete mit dem Paketmanager, den es findet. Die Intel-GPU-Werkzeuge kommen nur dazu, wenn der Rechner eine Intel-GPU hat (Treiber `i915` oder `xe`).
-
-## Installation
-
-### orbitop holen
-
-Aus dem Release:
-
-```sh
-mkdir -p ~/.local/opt
-cd ~/.local/opt
-curl -LO https://github.com/zappelmann-sketch/orbitop/releases/download/v0.1.0/orbitop-0.1.0.tar.gz
-curl -LO https://github.com/zappelmann-sketch/orbitop/releases/download/v0.1.0/SHA256SUMS
-sha256sum -c SHA256SUMS
-tar -xzf orbitop-0.1.0.tar.gz
-cd orbitop-0.1.0
-```
-
-`sha256sum -c` muss `orbitop-0.1.0.tar.gz: OK` ausgeben. Entpacken Sie orbitop an einen dauerhaften Ort wie `~/.local/opt`: `install-user.sh` trägt den Pfad dieses Verzeichnisses in den Starter und den Autostart-Eintrag ein. Verschieben oder löschen Sie das Verzeichnis danach nicht.
-
-Oder mit git:
-
-```sh
-git clone https://github.com/zappelmann-sketch/orbitop.git
-cd orbitop
-```
-
-Danach in diesem Verzeichnis die Befehle Ihrer Distribution ausführen. Was das Setup tun würde, zeigt vorher `bash scripts/setup-privileges.sh --dry-run`; das braucht kein root und ändert nichts.
-
-### Ubuntu und Debian
-
-```sh
-sudo apt-get update
-sudo bash scripts/setup-privileges.sh
-bash scripts/install-user.sh
-```
-
-### Fedora und openSUSE
-
-```sh
-sudo bash scripts/setup-privileges.sh
-bash scripts/install-user.sh
-```
-
-`dnf` und `zypper` frischen ihren Paketindex selbst auf.
-
-### Arch Linux
-
-```sh
-sudo pacman -Syu
-sudo bash scripts/setup-privileges.sh
-bash scripts/install-user.sh
-```
-
-Abgeleitete Distributionen wie Linux Mint, Pop!_OS, Manjaro oder EndeavourOS nehmen die Befehle ihrer Basis.
-
-### Andere Distributionen
-
-Findet `setup-privileges.sh` keinen der Paketmanager `apt-get`, `dnf`, `pacman` und `zypper`, meldet es „No supported package manager found“ und installiert keine Pakete. Installieren Sie dann selbst mit dem Paketmanager Ihrer Distribution:
-
-- Python 3.12 oder neuer
-- PyGObject
-- GTK 4 mit der Typelib `Gtk-4.0`
-- WebKitGTK 6.0 mit der Typelib `WebKit-6.0`
-- optional: `intel_gpu_top` (Intel-GPU-Werkzeuge) und `nvidia-smi`
-
-Danach wie oben `sudo bash scripts/setup-privileges.sh` und `bash scripts/install-user.sh` ausführen. Den root-eigenen Helfer installiert das Setup-Skript trotzdem. Auf einer solchen Distribution ist orbitop nicht geprüft.
-
-### Start
-
-orbitop startet aus dem Anwendungsmenü oder mit `bin/orbitop`. Ab der nächsten Anmeldung startet der Autostart-Eintrag es ausgeblendet (`--hidden`); ein erneuter Start aus dem Menü zeigt das Fenster.
-
-## Rechte und Risiken
-
-- `scripts/setup-privileges.sh` (mit `sudo`) installiert die Laufzeitpakete Ihrer Distribution und, wenn eine Intel-GPU (`i915` oder `xe`) vorhanden ist, die Intel-GPU-Werkzeuge. Auf jedem Rechner kopiert es `orbitop/killhelper.py` root-eigen nach `/usr/local/libexec/orbitop/killhelper.py`; ohne diese Kopie lassen sich Prozesse anderer Benutzer nicht beenden. Nach einem Update von `orbitop/killhelper.py` (etwa nach `git pull` oder einem neuen Release) das Skript erneut ausführen. Nur mit `--allow-perfmon` gibt es `intel_gpu_top` die Datei-Fähigkeit `cap_perfmon`, damit es ohne root läuft (siehe die Risiken unten). Ein Update des Pakets mit den Intel-GPU-Werkzeugen entfernt die Fähigkeit; danach das Skript erneut mit `--allow-perfmon` ausführen. `--dry-run` gibt nur die Befehle aus, ändert nichts und braucht kein root.
-- `scripts/install-user.sh` (als normaler Benutzer, nie als root) schreibt nur unter `$HOME`: den Starter in `~/.local/share/applications`, das Symbol und einen Autostart-Eintrag in `~/.config/autostart`, der orbitop bei der Anmeldung ausgeblendet startet.
-
-Risiken:
-
-- **Root-Helfer `/usr/local/libexec/orbitop/killhelper.py`:** `pkexec` startet ihn nach dem Admin-Passwort als root. Die Kopie im orbitop-Verzeichnis läuft nie als root, denn jeder eigene Prozess könnte sie ändern. Vor jedem Aufruf prüft orbitop, dass der Helfer eine reguläre Datei und kein Symlink ist und dass er und jedes Verzeichnis bis `/` root gehören und für Gruppe und andere nicht beschreibbar sind. Sonst fragt es nach keinem Passwort und weist auf das Setup-Skript hin. Rückgängig mit `sudo rm -r /usr/local/libexec/orbitop`; Prozesse anderer Benutzer lassen sich dann nicht mehr beenden.
-- **`--allow-perfmon` (optional, standardmäßig aus):** gibt `/usr/bin/intel_gpu_top` die Fähigkeit `cap_perfmon`. Danach kann jedes lokale Konto damit die GPU-Zähler und die RAPL-Paketleistung lesen (CVE-2020-8694). Ohne die Option zeigt orbitop nur die Auslastung der Intel-Grafik durch eigene Prozesse. Rückgängig mit `sudo setcap -r /usr/bin/intel_gpu_top`.
-- **`--allow-rapl` (optional, standardmäßig aus):** macht die RAPL-Energiezähler über eine udev-Regel für alle lokalen Konten lesbar, auch für Flatpak-Apps. Der Kernel sperrt sie für Nicht-Root, weil sie Seitenkanalangriffe auf den Stromverbrauch erlauben (Platypus, CVE-2020-8694). Ohne die Option kommt die Paketleistung von `intel_gpu_top`, wenn es `cap_perfmon` hat. Rückgängig mit `sudo rm /etc/udev/rules.d/70-orbitop-rapl.rules` und einem Neustart.
-
-## Deinstallation
-
-Erst orbitop aus dem Anwendungsmenü starten, damit das Fenster erscheint (eine beim Anmelden gestartete Instanz läuft eventuell ausgeblendet), dann mit Strg+Q beenden. Danach im orbitop-Verzeichnis:
-
-```sh
-bash scripts/install-user.sh --uninstall
-sudo rm -r /usr/local/libexec/orbitop
-rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/orbitop"
-```
-
-Die erste Zeile entfernt Starter, Symbol und Autostart-Eintrag, die zweite den Root-Helfer, die dritte das gespeicherte Spaltenlayout. Danach können Sie das orbitop-Verzeichnis löschen. Wenn Sie `--allow-perfmon` oder `--allow-rapl` benutzt haben, nehmen Sie das zurück wie unter [Rechte und Risiken](#rechte-und-risiken) beschrieben.
-
-Die Pakete, die `setup-privileges.sh` installiert hat, bleiben installiert, weil andere Programme sie brauchen können. Wer sie nicht mehr braucht, entfernt sie mit dem Paketmanager.
 
 ## Eigenlast
 
