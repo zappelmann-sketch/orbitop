@@ -100,9 +100,10 @@ def test_denied_does_not_blame_password():
         assert "passwort" not in json_of(lang)["result.denied"].lower()
 
 
-def test_nohelper_names_the_setup_command():
+def test_nohelper_points_to_the_readme():
     for lang in ("en", "de"):
-        assert "sudo bash scripts/setup-privileges.sh" in json_of(lang)["result.nohelper"]
+        text = json_of(lang)["result.nohelper"]
+        assert "README" in text and "setup-privileges" not in text
 
 
 def test_rapl_hint_names_flag_and_risk():

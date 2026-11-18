@@ -1,6 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Prozesse beenden: eigene direkt, fremde über pkexec + die root-eigene Kopie von killhelper.py."""
+"""Prozesse beenden: eigene direkt, fremde über pkexec + die root-eigene Kopie von killhelper.py aus dem Paket."""
 import os
 import stat
 import subprocess
@@ -8,11 +8,11 @@ import subprocess
 from orbitop import killhelper
 from orbitop.procs import is_kernel, parse_stat
 
-# Installiert von scripts/setup-privileges.sh; nie die Datei im Checkout, die User-Code austauschen könnte (F-1).
-_HELPER = "/usr/local/libexec/orbitop/killhelper.py"
+# Installiert vom orbitop-Paket; nie die Datei im Checkout, die User-Code austauschen könnte (F-1).
+# pkexec startet ihn direkt (Shebang python3 -I), damit die polkit-Action mit exec.path genau ihn trifft.
+_HELPER = "/usr/lib/orbitop/killhelper"
 # Absolute Pfade: kein PATH- oder venv-Einfluss auf das, was als root läuft.
 PKEXEC = "/usr/bin/pkexec"
-PYTHON = "/usr/bin/python3"
 _RESULT = {0: "sent", 3: "mismatch", 4: "gone", 5: "zombie", 6: "kernel", 126: "denied", 127: "denied"}
 
 
@@ -65,7 +65,7 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, l
     if not _trusted(_HELPER, lstat):  # Helfer fehlt oder ist austauschbar: kein pkexec
         return "nohelper"
     try:
-        r = run([PKEXEC, PYTHON, "-I", _HELPER, str(pid), str(start), sig], timeout=120)
+        r = run([PKEXEC, _HELPER, str(pid), str(start), sig], timeout=120)
     except (OSError, subprocess.SubprocessError):
         return "error"
     return _RESULT.get(r.returncode, "error")

@@ -16,8 +16,8 @@ from orbitop import actions, killhelper
 from orbitop.actions import is_alive, terminate
 from orbitop.procs import parse_stat
 
-HELPER = os.path.abspath(killhelper.__file__)  # die Quelle im Checkout; pkexec startet nur die root-eigene Kopie
-INSTALLED = "/usr/local/libexec/orbitop/killhelper.py"
+HELPER = os.path.abspath(killhelper.__file__)  # die Quelle im Checkout; pkexec startet nur die Kopie des Pakets
+INSTALLED = "/usr/lib/orbitop/killhelper"
 
 
 def chain_lstat(**over):
@@ -125,11 +125,20 @@ def test_foreign_uses_pkexec_helper(monkeypatch, foreign):
     calls = []
     assert terminate(4242, 77, False, root=foreign, run=fake(calls, 126), lstat=TRUSTED) == "denied"
     argv, kw = calls[0]
-    assert argv == ["/usr/bin/pkexec", "/usr/bin/python3", "-I", INSTALLED, "4242", "77", "TERM"]
+    assert argv == ["/usr/bin/pkexec", INSTALLED, "4242", "77", "TERM"]
     assert kw["timeout"] == 120 and "shell" not in kw
     calls.clear()
     terminate(4242, 77, True, root=foreign, run=fake(calls, 0), lstat=TRUSTED)
     assert calls[0][0][-1] == "KILL"
+
+
+def test_pkexec_runs_helper_directly(monkeypatch, tmp_path):
+    """Kein Interpreter im argv: nur so passt die polkit-Annotation exec.path genau auf den Helfer."""
+    monkeypatch.setattr(sys, "executable", "/venv/bin/python")
+    foreign_proc(tmp_path, 123, 456, "S")
+    calls = []
+    terminate(123, 456, False, root=str(tmp_path), run=fake(calls, 0), lstat=TRUSTED)
+    assert [c[0] for c in calls] == [["/usr/bin/pkexec", "/usr/lib/orbitop/killhelper", "123", "456", "TERM"]]
 
 
 @pytest.mark.parametrize("rc,want", [(0, "sent"), (3, "mismatch"), (4, "gone"), (5, "zombie"), (6, "kernel"),
@@ -362,9 +371,9 @@ def test_helper_in_user_tree_is_nohelper(monkeypatch, foreign, tmp_path, make):
     {INSTALLED: (0, stat.S_IFREG | 0o775)},                      # Datei für die Gruppe beschreibbar
     {INSTALLED: (0, stat.S_IFLNK | 0o777)},                      # Symlink
     {INSTALLED: (0, stat.S_IFDIR | 0o755)},                      # keine reguläre Datei
-    {"/usr/local/libexec/orbitop": (0, stat.S_IFDIR | 0o775)},   # Elternverzeichnis für die Gruppe beschreibbar
-    {"/usr/local": (0, stat.S_IFDIR | 0o757)},                   # weiter oben für andere beschreibbar
-    {"/usr/local/libexec": (1000, stat.S_IFDIR | 0o755)},        # Verzeichnis gehört dem User
+    {"/usr/lib/orbitop": (0, stat.S_IFDIR | 0o775)},             # Elternverzeichnis für die Gruppe beschreibbar
+    {"/usr": (0, stat.S_IFDIR | 0o757)},                         # weiter oben für andere beschreibbar
+    {"/usr/lib": (1000, stat.S_IFDIR | 0o755)},                  # Verzeichnis gehört dem User
     {"/": (0, stat.S_IFDIR | 0o777)},
 ])
 def test_untrusted_chain_is_nohelper(foreign, over):
@@ -380,8 +389,8 @@ def test_trusted_chain_reaches_runner_with_exact_argv(foreign):
         seen.append(path)
         return TRUSTED(path)
     assert terminate(4242, 77, True, root=foreign, run=fake(calls, 0), lstat=lstat) == "sent"
-    assert seen == [INSTALLED, "/usr/local/libexec/orbitop", "/usr/local/libexec", "/usr/local", "/usr", "/"]
-    assert [c[0] for c in calls] == [["/usr/bin/pkexec", "/usr/bin/python3", "-I", INSTALLED, "4242", "77", "KILL"]]
+    assert seen == [INSTALLED, "/usr/lib/orbitop", "/usr/lib", "/usr", "/"]
+    assert [c[0] for c in calls] == [["/usr/bin/pkexec", INSTALLED, "4242", "77", "KILL"]]
 
 
 def test_trust_check_accepts_a_real_root_chain():
