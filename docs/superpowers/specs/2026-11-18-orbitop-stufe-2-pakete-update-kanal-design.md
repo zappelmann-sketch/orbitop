@@ -176,6 +176,7 @@ Je Distribution gibt es in der README einen Weg:
 - **Ubuntu, Debian:**
   - Das `.deb` aus dem Release laden und mit `sudo apt install ./orbitop_….deb` installieren.
   - Das Paket bringt `/etc/apt/sources.list.d/orbitop.sources` (deb822, `Signed-By: /usr/share/keyrings/orbitop-archive-keyring.pgp`) und den Schlüssel mit.
+  - **Umsetzung (Plan K3, Rulings aus Task 3):** Quelle, Schlüssel und Pinning stecken im kleinen Paket `orbitop-apt-source`, alle als Conffiles unter `/etc/apt/` (Schlüssel `/etc/apt/keyrings/orbitop-archive-keyring.pgp`). So bleibt nach `apt remove` nie eine Quelle ohne Schlüssel zurück, und ein Purge entfernt alles.
   - Updates kommen über `apt upgrade` und die Aktualisierungsverwaltung.
   - **Pflicht:** Nach `apt remove orbitop` darf `apt update` keinen Fehler zeigen. Eine verwaiste Quelle mit fehlendem Schlüssel ist nicht erlaubt. Der Builder löst das und testet es.
   - Nach `apt purge` bleibt nichts.
