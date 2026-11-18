@@ -16,8 +16,8 @@ def policy():
     return ET.parse(POLICY, ET.XMLParser(target=ET.TreeBuilder(insert_comments=True))).getroot()
 
 
-def text(lang):
-    return json.loads((ROOT / "orbitop" / "locale" / f"{lang}.json").read_text(encoding="utf-8"))["polkit.terminate"]
+def text(lang, key="polkit.terminate"):
+    return json.loads((ROOT / "orbitop" / "locale" / f"{lang}.json").read_text(encoding="utf-8"))[key]
 
 
 def test_exactly_one_terminate_action():
@@ -41,15 +41,16 @@ def test_only_annotation_is_exec_path_of_the_helper():  # kein allow_gui, kein a
         ("org.freedesktop.policykit.exec.path", actions._HELPER)]
 
 
-def test_texts_match_locale():
+def test_texts_match_locale():  # K7: je Sprache genau ein Element
     action = policy().find("action")
-    for tag in ("description", "message"):
-        assert sorted((e.get(LANG, ""), e.text) for e in action.findall(tag)) == [("", text("en")),
-                                                                                  ("de", text("de"))], tag
+    for tag, key in (("description", "polkit.terminate_description"), ("message", "polkit.terminate")):
+        assert sorted((e.get(LANG, ""), e.text) for e in action.findall(tag)) == [("", text("en", key)),
+                                                                                  ("de", text("de", key))], tag
 
 
 def test_dialog_shows_the_command_line():  # sonst sähe der Admin nicht, welche PID der Helfer beenden soll
     assert all(text(lang).endswith(": $(command_line)") for lang in ("en", "de"))
+    assert not [e.text for e in policy().iter("description") if "$(" in e.text]  # polkit ersetzt nur in <message>
 
 
 def test_ui_never_uses_polkit_texts():  # polkit.* ist nur für die .policy; die Seite setzt $(…) nicht ein

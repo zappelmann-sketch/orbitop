@@ -122,6 +122,7 @@
   "missing.temp": "Keine Temperatursensoren gefunden",
   "notice.for": "{name} (PID {pid}): {text}",
   "polkit.terminate": "Prozess eines anderen Benutzers beenden: $(command_line)",
+  "polkit.terminate_description": "Prozess eines anderen Benutzers beenden",
   "procs.search": "Prozess suchen …",
   "procs.splitter": "Trenner zwischen Liste und Detail",
   "result.denied": "Beenden wurde nicht erlaubt (abgebrochen oder keine Berechtigung).",

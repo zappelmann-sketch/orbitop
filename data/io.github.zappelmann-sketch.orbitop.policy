@@ -5,8 +5,8 @@
   <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
   <!-- Copyright © 2026 zappelmann-sketch -->
   <action id="io.github.zappelmann-sketch.orbitop.terminate">
-    <description>Terminate a process of another user: $(command_line)</description>
-    <description xml:lang="de">Prozess eines anderen Benutzers beenden: $(command_line)</description>
+    <description>Terminate a process of another user</description>
+    <description xml:lang="de">Prozess eines anderen Benutzers beenden</description>
     <message>Terminate a process of another user: $(command_line)</message>
     <message xml:lang="de">Prozess eines anderen Benutzers beenden: $(command_line)</message>
     <defaults>
