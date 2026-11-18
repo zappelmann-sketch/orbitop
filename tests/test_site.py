@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 """scripts/build-site.sh und packaging/site/: Seitenbaum, Signaturen nur auf dem Rechner, Vorlage index.html."""
 import configparser
+import hashlib
 import os
 import re
 import subprocess
@@ -63,9 +64,13 @@ def test_build_site_tree_and_signatures(tmp_path, key):
     r, _ = run(tmp_path, key)
     assert r.returncode == 0, r.stderr
     site = tmp_path / "site"
+    index = "apt/dists/stable/main/binary-all"
+    blobs = [(site / index / name).read_bytes() for name in ("Packages", "Packages.gz")]
     assert site_files(site) == sorted([
         ".nojekyll", "index.html", "orbitop-archive-keyring.asc", "orbitop-archive-keyring.pgp",
         "apt/dists/stable/InRelease", "apt/dists/stable/Release", "apt/dists/stable/Release.gpg",
+        f"{index}/Packages", f"{index}/Packages.gz",
+        *(f"{index}/by-hash/{a}/{hashlib.new(a.lower(), b).hexdigest()}" for b in blobs for a in ("SHA256", "SHA512")),
         "apt/pool/main/o/orbitop/orbitop_0.2.0-1_all.deb",
         "apt/pool/main/o/orbitop-apt-source/orbitop-apt-source_2026.11.18_all.deb",
         *(f"rpm/{fam}/{name}" for fam in ("fedora", "opensuse") for name in (

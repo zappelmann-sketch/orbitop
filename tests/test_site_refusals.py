@@ -118,3 +118,12 @@ def test_build_site_signs_only_the_package_from_packages(tmp_path, key):
     arch = tmp_path / "site" / "arch" / "x86_64"
     assert (arch / "orbitop-0.2.0-1-any.pkg.tar.zst.sig").exists()
     assert not (arch / "evil-1-1-any.pkg.tar.zst.sig").exists()
+
+
+@needs_git
+@pytest.mark.parametrize("plant", ["apt-extra", "apt-forged"])
+def test_build_site_signs_no_apt_index_but_the_one_of_the_packages(tmp_path, key, plant):
+    r, _ = run(tmp_path, key, env={"PLANT": plant})
+    assert r.returncode == 1 and "apt index:" in r.stderr and "refusing apt" in r.stderr, r.stderr
+    site = tmp_path / "site"
+    assert not (site / "apt/dists/stable/InRelease").exists() and not list(site.rglob("*.sig"))

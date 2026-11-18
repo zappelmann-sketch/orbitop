@@ -99,6 +99,11 @@ tools "$SUSE_TOOLS" "$SUSE_IMAGE"
 # apt: Packages, by-hash and Release from the container, InRelease and Release.gpg from here.
 container "$out/$APT_DIR" "$DEB_IMAGE" -- /src/packaging/site/apt-inside.sh "$APT_SUITE" "$APT_COMPONENT"
 unchanged "$APT_DIR"
+# The container wrote the index; the host signs it only if it lists exactly these debs, true to the byte.
+mapfile -t debs < <(grep -F "  $APT_DIR/" "$tmp/inputs.sha256" |
+    awk -v d="$APT_DIR/" '{ print substr($2, length(d) + 1) }')
+python3 -I "$tmp/src/packaging/site/check-apt-index.py" "$out/$APT_DIR" "$APT_SUITE" "$APT_COMPONENT" "${debs[@]}" ||
+    die "refusing $APT_DIR: its index is not exactly the one of the packages from --packages"
 dists=$out/$APT_DIR/dists/$APT_SUITE
 sign --clearsign -o "$dists/InRelease" "$dists/Release"
 sign --armor --detach-sign -o "$dists/Release.gpg" "$dists/Release"

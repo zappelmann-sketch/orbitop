@@ -4,9 +4,11 @@
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
+from tests.apt_tree import make_deb
 from tests.packaging_common import ROOT
 
 SCRIPT = ROOT / "scripts" / "build-site.sh"
@@ -24,7 +26,7 @@ printf '%s\\n' "$@" ---- >> "$LOG_DIR/docker.log"
 for a; do case $a in *:/out) out=${a%:/out} ;; /src/packaging/site/*) step=${a##*/} ;; esac; done
 cat >> "$LOG_DIR/stdin.bin"
 case $step in
-    apt-inside.sh) mkdir -p "$out/dists/stable" && echo 'Suite: stable' > "$out/dists/stable/Release" ;;
+    apt-inside.sh) python3 -I "$APT_TREE" index "$out" stable main $([ "$PLANT" = apt-forged ] && echo forge) ;;
     rpm-inside.sh) mkdir -p "$out/repodata" && echo '<repomd/>' > "$out/repodata/repomd.xml" ;;
     arch-inside.sh) echo db > "$out/orbitop.db" && echo files > "$out/orbitop.files" ;;
 esac
@@ -32,6 +34,7 @@ case $step:$PLANT in
     apt-inside.sh:symlink) ln -s "$VICTIM" "$out/dists/stable/InRelease" ;;
     apt-inside.sh:fifo) mkfifo "$out/dists/stable/Release.gpg" ;;
     apt-inside.sh:cap) touch "$out/dists/stable/capfile" ;;
+    apt-inside.sh:apt-extra) echo x > "$out/dists/stable/notes.txt" ;;
     apt-inside.sh:changed-apt) printf x >> "$out/pool/main/o/orbitop/orbitop_0.2.0-1_all.deb" ;;
     arch-inside.sh:setgid) chmod 2755 "$out/orbitop.db" ;;
     arch-inside.sh:changed-arch) printf x >> "$out/orbitop-0.2.0-1-any.pkg.tar.zst" ;;
@@ -74,7 +77,11 @@ def run(tmp_path, key, *, packages=PACKAGES, fpr=None, socket=None, env=(), stub
     pkgs = tmp_path / "pkgs"
     for name in packages:
         (pkgs / name).parent.mkdir(parents=True, exist_ok=True)
-        if not os.path.lexists(pkgs / name):
+        if os.path.lexists(pkgs / name):
+            continue
+        if name.endswith(".deb"):  # echte, kleine debs: build-site.sh prüft den apt-Index gegen sie
+            make_deb(pkgs / name, *Path(name).name.split("_")[:2])
+        else:
             (pkgs / name).write_bytes(name.encode())
     fake = tmp_path / "bin"
     fake.mkdir()
@@ -88,7 +95,8 @@ exec {shutil.which("gpgconf")} "$@"
     for f in fake.iterdir():
         f.chmod(0o755)
     env = {**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "GNUPGHOME": str(key["home"]),
-           "ORBITOP_KEY": key["fpr"] if fpr is None else fpr, "LOG_DIR": str(tmp_path), **dict(env)}
+           "ORBITOP_KEY": key["fpr"] if fpr is None else fpr, "LOG_DIR": str(tmp_path),
+           "APT_TREE": str(ROOT / "tests" / "apt_tree.py"), **dict(env)}
     r = subprocess.run(["bash", str(SCRIPT), "--packages", str(pkgs), "--out", str(tmp_path / "site")],
                        capture_output=True, text=True, env=env, timeout=120)
     log = tmp_path / "docker.log"
