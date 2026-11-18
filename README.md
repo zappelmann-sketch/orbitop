@@ -28,7 +28,7 @@ orbitop is a GTK 4 window with a WebKitGTK 6.0 view, written in Python with the 
 - A divider between the list and the details can be dragged, or moved with the arrow keys.
 - Column order, hidden columns, widths and the divider position are saved in `~/.config/orbitop/layout.json` (under `$XDG_CONFIG_HOME` if that is set) and survive a restart.
 - Search in names and arguments, filters "All", "Mine only" and "Flagged" (every state except working and waiting). A click on a header sorts by that column.
-- The details of the selected process show its command line, its CPU history over 5 minutes, RAM, read and write rate, threads, context switches, parent process and start time.
+- The details of the selected process show its command line, its CPU history over 5 minutes, RAM, read and write rate, threads, context switches and start time, and for a zombie its parent process.
 
 ### Process states are a hint, not a verdict
 
@@ -247,12 +247,12 @@ Risks:
 
 ## Uninstall
 
-Quit orbitop first (Ctrl+Q). Then, in the orbitop directory:
+First start orbitop from the application menu so that its window appears (an instance started at login may be running hidden), then quit it with Ctrl+Q. Then, in the orbitop directory:
 
 ```sh
 bash scripts/install-user.sh --uninstall
 sudo rm -r /usr/local/libexec/orbitop
-rm -r ~/.config/orbitop
+rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/orbitop"
 ```
 
 The first line removes the launcher, the icon and the autostart entry. The second removes the root helper, the third the saved column layout. After that you can delete the orbitop directory. If you used `--allow-perfmon` or `--allow-rapl`, undo them as described under [Privileges and risks](#privileges-and-risks).

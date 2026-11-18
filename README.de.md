@@ -28,7 +28,7 @@ orbitop ist ein GTK-4-Fenster mit einer WebKitGTK-6.0-Ansicht, geschrieben in Py
 - Der Trenner zwischen Liste und Detailbereich lässt sich ziehen oder mit den Pfeiltasten verschieben.
 - Reihenfolge, ausgeblendete Spalten, Breiten und die Position des Trenners stehen in `~/.config/orbitop/layout.json` (unter `$XDG_CONFIG_HOME`, wenn das gesetzt ist) und überstehen einen Neustart.
 - Suche in Namen und Argumenten, Filter „Alle“, „Nur meine“ und „Auffällige“ (jeder Zustand außer „arbeitet“ und „wartet“). Ein Klick auf einen Kopf sortiert nach dieser Spalte.
-- Der Detailbereich zeigt zum gewählten Prozess die Befehlszeile, den CPU-Verlauf der letzten 5 Minuten, RAM, Lese- und Schreibrate, Threads, Kontextwechsel, Elternprozess und Startzeit.
+- Der Detailbereich zeigt zum gewählten Prozess die Befehlszeile, den CPU-Verlauf der letzten 5 Minuten, RAM, Lese- und Schreibrate, Threads, Kontextwechsel und Startzeit, bei Zombies dazu den Elternprozess.
 
 ### Die Zustände sind ein Hinweis, kein Urteil
 
@@ -247,12 +247,12 @@ Risiken:
 
 ## Deinstallation
 
-Erst orbitop beenden (Strg+Q). Dann im orbitop-Verzeichnis:
+Erst orbitop aus dem Anwendungsmenü starten, damit das Fenster erscheint (eine beim Anmelden gestartete Instanz läuft eventuell ausgeblendet), dann mit Strg+Q beenden. Danach im orbitop-Verzeichnis:
 
 ```sh
 bash scripts/install-user.sh --uninstall
 sudo rm -r /usr/local/libexec/orbitop
-rm -r ~/.config/orbitop
+rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/orbitop"
 ```
 
 Die erste Zeile entfernt Starter, Symbol und Autostart-Eintrag, die zweite den Root-Helfer, die dritte das gespeicherte Spaltenlayout. Danach können Sie das orbitop-Verzeichnis löschen. Wenn Sie `--allow-perfmon` oder `--allow-rapl` benutzt haben, nehmen Sie das zurück wie unter [Rechte und Risiken](#rechte-und-risiken) beschrieben.
