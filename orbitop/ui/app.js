@@ -695,9 +695,13 @@ function sizeCols() {
   ui.table.style.width = rest + w[p] + "px";
 }
 
-/** Breite in px, begrenzt; die Meldung (saveLayout) kommt vom Aufrufer, beim Ziehen erst am Ende. */
+/** Breite in px, begrenzt; die Meldung (saveLayout) kommt vom Aufrufer, beim Ziehen erst am Ende. Prozess bis zur
+ * Füllbreite ändert sichtbar nichts und würde nur zur Untergrenze, also füllt sie dann wieder den Rest. */
 function setWidth(id, px) {
-  state.layout.widths[id] = Math.round(Math.min(MAX_W, Math.max(id === "process" ? MIN_PROCESS_W : MIN_W, px)));
+  const w = Math.round(Math.min(MAX_W, Math.max(id === "process" ? MIN_PROCESS_W : MIN_W, px)));
+  const rest = visibleCols().reduce((a, c) => a + (c.id === "process" ? 0 : state.layout.widths[c.id] ?? c.w), 0);
+  if (id === "process" && w <= state.viewW - rest) delete state.layout.widths.process;
+  else state.layout.widths[id] = w;
   sizeCols();
 }
 

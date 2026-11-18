@@ -407,9 +407,9 @@ document.addEventListener("DOMContentLoaded", () => {
   hb("cpu").click();
   eq(th("cpu").getAttribute("aria-sort"), "descending", "zurück auf CPU absteigend");
   setWidth("cpu", 5);
-  setWidth("process", 5);
   setWidth("ram", 5000);
-  eq(JSON.stringify(layoutMessage().widths), '{"cpu":40,"process":120,"ram":1200}', "setWidth begrenzt die Breite");
+  setWidth("process", 5); // RAM 1200 px: die Füllbreite liegt unter 120 px, die Prozess-Breite wird gespeichert
+  eq(JSON.stringify(layoutMessage().widths), '{"cpu":40,"ram":1200,"process":120}', "setWidth begrenzt die Breite");
 
   // ---- Spaltenmenü per Maus und Tastatur ----
   applyLayout(null);
@@ -552,12 +552,22 @@ document.addEventListener("DOMContentLoaded", () => {
   eq(layouts().length - before + "/" + JSON.parse(layouts().at(-1)).widths.cpu, "1/82", "genau ein layout nach dem Ziehen");
   drag(grip("cpu"), -1000, () => pointer(grip("cpu"), "pointermove", 5000, { pointerId: 2, buttons: 1 })); // anderer Zeiger: zählt nicht
   drag(grip("process"), -1000);
-  eq(colW("cpu") + "/" + layoutMessage().widths.process, "40/120", "Griff begrenzt: CPU 40 px, Prozess 120 px");
+  eq(colW("cpu") + "/" + JSON.stringify(layoutMessage().widths), '40/{"cpu":40}', "Griff begrenzt: CPU 40 px");
   eq(Math.round($(".ptable").getBoundingClientRect().width), listBox.clientWidth, "Prozess füllt weiter den Rest");
-  eq(reported(() => dblclick(grip("cpu"))) + "/" + colW("cpu") + "/" + JSON.stringify(JSON.parse(layouts().at(-1)).widths),
-     '1/52/{"process":120}', "Doppelklick auf den Griff: Standardbreite, gemeldet");
+  key(hb("process"), "ArrowRight", { altKey: true }); // breiter als die Füllbreite: gespeichert
+  eq(reported(() => dblclick(grip("cpu"))) + "/" + colW("cpu") + "/" + Object.keys(JSON.parse(layouts().at(-1)).widths),
+     "1/52/process", "Doppelklick auf den Griff: Standardbreite, gemeldet");
   dblclick(grip("process"));
   eq(JSON.stringify(layoutMessage().widths), "{}", "Doppelklick auf den Prozess-Griff: füllt wieder den Rest");
+  // Schmaler als die Füllbreite ändert sichtbar nichts und wird keine Untergrenze (Schluss-Review Minor 1)
+  key(hb("process"), "ArrowLeft", { altKey: true });
+  drag(grip("process"), -40);
+  listBox.style.width = "838px";
+  measure();
+  eq(JSON.stringify(layoutMessage().widths) + "/" + (listBox.scrollWidth <= listBox.clientWidth), "{}/true",
+     "Füllspalte per Alt+← und Griff schmaler: keine Breite gespeichert, im schmalen Fenster kein waagerechtes Rollen");
+  listBox.style.width = "";
+  measure();
   const gripX = grip("cpu").getBoundingClientRect().left;
   pointer(grip("cpu"), "pointerdown", gripX, { button: 2 });
   pointer(grip("cpu"), "pointermove", gripX + 30, { buttons: 2 });
