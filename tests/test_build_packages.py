@@ -48,7 +48,7 @@ def build(tmp_path, *args):
     (fake / "docker").write_text(f"""#!/bin/sh
 printf '%s\\n' "$@" >> {tmp_path}/docker.log
 for a; do case $a in *:/out) mkdir -p "${{a%:/out}}/deb" ;; esac; done
-cat > {tmp_path}/stdin.bin
+cat >> {tmp_path}/stdin.bin
 """)
     (fake / "docker").chmod(0o755)
     r = subprocess.run(["bash", str(ROOT / "scripts" / "build-packages.sh"), *args], capture_output=True, text=True,
@@ -77,13 +77,22 @@ def test_build_refuses_old_output_and_bad_suffix(tmp_path, keys):
 
 
 @pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")
-def test_build_runs_one_disposable_container(tmp_path, keys):
+def test_build_runs_disposable_containers(tmp_path, keys):
     r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), "--suffix", "check1")
     assert r.returncode == 0, r.stderr
-    assert calls[:3] == ["run", "--rm", "-i"] and calls.count("run") == 1
-    mounts = [calls[i + 1] for i, a in enumerate(calls) if a == "-v"]
-    assert [m.rsplit(":", 1)[-1] for m in mounts] == ["ro", "/out"]
-    assert not [a for a in calls if a in ("--privileged", "--cap-add", "--network=host")]
-    assert calls[-2:] == ["/src/packaging/debian/build-inside.sh", f"{__version__}-1+check1"]
-    # Der Container bekommt nur den schon geprüften Schlüssel, binär wie im Paket
-    assert (tmp_path / "stdin.bin").read_bytes() == keys["binary"].read_bytes()
+    runs = "\n".join(calls).split("run\n")[1:]  # je Container ein Aufruf "docker run …"
+    images = {"debian:trixie": ("debian", f"{__version__}-1+check1"),
+              "fedora:latest": ("rpm", __version__, "1.check1"),
+              "opensuse/tumbleweed": ("rpm", __version__, "1.check1"),
+              "archlinux:latest": ("arch", __version__, "1.1")}  # K6: Prüfbau mit Suffix je Format
+    assert len(runs) == len(images)
+    for run in runs:
+        args = run.splitlines()
+        assert args[:2] == ["--rm", "-i"], args
+        mounts = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
+        assert [m.rsplit(":", 1)[-1] for m in mounts] == ["ro", "/out"]
+        assert not [a for a in args if a in ("--privileged", "--cap-add", "--network=host")]
+        fmt, *versions = images.pop(args[args.index("bash") - 1])
+        assert args[args.index("bash") + 1:] == [f"/src/packaging/{fmt}/build-inside.sh", *versions]
+    # Jeder Container bekommt nur den schon geprüften Schlüssel, binär wie im Paket
+    assert (tmp_path / "stdin.bin").read_bytes() == keys["binary"].read_bytes() * 4

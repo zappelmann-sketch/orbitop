@@ -1,0 +1,26 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Maintainer: zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>
+# Built by packaging/arch/build-inside.sh: it puts pkgver (from orbitop/__init__.py) and pkgrel in front of a copy of
+# this file, provides the sources (the archive of the tree, the key, orbitop-trusted) and appends makepkg --geninteg.
+pkgname=orbitop
+pkgdesc='System monitor for CPU, memory, GPU, network and processes'
+arch=(any)
+url='https://github.com/zappelmann-sketch/orbitop'
+license=('GPL-3.0-or-later' 'OFL-1.1' 'CC0-1.0')
+# glib2 (Gio, GLib) and hicolor-icon-theme are used directly; Arch: "Do not rely on transitive dependencies".
+depends=('python>=3.12' python-gobject gtk4 webkitgtk-6.0 glib2 hicolor-icon-theme polkit)
+optdepends=('intel-gpu-tools: Intel GPU load of all processes')
+install=orbitop.install
+source=("$pkgname-$pkgver.tar" orbitop.gpg orbitop-trusted)
+
+package() {
+    cd "$pkgname-$pkgver"
+    bash packaging/install-tree.sh "$pkgdir"
+    # Byte code that pacman tracks, as in every Python package of Arch, instead of caches written at run time.
+    python -m compileall -q -s "$pkgdir" -p / "$pkgdir/usr/share/orbitop/orbitop"
+    # OFL-1.1 is no common license of Arch: its texts (next to the fonts, as the OFL requires) also go here.
+    install -D -m 0644 -t "$pkgdir/usr/share/licenses/$pkgname" orbitop/ui/fonts/OFL-*.txt
+    # The key for "pacman-key --populate orbitop" (orbitop.install), so that a renewed key arrives with the update.
+    install -D -m 0644 -t "$pkgdir/usr/share/pacman/keyrings" "$srcdir/orbitop.gpg" "$srcdir/orbitop-trusted"
+}

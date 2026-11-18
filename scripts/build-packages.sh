@@ -3,12 +3,16 @@
 # Copyright © 2026 zappelmann-sketch
 # Builds the packages from `git archive HEAD` in disposable containers and lints them (docs/release.md).
 # Usage: bash build-packages.sh --out DIR --pubkey FILE [--suffix SUFFIX]
-#        DIR is empty or missing and receives deb/ and lint/; FILE is the armored public key of the package source.
-#        --suffix marks a check build that is never published: Debian revision 1+SUFFIX (K6).
-# The build itself runs in packaging/debian/build-inside.sh; this script only checks, prepares and starts it.
+#        DIR is empty or missing and receives deb/, rpm-fedora/, rpm-opensuse/, arch/ and lint/; FILE is the armored
+#        public key of the package source. --suffix marks a check build that is never published (K6): Debian revision
+#        1+SUFFIX, RPM release 1.SUFFIX, Arch pkgrel 1.1 (pacman allows only digits there).
+# The builds run in packaging/{debian,rpm,arch}/build-inside.sh; this script only checks, prepares and starts them.
 set -euo pipefail
 
 DEB_IMAGE=debian:trixie
+FEDORA_IMAGE=fedora:latest
+SUSE_IMAGE=opensuse/tumbleweed
+ARCH_IMAGE=archlinux:latest
 REVISION=1
 
 usage() { echo "usage: $0 --out DIR --pubkey FILE [--suffix SUFFIX]" >&2; exit 2; }
@@ -54,6 +58,16 @@ mkdir "$tmp/src"
 git -C "$repo" archive HEAD | tar -C "$tmp/src" -xf -  # only committed files, never local ones such as CLAUDE.md
 version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$tmp/src/orbitop/__init__.py")
 [[ $version =~ ^[0-9]+(\.[0-9]+)*$ ]] || die "no version in orbitop/__init__.py"
-docker run --rm -i -e OWNER="$(id -u):$(id -g)" -v "$tmp/src:/src:ro" -v "$out:/out" "$DEB_IMAGE" \
-    bash /src/packaging/debian/build-inside.sh "$version-$REVISION${suffix:++$suffix}" < "$tmp/key.pgp"
-ls -l -- "$out/deb"
+# One disposable container per build: the archive read-only, only DIR writable, the checked key on stdin.
+container() {
+    local image=$1
+    shift
+    docker run --rm -i -e OWNER="$(id -u):$(id -g)" -v "$tmp/src:/src:ro" -v "$out:/out" "$image" bash "$@" \
+        < "$tmp/key.pgp"
+}
+container "$DEB_IMAGE" /src/packaging/debian/build-inside.sh "$version-$REVISION${suffix:++$suffix}"
+for image in "$FEDORA_IMAGE" "$SUSE_IMAGE"; do
+    container "$image" /src/packaging/rpm/build-inside.sh "$version" "$REVISION${suffix:+.$suffix}"
+done
+container "$ARCH_IMAGE" /src/packaging/arch/build-inside.sh "$version" "$REVISION${suffix:+.1}"
+ls -lR -- "$out"

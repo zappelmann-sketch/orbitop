@@ -26,7 +26,7 @@ def test_changelog_from_metainfo():
         f"{TRAILER}  Tue, 01 Dec 2026 00:00:00 +0000\n\n"
         "orbitop (0.1.0-1) stable; urgency=medium\n\n  * Release 0.1.0.\n\n"
         f"{TRAILER}  Wed, 18 Nov 2026 00:00:00 +0000\n")
-    assert changelog.rpm(META) == (
+    assert changelog.rpm(META, "0.2.0-1") == (
         f"* Tue Dec 01 2026 zappelmann-sketch <{NOREPLY}> - 0.2.0-1\n- Packages for Debian.\n\n"
         f"* Wed Nov 18 2026 zappelmann-sketch <{NOREPLY}> - 0.1.0-1\n- Release 0.1.0.\n")
 
@@ -47,12 +47,15 @@ def test_changelog_takes_lists_and_inline_markup():  # AppStream: <p>, <ul>/<ol>
 
 def test_rpm_escapes_percent():  # rpm expandiert Makros auch in %changelog
     meta = release("<p>CPU at 100% for %{name}</p>")
-    assert "- CPU at 100%% for %%{name}\n" in load_changelog().rpm(meta)
+    assert "- CPU at 100%% for %%{name}\n" in load_changelog().rpm(meta, "0.2.0-1")
     assert "  * CPU at 100% for %{name}\n" in load_changelog().debian(meta, "0.2.0-1")
 
 
 def test_changelog_top_entry_carries_build_version():  # K6: Prüfbau mit Suffix
     assert load_changelog().debian(META, "0.2.0-1+check1").startswith("orbitop (0.2.0-1+check1) stable;")
+    rpm = load_changelog().rpm(META, "0.2.0-1.check1")
+    assert rpm.startswith(f"* Tue Dec 01 2026 zappelmann-sketch <{NOREPLY}> - 0.2.0-1.check1\n")
+    assert f"<{NOREPLY}> - 0.1.0-1\n" in rpm
 
 
 def test_changelog_apt_source_only_from_keyring_version():  # nie aus der metainfo oder der orbitop-Version
@@ -67,8 +70,19 @@ def test_changelog_apt_source_only_from_keyring_version():  # nie aus der metain
 
 
 def test_changelog_refuses_version_without_release():  # __version__ neuer als die metainfo: Bau bricht ab
-    with pytest.raises(ValueError):
-        load_changelog().debian(META, "0.3.0-1")
+    for make in (load_changelog().debian, load_changelog().rpm):
+        with pytest.raises(ValueError):
+            make(META, "0.3.0-1")
+
+
+def test_changelog_rpm_release_only_from_keyring_version():  # wie orbitop-apt-source: gleiche Version, gleiche Bytes
+    changelog = load_changelog()
+    assert changelog.rpm_release("2026.11.18") == (
+        f"* Wed Nov 18 2026 zappelmann-sketch <{NOREPLY}> - 2026.11.18-1\n"
+        "- Signing key and package source as of 2026-11-18.\n")
+    for bad in ("2026.13.01", "2026-11-18"):
+        with pytest.raises(ValueError):
+            changelog.rpm_release(bad)
 
 
 def test_changelog_of_real_metainfo_matches_version():
