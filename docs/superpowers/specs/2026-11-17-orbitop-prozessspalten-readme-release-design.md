@@ -291,6 +291,7 @@ CPU in % eines Kerns, in Klammern PSS in MB:
 | Hebel 3: 6 statt 12 Pufferzeilen (328ccd6) | 2,76 (134); 2,83 (133) | 7,26 (192); 7,18 (196) | 8,15 (191); 8,11 (193) | 9,11 (198); 9,11 (194) | 9,61 (199); 9,48 (199) |
 | Hebel 4: unveränderte Prozessliste nicht erneut senden (f896963) | 2,85 (134); 2,85 (133) | 7,20 (189); 7,06 (192) | 7,88 (193); 7,81 (190) | 8,80 (194); 8,55 (197); 8,51 (198) | 9,41 (198); 9,24 (198); 9,00 (201) |
 | 328ccd6, in derselben Sitzung abwechselnd mit f896963 | – | – | 8,21 (192); 8,31 (192) | 9,26 (194); 9,30 (195); 8,98 (200); 8,90 (198); 9,08 (200) | – |
+| Fix-Welle nach dem Schluss-Review (a568c23, 2026-11-18, ungestört) | 2,65 (138) | 6,90 (199) | 7,70 (195); 7,61 (196) | 8,56 (198); 8,58 (199) | – |
 | **Budget (User)** | **≤ 3** | **≤ 9** | **≤ 9** | **≤ 9** | **≤ 9**; PSS **< 275** |
 
 Weitere Läufe in einer instrumentierten Kopie (Zähler, siehe unten): Standard 8,10 bis 8,24 % (6 Läufe), alle Spalten 9,10 bis 9,28 % (7 Läufe).

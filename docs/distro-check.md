@@ -3,7 +3,9 @@
 The setup and the test suite of orbitop, run for real in disposable Docker containers with
 [`scripts/check-distros.sh`](../scripts/check-distros.sh). Only the distributions marked `pass` are supported.
 
-- Date: 2026-11-18
+- Date: 2026-11-18. The five supported images ran a second time that day, after `setup-privileges.sh` started to pick
+  the package manager from os-release: same digests, same versions, all `pass`. Debian 12 and Ubuntu 22.04 are from
+  the first run.
 - Docker: 29.9.3 (x86_64 host with an Intel GPU)
 - Each image runs once as
   `docker run --rm -v <copy>:/src:ro <image> bash /src/scripts/check-distros.sh --inside`:
@@ -39,7 +41,8 @@ step reported.
   and added the Intel GPU tools on every distribution. Every name resolved, and each install ran in one transaction.
   On a machine without an Intel GPU the line ends before the tools.
 - **Ubuntu 24.04:** GLib 2.80 has a `GLibUnix` namespace without `signal_add`. orbitop falls back to
-  `GLib.unix_signal_add` there; this check found the case.
+  `GLib.unix_signal_add` there; this check found the case. A test now calls the fallback for real and passes there
+  (GLib 2.80.0).
 - **Debian 13:** `debian:trixie` was Debian 13 (`VERSION_ID="13"`).
 - **Fedora:** `fedora:latest` was Fedora 45 (`VERSION_ID=45`) with Python 3.15. The image lacks `runuser`, so the
   `tools` step also installs `util-linux` there.
@@ -47,7 +50,8 @@ step reported.
   date first.
 - **openSUSE Tumbleweed:** snapshot `VERSION_ID="20261116"`. zypper resolves `python3-gobject`,
   `python3-gobject-Gdk` and `igt-gpu-tools` as capabilities and installs `python313-gobject`,
-  `python313-gobject-Gdk` and `intel-gpu-tools`.
+  `python313-gobject-Gdk` and `intel-gpu-tools`. The image has no `find`. In the second run a test's Docker stand-in
+  still listed files with it and failed there; it uses `tar` now, and the image passed when run once more.
 - **Debian 12 and Ubuntu 22.04 are not supported.** Both ship WebKitGTK 6.0, so `setup` and `import` pass, but their
   Python is older than 3.12. orbitop then refuses to start with the message in the table (seven tests of the runtime
   check fail with it, and the app shell tests skip themselves).
