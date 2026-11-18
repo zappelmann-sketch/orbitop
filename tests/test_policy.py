@@ -1,13 +1,14 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 import json
+import re
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
 from orbitop import actions
 
 ROOT = Path(__file__).resolve().parent.parent
-POLICY = ROOT / "data" / "io.github.zappelmann_sketch.orbitop.policy"
+POLICY = ROOT / "data" / "io.github.zappelmann-sketch.orbitop.policy"  # polkit(8): ohne "_", anders als die App-ID
 LANG = "{http://www.w3.org/XML/1998/namespace}lang"
 
 
@@ -20,7 +21,13 @@ def text(lang):
 
 
 def test_exactly_one_terminate_action():
-    assert [a.get("id") for a in policy().findall("action")] == ["io.github.zappelmann_sketch.orbitop.terminate"]
+    assert [a.get("id") for a in policy().findall("action")] == ["io.github.zappelmann-sketch.orbitop.terminate"]
+
+
+def test_names_follow_polkit8():  # nur [A-Za-z0-9.-], Datei heißt nach dem Namensraum der Action
+    action_id = policy().find("action").get("id")
+    assert re.fullmatch(r"[A-Za-z0-9.-]+", action_id)
+    assert POLICY.name == action_id.rsplit(".", 1)[0] + ".policy"
 
 
 def test_every_session_needs_admin_auth_each_time():
