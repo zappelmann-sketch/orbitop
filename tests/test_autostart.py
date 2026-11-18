@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from orbitop import APP_ID, autostart
+from orbitop import APP_ID, autostart, userfile
 from orbitop.autostart import FILE, OVERRIDE, TEMPLATE, set_enabled, state, system_paths, user_path
 
 REPO = Path(__file__).resolve().parent.parent
@@ -102,6 +102,9 @@ def test_on_with_disabled_system_entry_writes_template(env):
     ("[Desktop Entry]\nExec=orbitop\nHidden=false\n", True),
     ("[Desktop Entry]\nExec=orbitop\n[Desktop Action a]\nHidden=true\nX-GNOME-Autostart-enabled=false\n", True),
     ("# Hidden=true\n[Desktop Entry]\nExec=orbitop\n", True),  # Kommentar
+    ("", False),  # ohne Gruppe [Desktop Entry] kein gültiger Eintrag
+    ("garbage\n", False),
+    ("[Desktop Action a]\nExec=orbitop\n", False),
 ])
 def test_hidden_and_gnome_disabled_count_as_off(env, text, on):
     put_user(env, text)
@@ -125,6 +128,20 @@ def test_relative_xdg_config_home_ignored(env, tmp_path, monkeypatch):
     assert system_paths({}) == system_paths({"XDG_CONFIG_DIRS": ""}) == ["/etc/xdg/autostart/" + FILE]
     assert set_enabled(True, rel, which) is True and home.read_text() == TEMPLATE
     assert not (tmp_path / "rel").exists() and not (tmp_path / "rel2").exists()
+
+
+@pytest.mark.parametrize("home", ["rel", "~"])
+@pytest.mark.parametrize("xdg", [{}, {"XDG_CONFIG_HOME": "cfg"}])
+def test_relative_home_gives_none_and_writes_nothing(tmp_path, monkeypatch, home, xdg):  # Audit M1
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    monkeypatch.chdir(cwd)
+    monkeypatch.setenv("HOME", home)
+    rel = {**xdg, "XDG_CONFIG_DIRS": str(tmp_path / "xdg")}
+    system(rel, 0, TEMPLATE)
+    assert user_path(rel) is None and state(rel, which) is None
+    assert set_enabled(True, rel, which) is None and set_enabled(False, rel, which) is None
+    assert os.listdir(cwd) == []
 
 
 def weird(p: Path, make: str, tmp_path: Path) -> None:
@@ -199,7 +216,7 @@ def test_failed_write_keeps_state_and_leaves_no_tmp(env, monkeypatch, how):
     if how == "replace-fails":
         def boom(a, b):
             raise OSError("x")
-        monkeypatch.setattr(autostart.os, "replace", boom)
+        monkeypatch.setattr(userfile.os, "replace", boom)
         assert set_enabled(False, env, which) is True
     else:
         d.chmod(0o500)

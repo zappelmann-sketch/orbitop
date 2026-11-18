@@ -56,6 +56,14 @@ def test_config_path(monkeypatch):
     assert config_path({}) == config_path({"XDG_CONFIG_HOME": "cfg"}) == "/home/u/.config/orbitop/layout.json"
 
 
+def test_without_absolute_config_home_nothing_is_read_or_written(monkeypatch, tmp_path):  # Audit M1
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("HOME", "rel")
+    assert config_path({}) is None and config_path({"XDG_CONFIG_HOME": "cfg"}) is None
+    f = LayoutFile(None)
+    assert f.load() is None and f.save(L) is False and os.listdir(tmp_path) == []
+
+
 @pytest.mark.parametrize("make", ["missing", "truncated", "oversize", "directory", "fifo", "link-to-fifo",
                                   "not-a-dict", "huge-split", "deep"])
 def test_load_bad_file_is_none_without_hanging(tmp_path, make):  # Review Focus 1

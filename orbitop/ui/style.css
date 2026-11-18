@@ -390,7 +390,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .verdict.stop { background: rgba(196, 139, 255, .07); border-color: #c48bff; }
 .verdict.stop b { color: #d8b8ff; }
 .btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 2px; }
-.btn { padding: 6px 16px; font-weight: 600; letter-spacing: .08em; font-size: 12px; }
+.btn, .switch { font-weight: 600; letter-spacing: .08em; font-size: 12px; }
+.btn { padding: 6px 16px; }
 .btn::before { clip-path: polygon(8px 0, 100% 0, calc(100% - 8px) 100%, 0 100%); }
 .btn.term { color: var(--amber); }
 .btn.term::before { background: #2a2014; box-shadow: inset 0 0 0 1px rgba(255, 181, 74, .5); }
@@ -435,7 +436,7 @@ dialog p { line-height: 1.45; }
 dialog .brand { font-size: 14px; }
 .legend { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: start; font-size: 12px; color: #d6e4ec; }
 /* Schalter „Beim Anmelden starten“: Bahn wie .btn.plain, an wie der aktive Reiter; den Zustand nennt aria-checked */
-.switch { position: relative; display: flex; align-items: center; gap: 10px; align-self: flex-start; padding: 0; font-weight: 600; letter-spacing: .08em; font-size: 12px; }
+.switch { position: relative; display: flex; align-items: center; gap: 10px; align-self: flex-start; padding: 0; }
 .switch::before {
   content: "";
   flex: none;

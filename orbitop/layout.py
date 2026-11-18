@@ -4,9 +4,9 @@
 import contextlib
 import json
 import os
-import stat
-import tempfile
 from collections.abc import Mapping
+
+from orbitop.userfile import config_home, read_regular, write_atomic
 
 COLUMNS = ("pid", "process", "user", "cpu", "last60", "ram", "io", "state", "pri", "nice", "virt", "shr", "s",
            "mem", "time")  # Grundreihenfolge; app.js hat dieselbe Liste (Test)
@@ -57,47 +57,27 @@ def repair(obj) -> dict | None:
     return validate({**obj, "order": known, "hidden": hid, "widths": {k: v for k, v in widths.items() if k in COLUMNS}})
 
 
-def config_path(env: Mapping[str, str]) -> str:
-    base = env.get("XDG_CONFIG_HOME", "")
-    if not os.path.isabs(base):  # XDG: relative Werte ignorieren
-        base = os.path.join(os.path.expanduser("~"), ".config")
-    return os.path.join(base, "orbitop", "layout.json")
+def config_path(env: Mapping[str, str]) -> str | None:
+    home = config_home(env)
+    return os.path.join(home, "orbitop", "layout.json") if home else None
 
 
 class LayoutFile:
-    def __init__(self, path: str):
+    """path None (kein absoluter Konfigurationsordner): nichts lesen, nichts schreiben, nur current im Speicher."""
+
+    def __init__(self, path: str | None):
         self.path, self.current = path, None
 
     def load(self) -> dict | None:
         self.current = None
-        try:
-            fd = os.open(self.path, os.O_RDONLY | os.O_NONBLOCK)  # nie auf eine FIFO warten
-            with os.fdopen(fd, "rb") as f:
-                if not stat.S_ISREG(os.fstat(f.fileno()).st_mode):
-                    return None
-                data = f.read(MAX_BYTES + 1)
-            if len(data) > MAX_BYTES:
-                return None
-            self.current = repair(json.loads(data))
-        except (OSError, ValueError, RecursionError):
-            pass  # current ist schon None
+        data = read_regular(self.path, MAX_BYTES) if self.path else None
+        if data is not None:
+            with contextlib.suppress(ValueError, RecursionError):  # current bleibt None
+                self.current = repair(json.loads(data))
         return self.current
 
     def save(self, layout: dict) -> bool:
         if layout == self.current:
             return False
         self.current = layout
-        tmp = None
-        try:
-            d = os.path.dirname(self.path)
-            os.makedirs(d, mode=0o700, exist_ok=True)
-            fd, tmp = tempfile.mkstemp(dir=d)
-            with os.fdopen(fd, "w", encoding="utf-8") as f:
-                json.dump(layout, f)
-            os.replace(tmp, self.path)
-            return True
-        except OSError:
-            if tmp:
-                with contextlib.suppress(OSError):
-                    os.unlink(tmp)
-            return False
+        return bool(self.path) and write_atomic(self.path, json.dumps(layout))
