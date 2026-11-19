@@ -122,7 +122,7 @@ sudo dnf install ./orbitop-release-fedora.rpm
 sudo dnf install orbitop
 ```
 
-`rpm --import` adds the key you checked above. `rpm -K` must print `orbitop-release-fedora.rpm: digests signatures OK`. dnf itself does not check local packages and says that it skipped the OpenPGP checks for one package; `rpm -K` did that check. `orbitop-release` installs the source `/etc/yum.repos.d/orbitop.repo` and its key `/etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop`. On the first use of the source, dnf asks once whether to import this key for the signed package index: compare the fingerprint it shows, then answer `y`.
+`rpm --import` adds the key you checked above. `rpm -K` must print `orbitop-release-fedora.rpm: digests signatures OK`. dnf itself does not check local packages and says that it skipped the OpenPGP checks for one package; `rpm -K` did that check. `orbitop-release` installs the source `/etc/yum.repos.d/orbitop.repo` and its key `/etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop`. On the first use of the source, dnf asks once whether to import this key for the signed package index: compare the fingerprint it shows with the fingerprint above, then answer `y`.
 
 ### openSUSE
 

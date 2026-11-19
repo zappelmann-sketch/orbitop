@@ -2,8 +2,8 @@
 # Copyright © 2026 zappelmann-sketch
 # Step 1 of scripts/release.sh, before anything is built: the tree, the versions, the key, the README and GitHub.
 # Sourced by release.sh, which sets repo, version, dry, fpr (ORBITOP_KEY in upper case) and tmp. Provides APP,
-# GH_REPO, gpg, fingerprint, check_tree, check_key ($tmp/key.asc and $tmp/key.pgp), check_readme, check_github,
-# remote_state ($pages_rev) and run_tests.
+# GH_REPO, gpg, fingerprint, check_tree, check_key ($tmp/key.asc and $tmp/key.pgp), check_committed, check_readme,
+# check_github, remote_state ($pages_rev) and run_tests.
 # shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr and tmp come from release.sh
 
 APP=io.github.zappelmann_sketch.orbitop
@@ -52,9 +52,9 @@ check_tree() {
 
 # check_key: ORBITOP_KEY is the primary key of a secret key in GNUPGHOME and has not expired (a warning when less than
 # WARN_DAYS are left). Its public key, exported with export-minimal, goes to $tmp/key.asc for build-packages.sh and to
-# $tmp/key.pgp. A committed packaging/keys/orbitop-archive-keyring.asc must hold the same key.
+# $tmp/key.pgp. A committed packaging/keys/orbitop-archive-keyring.asc must be that export (check_committed).
 check_key() {
-    local primary expires now days committed=$repo/packaging/keys/orbitop-archive-keyring.asc
+    local primary expires now days
     [[ $fpr =~ ^[0-9A-F]{40}$ ]] || die "ORBITOP_KEY must be the fingerprint of the archive key (40 hex digits)"
     primary=$(gpg --with-colons --list-secret-keys -- "$fpr" 2> /dev/null |
         awk -F: '$1 == "fpr" { print $10; exit }') || true
@@ -71,8 +71,20 @@ check_key() {
     fi
     gpg --armor --export --export-options export-minimal -- "$fpr" > "$tmp/key.asc"
     gpg --export --export-options export-minimal -- "$fpr" > "$tmp/key.pgp"
-    [ ! -e "$committed" ] || [ "$(fingerprint "$committed" || true)" = "$fpr" ] ||
+    check_committed
+}
+
+# check_committed: a committed packaging/keys/orbitop-archive-keyring.asc is ORBITOP_KEY and, packet for packet, its
+# current export $tmp/key.pgp. A renewal (new expiry, another user ID) keeps the fingerprint but changes the key, and
+# the tests pin that file per packaging/keyring.version.
+check_committed() {
+    local committed=$repo/packaging/keys/orbitop-archive-keyring.asc
+    [ -e "$committed" ] || return 0
+    [ "$(fingerprint "$committed" || true)" = "$fpr" ] ||
         die "packaging/keys/orbitop-archive-keyring.asc is not the key ORBITOP_KEY=$fpr"
+    gpg --homedir "$tmp/gnupg" --dearmor < "$committed" | cmp -s - "$tmp/key.pgp" ||
+        die "packaging/keys/orbitop-archive-keyring.asc is not the current export of ORBITOP_KEY; export it again" \
+            "and raise packaging/keyring.version (docs/release.md, Renewal)"
 }
 
 # check_readme: every fingerprint in README.md and README.de.md, in one piece or grouped as gpg prints it, is

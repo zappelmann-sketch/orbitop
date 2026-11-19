@@ -7,10 +7,11 @@ import os
 import re
 import shutil
 import subprocess
+import time
 
 import pytest
 
-from tests.packaging_common import ROOT
+from tests.packaging_common import KEY_FILE, ROOT
 from tests.release_stub import VERSION, git, make_repo, run
 from tests.site_stub import gpg, kill_agent, make_keys, needs_git
 
@@ -149,6 +150,23 @@ def test_refuses_key_not_matching_committed_file(tmp_path, keys, repo):
     refused_before_building(r, calls, "packaging/keys/orbitop-archive-keyring.asc is not the key")
 
 
+@pytest.mark.parametrize("change", [["--quick-set-expire", "2y"],
+                                    ["--quick-add-uid", "Test Signing Two <test@example.com>"]], ids=["expiry", "uid"])
+def test_refuses_committed_key_after_renewal(tmp_path, change):
+    """Audit Task 9: neue Laufzeit oder weitere User-ID bei gleichem Fingerabdruck, die Datei nicht neu exportiert.
+    Der Schlüssel entsteht einen Tag zuvor, damit die neue Selbstsignatur jünger ist als die alte."""
+    day_ago = time.strftime("%Y%m%dT%H%M%S!", time.gmtime(time.time() - 86400))
+    key = one_key(tmp_path, "1y", "--faked-system-time", day_ago)
+    try:
+        repo = make_repo(tmp_path, key["fpr"], readme=key["fpr"])
+        commit_key(repo, gpg(key["home"], "--armor", "--export", "--export-options", "export-minimal", key["fpr"]))
+        gpg(key["home"], change[0], key["fpr"], change[1])
+        r, calls = run(tmp_path, repo, key, VERSION, "--dry-run")
+    finally:
+        kill_agent(key["home"])
+    refused_before_building(r, calls, "is not the current export of ORBITOP_KEY; export it again and raise")
+
+
 def test_agent_keeps_the_passphrase_for_the_whole_release(tmp_path, keys, repo):
     """Spec 4: eine Eingabe je Release. Der Agent von GNUPGHOME startet neu mit 2 Stunden und stoppt am Ende."""
     r, calls = run(tmp_path, repo, keys, VERSION, "--dry-run")
@@ -198,14 +216,21 @@ def test_build_gets_the_exported_public_key(tmp_path, keys, repo):
 
 
 def test_checks_accept_the_repository(tmp_path):
-    """Task 9: Die Prüfungen von release/checks.sh, die den geheimen Schlüssel nicht brauchen, nehmen die READMEs und
-    packaging/keys/orbitop-archive-keyring.asc dieses Repositorys für ein Release an (kein Trockenlauf)."""
+    """Task 9: check_readme und check_committed nehmen die READMEs und packaging/keys/orbitop-archive-keyring.asc
+    dieses Repositorys für ein Release an (kein Trockenlauf). Ohne den geheimen Schlüssel steht für den Export von
+    ORBITOP_KEY ($tmp/key.pgp) der Export der Datei aus einem eigenen Schlüsselbund, wie check_key ihn macht."""
     if not shutil.which("gpg"):
         pytest.skip("gpg fehlt")
     fpr = re.search(r"using EDDSA key ([0-9A-F]{40})", (ROOT / "README.md").read_text())[1]
     (tmp_path / "gnupg").mkdir(mode=0o700)
-    script = ('die() { echo "$*" >&2; exit 1; }; . scripts/release/checks.sh; check_readme; '
-              '[ "$(fingerprint packaging/keys/orbitop-archive-keyring.asc)" = "$fpr" ]')  # wie in check_key
+    (tmp_path / "import").mkdir(mode=0o700)
+    try:
+        gpg(tmp_path / "import", "--no-options", "--import", str(KEY_FILE))
+        (tmp_path / "key.pgp").write_bytes(gpg(tmp_path / "import", "--no-options", "--export", "--export-options",
+                                               "export-minimal", fpr))
+    finally:
+        kill_agent(tmp_path / "import")
+    script = 'die() { echo "$*" >&2; exit 1; }; . scripts/release/checks.sh; check_readme; check_committed'
     r = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=ROOT, capture_output=True, text=True,
                        env={**os.environ, "repo": str(ROOT), "fpr": fpr, "tmp": str(tmp_path), "dry": ""})
     assert r.returncode == 0 and not r.stderr, r.stderr
