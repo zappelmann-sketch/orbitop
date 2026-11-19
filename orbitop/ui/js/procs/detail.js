@@ -1,12 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
-// Reiter „Prozesse“: Detail des gewählten Prozesses und die Knöpfe zum Beenden.
-// Systemtexte kommen nur per textContent ins DOM, nie als HTML.
+// Reiter „Prozesse“: Detail des gewählten Prozesses (Werte, Verlauf, Befund) und der Zustand der Knöpfe zum
+// Beenden, die table.js baut. Systemtexte kommen nur per textContent ins DOM, nie als HTML.
 import { drawArea } from "../chart.js";
 import { fillInto, pairs, setText } from "../dom.js";
 import { fill, fmt, number, text } from "../format.js";
+import { AREA } from "../plot.js";
 import { state, ui } from "../state.js";
-import { AREA } from "../tiles.js";
 import { clock, duration, KIND, keyOf, same } from "./columns.js";
 
 const PROC_POINTS = 150, PROC_GRID = 15; // 2 s je Punkt: Detail 5 min, Linie alle 30 s

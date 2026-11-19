@@ -104,14 +104,6 @@ function updateSpark(v, p) {
   }
 }
 
-/** Tiefer Vergleich zweier Teile des Schnappschusses (JSON-Werte). */
-export function equal(a, b) {
-  if (a === b) return true;
-  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
-  const keys = Object.keys(a);
-  return keys.length === Object.keys(b).length && keys.every((k) => equal(a[k], b[k]));
-}
-
 export function compare(a, b) {
   return typeof a === "string" ? state.collator.compare(a, b) : a - b;
 }

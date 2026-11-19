@@ -5,5 +5,5 @@
 export { KIND, keyOf, makeBadge, RESULTS, same, setBadge } from "./columns.js";
 export { renderDetail } from "./detail.js";
 export { applyLayout, labelHead } from "./layout.js";
-export { equal, refresh, renderProcs } from "./rows.js";
+export { refresh, renderProcs } from "./rows.js";
 export { buildProcs } from "./table.js";

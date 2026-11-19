@@ -3,13 +3,12 @@
 // Kachelraster der Übersicht: je Kachel Kopf, Segmente, Verlauf, Threads, Legende, Werte und Geräte.
 // Inline-Stile verbietet die CSP; Farben setzt nur CSSOM.
 import { drawArea, drawSegments } from "./chart.js";
-import { el, pairs, setText, svg } from "./dom.js";
+import { el, pairs, setText } from "./dom.js";
 import { BYTES, byteStep, fill, fmt, shortName, show, text } from "./format.js";
+import { AREA, plot } from "./plot.js";
 import { state, tiles, ui } from "./state.js";
 
 const POINTS = 300, THREAD_POINTS = 60, GRID_SECONDS = 30, MAX_MINIS = 8; // Puffergrößen wie im Sampler, 1 s je Punkt
-export const AREA = { cpu: "#4fd8ff", gpu: "#c48bff", mem: "#3dffa8", power: "#ffd84f", temp: "#ff5f7a", fan: "#ff7ad9",
-                      net: "#5b8cff", disk: "#2ff0d0" };
 const SECOND = "#ffb347"; // Zweitlinie: Swap, Senden, Schreiben
 const GPU_SHADES = [AREA.gpu, "#a17bff", "#dfb5ff", "#8a62dc"]; // weitere Grafikchips
 const EXTRA = { mem: [SECOND], temp: [AREA.mem, AREA.gpu], fan: [SECOND, AREA.cpu], net: [SECOND], disk: [SECOND] };
@@ -20,16 +19,6 @@ function colorsOf(t) {
   const gpu = /^gpu(\d+)$/.exec(t.id);
   const first = t.kind === "gpu" ? GPU_SHADES[(gpu ? Number(gpu[1]) : 0) % GPU_SHADES.length] : AREA[t.kind] || AREA.cpu;
   return [first, ...(EXTRA[t.kind] || [])];
-}
-
-/** Diagrammfläche: Beschriftung, Gitter (SVG) und darüber die Canvas der Kurven (zurückgegeben). */
-export function plot(parent, cls, cap) {
-  const box = el("div", cls, parent);
-  el("span", "cap", box, cap);
-  const c = el("canvas", "", box);
-  c.grid = svg(box, "gridlines", null, [""]);
-  box.append(c);
-  return c;
 }
 
 /** Beschriftung folgt der ersten Kurve: Takt statt Auslastung, Einheit der Skala bei Raten. */

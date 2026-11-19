@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
-// Zeichnen der Verläufe (chart.js): Lücken, inkrementelles Zeichnen wie volles.
+// Zeichnen der Verläufe (chart.js, Diagrammfläche aus plot.js): Lücken, inkrementelles Zeichnen wie volles.
 import { drawArea, paint, runs } from "../../../orbitop/ui/js/chart.js";
-import { plot } from "../../../orbitop/ui/js/tiles.js";
+import { plot } from "../../../orbitop/ui/js/plot.js";
 import { eq } from "./kit.js";
 
 export function checkChart() {

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
 // Brücke von Python: window.orbitop.receive verteilt init, tick und die Antworten an die Module der Seite.
-import { applyLayout, equal, keyOf, labelHead, refresh, renderDetail, renderProcs } from "./procs/view.js";
+import { applyLayout, keyOf, labelHead, refresh, renderDetail, renderProcs } from "./procs/view.js";
 import { notify, renderAutostart } from "./dialogs.js";
 import { setText } from "./dom.js";
 import { fill, text } from "./format.js";
@@ -9,6 +9,14 @@ import { renderFooter } from "./footer.js";
 import { hdrInfo } from "./header.js";
 import { renderOverview } from "./page.js";
 import { state, ui } from "./state.js";
+
+/** Tiefer Vergleich zweier Teile des Schnappschusses (JSON-Werte). */
+function equal(a, b) {
+  if (a === b) return true;
+  if (!a || !b || typeof a !== "object" || typeof b !== "object") return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => equal(a[k], b[k]));
+}
 
 export function receive(msg) {
   if (!msg) return;

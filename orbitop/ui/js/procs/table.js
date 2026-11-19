@@ -4,7 +4,7 @@
 // die übrigen Module unter procs/.
 import { button, el, label, svg } from "../dom.js";
 import { state, ui } from "../state.js";
-import { plot } from "../tiles.js";
+import { plot } from "../plot.js";
 import { FILTERS, ICONS } from "./columns.js";
 import { colWidth, dragEnd, dragMove, startDrag } from "./drag.js";
 import { applyLayout, DEFAULT_SPLIT, saveLayout, setWidth, showSplit, sizeCols, splitTo } from "./layout.js";
@@ -15,6 +15,21 @@ import { pickRow, refresh, renderRows, rove, rowKey, rowPitch } from "./rows.js"
 export function buildProcs(ask) {
   ui.list = el("div", "frame list", ui.procs);
   const list = el("div", "in", ui.list);
+  buildBar(list);
+  buildTable(list);
+  buildSplit();
+  buildDetail(ask);
+  buildMenu();
+  ui.drop = el("div", "drop", ui.procs); // Einfügemarke beim Umordnen
+  ui.drop.hidden = true;
+  document.addEventListener("pointermove", dragMove);
+  document.addEventListener("pointerup", dragEnd);
+  document.addEventListener("pointercancel", dragEnd);
+  applyLayout(null);
+  pressFilters();
+}
+
+function buildBar(list) {
   const bar = el("div", "bar2", list);
   ui.search = label(label(el("input", "search", bar), "procs.search", "placeholder"), "procs.search", "aria-label");
   ui.search.type = "search";
@@ -28,12 +43,46 @@ export function buildProcs(ask) {
     pressFilters();
     refresh();
   }), "filter." + f));
+}
+
+function buildTable(list) {
   ui.scroll = el("div", "scroll", list);
   ui.table = label(el("table", "ptable", ui.scroll), "tab.procs", "aria-label");
   ui.colgroup = el("colgroup", "", ui.table);
   const thead = el("thead", "", ui.table);
   ui.headRow = el("tr", "", thead);
   ui.ths = [];
+  wireHead(thead);
+  ui.tbody = el("tbody", "", ui.table);
+  ui.pads = []; // Abstandszeilen anstelle der nicht gezeichneten Zeilen
+  ui.scroll.addEventListener("scroll", () => {
+    state.scrollTop = ui.scroll.scrollTop;
+    renderRows();
+  }, { passive: true });
+  // Nach dem Layout gemessen, erzwingt also kein Layout: Größe des Rollbereichs, Rollstand, Zeilenabstand (Schrift)
+  const sizes = new ResizeObserver(() => {
+    const viewH = ui.scroll.clientHeight, viewW = ui.scroll.clientWidth, top = ui.scroll.scrollTop, pitch = rowPitch();
+    if (!viewH) return;
+    if (viewW !== state.viewW) { // Prozess-Spalte füllt die Breite
+      state.viewW = viewW;
+      sizeCols();
+    }
+    if (viewH === state.viewH && top === state.scrollTop && !(pitch > 0 && pitch !== state.pitch)) return;
+    Object.assign(state, { viewH, scrollTop: top }, pitch > 0 ? { pitch } : {});
+    renderRows();
+  });
+  sizes.observe(ui.scroll);
+  sizes.observe(ui.table);
+  ui.tbody.addEventListener("click", (e) => pickRow(e.target.closest("tr")));
+  ui.tbody.addEventListener("keydown", rowKey);
+  ui.tbody.addEventListener("focusin", (e) => {
+    state.cursor = e.target.closest("tr").dataset.key;
+    rove();
+  });
+}
+
+/** Kopf: Spaltenmenü, Breite per Alt+Pfeil, Ziehen, Klick nach dem Umordnen, Doppelklick auf den Griff. */
+function wireHead(thead) {
   thead.addEventListener("contextmenu", (e) => {
     const th = e.target.closest("th");
     if (!th) return;
@@ -70,33 +119,9 @@ export function buildProcs(ask) {
     sizeCols();
     saveLayout();
   });
-  ui.tbody = el("tbody", "", ui.table);
-  ui.pads = []; // Abstandszeilen anstelle der nicht gezeichneten Zeilen
-  ui.scroll.addEventListener("scroll", () => {
-    state.scrollTop = ui.scroll.scrollTop;
-    renderRows();
-  }, { passive: true });
-  // Nach dem Layout gemessen, erzwingt also kein Layout: Größe des Rollbereichs, Rollstand, Zeilenabstand (Schrift)
-  const sizes = new ResizeObserver(() => {
-    const viewH = ui.scroll.clientHeight, viewW = ui.scroll.clientWidth, top = ui.scroll.scrollTop, pitch = rowPitch();
-    if (!viewH) return;
-    if (viewW !== state.viewW) { // Prozess-Spalte füllt die Breite
-      state.viewW = viewW;
-      sizeCols();
-    }
-    if (viewH === state.viewH && top === state.scrollTop && !(pitch > 0 && pitch !== state.pitch)) return;
-    Object.assign(state, { viewH, scrollTop: top }, pitch > 0 ? { pitch } : {});
-    renderRows();
-  });
-  sizes.observe(ui.scroll);
-  sizes.observe(ui.table);
-  ui.tbody.addEventListener("click", (e) => pickRow(e.target.closest("tr")));
-  ui.tbody.addEventListener("keydown", rowKey);
-  ui.tbody.addEventListener("focusin", (e) => {
-    state.cursor = e.target.closest("tr").dataset.key;
-    rove();
-  });
+}
 
+function buildSplit() {
   ui.split = label(el("div", "split", ui.procs), "procs.splitter", "aria-label");
   for (const [k, v] of [["role", "separator"], ["aria-orientation", "vertical"], ["aria-valuemin", "20"], ["aria-valuemax", "80"]]) {
     ui.split.setAttribute(k, v);
@@ -114,7 +139,9 @@ export function buildProcs(ask) {
     showSplit();
     saveLayout();
   });
+}
 
+function buildDetail(ask) {
   const det = el("div", "in", el("div", "frame detail", ui.procs));
   label(el("div", "t", det), "detail.selected");
   ui.none = label(el("p", "s", det), "detail.none_selected");
@@ -140,14 +167,6 @@ export function buildProcs(ask) {
   ui.noticeText = el("span", "", ui.notice);
   const x = label(button("x", ui.notice, () => { ui.notice.hidden = true; }), "btn.close", "aria-label");
   svg(x, "", "0 0 12 12", ICONS.bad);
-  buildMenu();
-  ui.drop = el("div", "drop", ui.procs); // Einfügemarke beim Umordnen
-  ui.drop.hidden = true;
-  document.addEventListener("pointermove", dragMove);
-  document.addEventListener("pointerup", dragEnd);
-  document.addEventListener("pointercancel", dragEnd);
-  applyLayout(null);
-  pressFilters();
 }
 
 function pressFilters() {
