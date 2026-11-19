@@ -153,7 +153,8 @@ ARCH_KEYS = (  # Fingerabdrücke der Hauptschlüssel mit genau dieser User-ID, g
     "sudo gpg --homedir /etc/pacman.d/gnupg --no-options --no-permission-warning --batch --with-colons --list-keys "
     "'=orbitop archive signing key' | awk -F: '$1 == \"pub\" { p = 1; next } p && $1 == \"fpr\" { print $10 } "
     "{ p = 0 }' | grep -xE '[0-9A-F]{40}' | xargs -r -n1 sudo pacman-key --delete")
-RPM_KEYS = "rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | xargs -r -n1 sudo rpmkeys --delete"
+RPM_KEYS = ("rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | "
+            "xargs -r -n1 sudo rpmkeys --delete")
 ARCH_CHECK = "pacman-key --list-keys '=orbitop archive signing key'"
 
 

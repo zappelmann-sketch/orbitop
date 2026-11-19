@@ -1,28 +1,32 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Gemeinsames der Tests von scripts/release.sh: ein Wegwerf-Repository mit den Release-Skripten und einem
-entfernten Repository (lokal, ohne Netz), Stellvertreter für die Bau-Skripte, git, gh, curl und docker."""
+entfernten Repository (lokal, ohne Netz), Stellvertreter für die Bau-Skripte, git, gh, curl, docker, gpg-agent und
+gpgconf."""
 import hashlib
 import os
 import shutil
 import subprocess
-from pathlib import Path
 
 from tests.packaging_common import APP, ROOT
 
 VERSION = next(ln.split('"')[1] for ln in (ROOT / "orbitop" / "__init__.py").read_text().splitlines()
                if ln.startswith("__version__"))
 KV = (ROOT / "packaging" / "keyring.version").read_text().strip()
-COPIED = [*(["scripts/release.sh"] if (ROOT / "scripts" / "release.sh").exists() else []), "scripts/container-common.sh", "packaging/changelog.py", "packaging/keyring.version",
+COPIED = ["scripts/release.sh", "scripts/container-common.sh", "packaging/changelog.py", "packaging/keyring.version",
           f"data/{APP}.metainfo.xml", "README.md", "README.de.md", "docs/distro-check.md", "orbitop/__init__.py",
           *(str(p.relative_to(ROOT)) for p in sorted((ROOT / "scripts" / "release").glob("*")) if p.is_file())]
-REAL_GIT = shutil.which("git")
+REAL = {tool: shutil.which(tool) for tool in ("git", "gpg-agent", "gpgconf")}
 GIT_ENV = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
+NOREPLY = "1+test@users.noreply.github.com"
+TOOLS = ("calls", "git", "gh", "curl", "docker", "gpg-agent", "gpgconf")
 # Die Bau-Skripte als Stellvertreter: Sie schreiben nur die Dateinamen, die release.sh liest.
 BUILD_PACKAGES = f"""#!/bin/sh
 printf '%s\\n' build-packages "$@" ---- >> "$LOG_DIR/calls.log"
-while [ $# -gt 0 ]; do case $1 in --out) out=$2 ;; --pubkey) cp "$2" "$LOG_DIR/pubkey.asc" ;; --suffix) s=$2 ;; esac
-    shift 2; done
+while [ $# -gt 0 ]; do
+    case $1 in --out) out=$2 ;; --pubkey) cp "$2" "$LOG_DIR/pubkey.asc" ;; --suffix) s=$2 ;; esac
+    shift 2
+done
 mkdir -p "$out/deb" "$out/rpm-fedora" "$out/rpm-opensuse" "$out/arch" "$out/lint"
 echo "rebuilt $out" > "$out/deb/orbitop_{VERSION}-1${{s:++$s}}_all.deb"
 echo "rebuilt $out" > "$out/deb/orbitop-apt-source_{KV}_all.deb"
@@ -60,15 +64,19 @@ printf '%s\\n' check-distros "$@" ---- >> "$LOG_DIR/calls.log"
 cat "$LOG_DIR/matrix.txt"
 exit "${MATRIX_RC:-0}"
 """
-GIT = """#!/bin/sh
-printf '%s\\n' "$@" ---- >> "$LOG_DIR/git.log"
-exec "$REAL_GIT" "$@"
+LOGGED = """#!/bin/sh
+printf '%s\\n' "$@" ---- >> "$LOG_DIR/{tool}.log"
+exec {real} "$@"
 """
-# gh: release create nur mit dem Tag im entfernten Repository (--verify-tag), die Anhänge nach LOG_DIR/assets;
-# GitHub Pages ist an, sobald LOG_DIR/pages-on da ist.
+# gh: angemeldet (GH_AUTH_RC), Admin (GH_ADMIN); release create nur mit dem Tag im entfernten Repository
+# (--verify-tag), die Anhänge nach LOG_DIR/assets; GitHub Pages ist an, sobald LOG_DIR/pages-on da ist. order.log
+# hält die Reihenfolge von gh und curl fest.
 GH = """#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/gh.log"
+echo "gh $1 $2" >> "$LOG_DIR/order.log"
 case "$1 $2" in
+    "auth status") exit "${GH_AUTH_RC:-0}" ;;
+    "api repos/zappelmann-sketch/orbitop") echo "${GH_ADMIN:-true}" ;;
     "release create")
         "$REAL_GIT" --git-dir "$REMOTE" rev-parse -q --verify "refs/tags/$3" > /dev/null || exit 1
         mkdir -p "$LOG_DIR/assets"
@@ -78,17 +86,38 @@ case "$1 $2" in
         [ -f "$LOG_DIR/pages-on" ] && echo "gh-pages /" && exit 0
         echo "gh: Not Found (HTTP 404)" >&2 && exit 1 ;;
 esac
+exit 0
 """
 # curl: GitHub Pages liefert den Zweig gh-pages des entfernten Repositorys aus.
 CURL = """#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/curl.log"
+echo curl >> "$LOG_DIR/order.log"
 while [ $# -gt 1 ]; do [ "$1" = -o ] && out=$2 && shift; shift; done
 "$REAL_GIT" --git-dir "$REMOTE" cat-file blob "gh-pages:${1#https://zappelmann-sketch.github.io/orbitop/}" > "$out"
 """
-# docker: rpm -K für ein veröffentlichtes RPM auf stdin; "TAMPERED" darin hat keine gültige Signatur.
+# docker: führt das Skript des Containers (bash -c, letztes Argument) hier aus, mit dem Schlüssel aus -e KEY=… und
+# Stellvertretern für rpmkeys und rpm in RPM_BIN; die rpm-Datenbank hat schon den Schlüssel des Image ("distro").
 DOCKER = """#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/docker.log"
-if grep -q TAMPERED; then echo "/tmp/p.rpm: digests SIGNATURES NOT OK"; else echo "/tmp/p.rpm: digests signatures OK"; fi
+for a; do case $a in KEY=*) KEY=${a#KEY=} ;; esac; done
+export TMPDIR=$LOG_DIR/container  # the container's own /tmp, not the TMPDIR of release.sh
+mkdir -p "$TMPDIR" && RPMDB=$(mktemp -d) && echo "distro-key: Distro <distro@example.com> public key" > "$RPMDB/keys"
+export KEY RPMDB PATH="$RPM_BIN:$PATH"
+shift $(($# - 1))
+exec bash -c "$1"
+"""
+RPMKEYS = """#!/bin/sh
+case $1 in
+    --list) cat "$RPMDB/keys" ;;
+    --delete) grep -v "^$2[: ]" "$RPMDB/keys" > "$RPMDB/new"; mv "$RPMDB/new" "$RPMDB/keys" ;;
+    --import) grep -q "BEGIN PGP PUBLIC KEY" "$2" && echo "orbitop-key: orbitop archive signing key" >> "$RPMDB/keys" ;;
+esac
+"""
+# rpm -K: gültig, wenn das RPM "signed-by:NAME" trägt und NAME-key in der rpm-Datenbank liegt.
+RPM = """#!/bin/sh
+signer=$(sed -n 's/^signed-by://p' "$2")
+if [ -n "$signer" ] && grep -q "^$signer-key:" "$RPMDB/keys"; then echo "$2: digests signatures OK"
+else echo "$2: digests SIGNATURES NOT OK" && exit 1; fi
 """
 
 
@@ -97,7 +126,7 @@ def sha256(data):
 
 
 def git(cwd, *args):
-    return subprocess.run([REAL_GIT, *args], cwd=cwd, check=True, capture_output=True, text=True,
+    return subprocess.run([REAL["git"], *args], cwd=cwd, check=True, capture_output=True, text=True,
                           env={**os.environ, **GIT_ENV}).stdout
 
 
@@ -121,11 +150,16 @@ RESULT debian:bookworm {digest.replace("1", "2")} pass install
 """
 
 
-def make_repo(tmp_path, fpr, readme=None):
+def stub(directory, name, text):
+    (directory / name).write_text(text)
+    (directory / name).chmod(0o755)
+
+
+def make_repo(tmp_path, fpr, readme=None, email=NOREPLY):
     """Wegwerf-Repository auf main mit den Release-Skripten und Stellvertretern für die Bau-Skripte, origin ein
-    lokales bare-Repository; die Matrix meldet den Schlüssel FPR, die READMEs nennen README statt <FINGERPRINT>.
-    Gibt die Pfade zurück."""
-    repo, remote, bin_ = tmp_path / "repo", tmp_path / "remote.git", tmp_path / "bin"
+    lokales bare-Repository, Identität EMAIL; die Matrix meldet den Schlüssel FPR, die READMEs nennen README statt
+    <FINGERPRINT>. Gibt die Pfade zurück."""
+    repo, remote, bin_, rpm_bin = (tmp_path / n for n in ("repo", "remote.git", "bin", "rpm-bin"))
     for name in COPIED:
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(ROOT / name, repo / name)
@@ -140,30 +174,37 @@ def make_repo(tmp_path, fpr, readme=None):
     (repo / ".gitignore").write_text("__pycache__/\n.pytest_cache/\n")
     git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
     git(repo.parent, "init", "-q", "-b", "main", str(repo))
-    for key, value in (("user.name", "Test"), ("user.email", "test@example.com"), ("remote.origin.url", str(remote)),
+    for key, value in (("user.name", "Test"), ("user.email", email), ("remote.origin.url", str(remote)),
                        ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")):
         git(repo, "config", key, value)
     git(repo, "add", ".")
     git(repo, "commit", "-q", "-m", "init")
     git(repo, "push", "-q", "origin", "main")
     bin_.mkdir()
-    for name, text in {"git": GIT, "gh": GH, "curl": CURL, "docker": DOCKER}.items():
-        (bin_ / name).write_text(text)
-        (bin_ / name).chmod(0o755)
+    rpm_bin.mkdir()
+    for name, text in {"gh": GH, "curl": CURL, "docker": DOCKER,
+                       **{t: LOGGED.format(tool=t, real=REAL[t]) for t in ("git", "gpg-agent", "gpgconf")}}.items():
+        stub(bin_, name, text)
+    stub(rpm_bin, "rpmkeys", RPMKEYS)
+    stub(rpm_bin, "rpm", RPM)
     (tmp_path / "matrix.txt").write_text(matrix_output(fpr))
     (tmp_path / "tmp").mkdir()
-    return {"repo": repo, "remote": remote, "bin": bin_}
+    return {"repo": repo, "remote": remote, "bin": bin_, "rpm_bin": rpm_bin}
 
 
-def publish_pages(tmp_path, paths, files):
-    """Ein früheres Release: der Zweig gh-pages im entfernten Repository mit FILES (Pfad -> Bytes)."""
+def publish_pages(tmp_path, paths, files, links=()):
+    """Ein früheres Release: der Zweig gh-pages im entfernten Repository mit FILES (Pfad -> Bytes) und LINKS (Pfad ->
+    Ziel eines Symlinks)."""
     work = tmp_path / "old-pages"
-    for name, data in files.items():
+    for name, data in [*files.items(), *dict(links).items()]:
         (work / name).parent.mkdir(parents=True, exist_ok=True)
-        (work / name).write_bytes(data)
+        if isinstance(data, bytes):
+            (work / name).write_bytes(data)
+        else:
+            (work / name).symlink_to(data)
     git(tmp_path, "init", "-q", "-b", "gh-pages", str(work))
     git(work, "add", ".")
-    git(work, "-c", "user.name=Test", "-c", "user.email=test@example.com", "commit", "-q", "-m", "old")
+    git(work, "-c", "user.name=Test", "-c", f"user.email={NOREPLY}", "commit", "-q", "-m", "old")
     git(work, "push", "-q", str(paths["remote"]), "gh-pages")
 
 
@@ -171,12 +212,12 @@ def run(tmp_path, paths, key, *args, env=()):
     """release.sh mit den Stellvertretern; gibt das Ergebnis und die Aufrufe je Werkzeug zurück (je Aufruf seine
     Argumente)."""
     env = {**os.environ, **GIT_ENV, "PATH": f"{paths['bin']}:{os.environ['PATH']}", "LOG_DIR": str(tmp_path),
-           "REAL_GIT": REAL_GIT, "REMOTE": str(paths["remote"]), "GNUPGHOME": str(key["home"]),
-           "ORBITOP_KEY": key["fpr"], "TMPDIR": str(tmp_path / "tmp"), **dict(env)}
-    r = subprocess.run(["bash", str(paths["repo"] / "scripts" / "release.sh"), *args], capture_output=True, text=True,
-                       cwd=tmp_path, env=env, timeout=180)
+           "REAL_GIT": REAL["git"], "REMOTE": str(paths["remote"]), "RPM_BIN": str(paths["rpm_bin"]),
+           "GNUPGHOME": str(key["home"]), "ORBITOP_KEY": key["fpr"], "TMPDIR": str(tmp_path / "tmp"), **dict(env)}
+    r = subprocess.run(["bash", str(paths["repo"] / "scripts" / "release.sh"), *args], capture_output=True,
+                       text=True, cwd=tmp_path, env=env, timeout=180)
     calls = {}
-    for tool in ("calls", "git", "gh", "curl", "docker"):
+    for tool in TOOLS:
         log = tmp_path / f"{tool}.log"
         calls[tool], cur = [], []
         for line in log.read_text().splitlines() if log.exists() else []:
@@ -184,4 +225,6 @@ def run(tmp_path, paths, key, *args, env=()):
                 calls[tool], cur = [*calls[tool], cur], []
             else:
                 cur.append(line)
+    order = tmp_path / "order.log"
+    calls["order"] = order.read_text().splitlines() if order.exists() else []
     return r, calls

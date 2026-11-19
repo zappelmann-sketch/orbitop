@@ -29,8 +29,12 @@ release=(/out/orbitop-release-*.noarch.rpm)  # exactly one, build-site.sh checke
 rpm2cpio "${release[0]}" | cpio -i --quiet --to-stdout ./etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop | gpg --dearmor |
     cmp -s - "$key" || die "the key in ${release[0]#/out/} is not the public key of ORBITOP_KEY"
 
-# The check a client does: the signature verifies with the public key alone.
+# The check a client does: the signature verifies with the public key alone. So the image's own keys leave the rpm
+# database first (a loop of bash: Tumbleweed has no xargs), and rpm -K accepts no other key.
 gpg --batch --armor --export "$fpr" > /tmp/key.asc
+keys=$(rpmkeys --list)
+while read -r k _; do [ -z "$k" ] || rpmkeys --delete "${k%:}"; done <<< "$keys"
+[ -z "$(rpmkeys --list)" ] || die "the rpm database of the tool image still holds a key"
 rpmkeys --import /tmp/key.asc
 # An RPM that verifies already keeps its bytes: orbitop-release of an earlier release, which scripts/release.sh
 # reuses after rpm -K. Every other one gets signed here.

@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """scripts/release.sh, Schritte 2, 3 und 6 bis 8 mit Stellvertretern (tests/release_stub.py): gh-pages als eigener
-Worktree, GitHub Pages beim ersten Release, das Warten auf Pages, die Wiederverwendung veröffentlichter Quellpakete,
-die Matrix und docs/distro-check.md."""
+Worktree, GitHub Pages beim ersten Release, das Warten auf Pages, die Wiederverwendung veröffentlichter Quellpakete
+und der by-hash-Dateien des vorigen Index, die Matrix. docs/distro-check.md: tests/test_distro_check_doc.py."""
 import subprocess
 
 import pytest
@@ -17,6 +17,7 @@ RPMS = [f"rpm/{f}/orbitop-release-{KV}-1.noarch.rpm" for f in ("fedora", "opensu
 SERVED = ["apt/dists/stable/InRelease", "rpm/fedora/repodata/repomd.xml", "rpm/fedora/repodata/repomd.xml.asc",
           "rpm/opensuse/repodata/repomd.xml", "rpm/opensuse/repodata/repomd.xml.asc", "arch/x86_64/orbitop.db",
           "arch/x86_64/orbitop.db.sig"]
+SIGNED = b"signed-by:orbitop\n"  # der rpm-Stellvertreter: eine gültige Signatur von ORBITOP_KEY
 
 
 @pytest.fixture(scope="module")
@@ -38,11 +39,13 @@ def clearsign(keys, text, signer=0):
                           check=True).stdout
 
 
-def published(keys, deb=b"published deb\n", listed=None, rpm=b"published rpm\n", signer=0):
+def published(keys, deb=b"published deb\n", listed=None, rpm=SIGNED, signer=0, gz=b""):
     """Der Baum eines früheren Releases: Quellpakete dieser keyring.version, ein von KEYS signierter apt-Index, der
-    das deb (oder LISTED) nennt, by-hash dieses Index und eines Releases davor."""
+    das deb (oder LISTED) nennt, sein by-hash und ein by-hash eines Releases davor. GZ: Release nennt dazu
+    Packages.gz mit diesem Inhalt (die Datei selbst legt der Test an)."""
     packages = f"Package: orbitop-apt-source\nVersion: {KV}\nFilename: {DEB[4:]}\nSHA256: {listed or sha256(deb)}\n"
     release = f"Origin: orbitop\nSHA256:\n {sha256(packages.encode())} {len(packages)} main/binary-all/Packages\n"
+    release += f" {sha256(gz)} {len(gz)} main/binary-all/Packages.gz\n" if gz else ""
     return {DEB: deb, **{p: rpm for p in RPMS}, f"{BIN}/Packages": packages.encode(),
             f"{BIN}/by-hash/SHA256/{sha256(packages.encode())}": packages.encode(),
             f"{BIN}/by-hash/SHA256/{'f' * 64}": b"index of the release before\n",
@@ -67,7 +70,7 @@ def test_first_release_makes_orphan_pages_and_enables_them(tmp_path, keys, repo)
     assert not tree(remote) & tree(remote, "main")
     assert {".nojekyll", "orbitop-archive-keyring.asc", f"apt/pool/main/o/orbitop/orbitop_{VERSION}-1_all.deb",
             DEB, *RPMS, *SERVED} <= tree(remote)
-    api = [c for c in calls["gh"] if c[0] == "api"]
+    api = [c for c in calls["gh"] if c[0] == "api" and c[1] != "repos/zappelmann-sketch/orbitop"]
     assert api == [["api", "repos/zappelmann-sketch/orbitop/pages", "--jq", '.source.branch + " " + .source.path'],
                    ["api", "-X", "POST", "repos/zappelmann-sketch/orbitop/pages", "-f", "source[branch]=gh-pages",
                     "-f", "source[path]=/"]]
@@ -79,21 +82,23 @@ def test_first_release_makes_orphan_pages_and_enables_them(tmp_path, keys, repo)
 
 def test_second_release_reuses_published_packages_and_keeps_by_hash(tmp_path, keys, repo):
     old = published(keys)
-    publish_pages(tmp_path, repo, old)
+    other = b"a file with the right name but listed nowhere\n"
+    publish_pages(tmp_path, repo, {**old, f"{BIN}/by-hash/SHA256/{sha256(other)}": other})
     before = git(repo["remote"], "rev-parse", "gh-pages").strip()
     (tmp_path / "pages-on").touch()  # GitHub Pages ist schon an
     r, calls = run(tmp_path, repo, keys, VERSION)
     assert r.returncode == 0, r.stderr
     assets = tmp_path / "assets"
     assert (assets / "orbitop-apt-source.deb").read_bytes() == old[DEB]
-    assert (assets / "orbitop-release-fedora.rpm").read_bytes() == (assets / "orbitop-release-opensuse.rpm").read_bytes() \
-        == old[RPMS[0]]
-    assert blob(repo["remote"], DEB) == old[DEB] and blob(repo["remote"], RPMS[1]) == old[RPMS[1]]
+    assert (assets / "orbitop-release-fedora.rpm").read_bytes() == old[RPMS[0]]
+    assert (assets / "orbitop-release-opensuse.rpm").read_bytes() == old[RPMS[1]]
     remote = repo["remote"]
+    assert blob(remote, DEB) == old[DEB] and blob(remote, RPMS[1]) == old[RPMS[1]]
     assert git(remote, "rev-parse", "gh-pages^").strip() == before  # ein Commit auf dem veröffentlichten Stand
     names = tree(remote)
     kept = f"{BIN}/by-hash/SHA256/{sha256(old[f'{BIN}/Packages'])}"
-    assert kept in names and f"{BIN}/by-hash/SHA256/{'f' * 64}" not in names  # nur der vorige Index bleibt
+    assert kept in names and blob(remote, kept) == old[f"{BIN}/Packages"]  # nur der vorige Index bleibt
+    assert f"{BIN}/by-hash/SHA256/{'f' * 64}" not in names and f"{BIN}/by-hash/SHA256/{sha256(other)}" not in names
     assert blob(remote, f"{BIN}/Packages") != old[f"{BIN}/Packages"]  # sonst der neue Baum
     assert "rpm/fedora/orbitop-0.1.0-1.noarch.rpm" not in names
     assert not [c for c in calls["gh"] if "POST" in c]
@@ -101,12 +106,35 @@ def test_second_release_reuses_published_packages_and_keeps_by_hash(tmp_path, ke
     assert len(runs) == 2 and all(c[:4] == ["run", "--rm", "-i", "--network"] and c[4] == "none" for c in runs)
 
 
+def test_planted_by_hash_files_never_reach_the_new_source(tmp_path, keys, repo):
+    """Audit F1: ein Symlink an einem gelisteten by-hash-Pfad (auf eine Datei des Rechners) und eine gelistete Datei
+    mit falschem Inhalt kommen nicht mit; der Rechner liest sie nie aus einem Checkout."""
+    secret = tmp_path / "secret.txt"
+    secret.write_bytes(b"SECRET OF THE HOST\n")
+    gz = b"the real Packages.gz\n"
+    old = published(keys, gz=gz)
+    listed = f"{BIN}/by-hash/SHA256/{sha256(old[f'{BIN}/Packages'])}"
+    old.pop(listed)
+    publish_pages(tmp_path, repo, {**old, f"{BIN}/by-hash/SHA256/{sha256(gz)}": b"other bytes\n"},
+                  links={listed: str(secret)})
+    (tmp_path / "pages-on").touch()
+    r, _ = run(tmp_path, repo, keys, VERSION)
+    assert r.returncode == 0, r.stderr
+    names = tree(repo["remote"])
+    assert listed not in names and f"{BIN}/by-hash/SHA256/{sha256(gz)}" not in names
+    found = subprocess.run(["git", "--git-dir", str(repo["remote"]), "grep", "-l", "SECRET OF THE HOST", "gh-pages"],
+                           capture_output=True, text=True)
+    assert found.returncode == 1 and not found.stdout  # in keiner Datei der neuen Quelle
+
+
 @pytest.mark.parametrize("case,text", [("unlisted", "not in the signed apt index"),
                                        ("foreign-index", "not in the signed apt index"),
-                                       ("tampered-rpm", "no valid signature of ORBITOP_KEY")])
+                                       ("tampered-rpm", "no valid signature of ORBITOP_KEY"),
+                                       ("distro-signed-rpm", "no valid signature of ORBITOP_KEY")])
 def test_refuses_published_package_it_cannot_vouch_for(tmp_path, keys, repo, case, text):
-    publish_pages(tmp_path, repo, published(keys, listed="0" * 64 if case == "unlisted" else None,
-                                            rpm=b"TAMPERED\n" if case == "tampered-rpm" else b"rpm\n",
+    """Audit F2 (distro-signed-rpm): das Image kennt seinen eigenen Schlüssel; rpm -K darf nur ORBITOP_KEY gelten."""
+    rpm = {"tampered-rpm": b"TAMPERED\n", "distro-signed-rpm": b"signed-by:distro\n"}.get(case, SIGNED)
+    publish_pages(tmp_path, repo, published(keys, listed="0" * 64 if case == "unlisted" else None, rpm=rpm,
                                             signer=1 if case == "foreign-index" else 0))
     r, calls = run(tmp_path, repo, keys, VERSION, "--dry-run")
     assert r.returncode == 1 and text in r.stderr, r.stderr
@@ -120,29 +148,12 @@ def test_matrix_must_pass_with_the_key(tmp_path, keys, repo, case, text):
     r, calls = run(tmp_path, repo, keys, VERSION, env={"MATRIX_RC": "1" if case == "fail" else "0"})
     assert r.returncode == 1 and text in r.stderr, r.stderr
     assert git(repo["repo"], "tag") == "" and git(repo["repo"], "rev-list", "--count", "HEAD").strip() == "1"
-    assert not calls["gh"] and not [c for c in calls["git"] if "push" in c]
+    assert not [c for c in calls["gh"] if c[0] == "release"] and not [c for c in calls["git"] if "push" in c]
 
 
 @pytest.mark.parametrize("fail", ["packages", "site"])
 def test_failed_build_leaves_nothing_behind(tmp_path, keys, repo, fail):
     r, calls = run(tmp_path, repo, keys, VERSION, env={"FAIL": fail})
-    assert r.returncode == 1 and not calls["gh"]
+    assert r.returncode == 1 and not [c for c in calls["gh"] if c[0] == "release"]
     assert not list((tmp_path / "tmp").iterdir())  # kein halber Baum, den ein späterer Lauf fände
     assert git(repo["repo"], "status", "--porcelain") == ""
-
-
-def test_distro_check_gets_the_results(tmp_path, keys, repo):
-    r, _ = run(tmp_path, repo, keys, VERSION, "--dry-run")
-    assert r.returncode == 0, r.stderr
-    doc = (repo["repo"] / "docs" / "distro-check.md").read_text()
-    block = doc[doc.index("<!-- matrix:start"):doc.index("<!-- matrix:end -->")]
-    assert f"`scripts/release.sh {VERSION} --dry-run`" in block and f"`KEY {keys['fpr']}`" in block
-    assert "throwaway key" in block
-    assert (f"| Debian 13 | `debian:trixie` | `debian@sha256:{'1' * 64}` | `orbitop {VERSION}-1` → "
-            f"`{VERSION}-1+check1`: Python 3.13.5, PyGObject 3.50.0, GTK 4.18.6, WebKitGTK 2.54.0 | "
-            "1000 passed, 50 skipped | pass |") in block
-    assert (f"| Debian 12 | `debian:bookworm` | `debian@sha256:{'2' * 64}` | `orbitop {VERSION}-1` refused | – | "
-            'pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.11.2-1+b1 is to '
-            'be installed" |') in block
-    rest = doc.replace(block, "")
-    assert "| Distribution |" not in rest  # nur die Tabelle im geschriebenen Teil

@@ -1,12 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Step 1 of scripts/release.sh, before anything is built: the tree, the versions, the key and the README.
-# Sourced by release.sh, which sets repo, version, dry, fpr (ORBITOP_KEY in upper case) and tmp. Provides gpg,
-# fingerprint, check_tree, check_key ($tmp/key.asc and $tmp/key.pgp), check_readme, remote_state ($pages_rev) and
-# run_tests.
+# Step 1 of scripts/release.sh, before anything is built: the tree, the versions, the key, the README and GitHub.
+# Sourced by release.sh, which sets repo, version, dry, fpr (ORBITOP_KEY in upper case) and tmp. Provides APP,
+# GH_REPO, gpg, fingerprint, check_tree, check_key ($tmp/key.asc and $tmp/key.pgp), check_readme, check_github,
+# remote_state ($pages_rev) and run_tests.
 # shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr and tmp come from release.sh
 
 APP=io.github.zappelmann_sketch.orbitop
+GH_REPO=zappelmann-sketch/orbitop
 WARN_DAYS=180  # spec 4: the key's remaining time
 
 gpg() { command gpg --no-options --batch "$@"; }  # never a gpg.conf: its options would reach the release
@@ -19,9 +20,15 @@ fingerprint() {
 }
 
 # check_tree: a clean main at VERSION, without the tag; the Debian and the RPM changelog of this version come from the
-# one source, the <release> entries of the metainfo (packaging/changelog.py).
+# one source, the <release> entries of the metainfo (packaging/changelog.py). The commits and the tag of the release
+# carry only the noreply address of the GitHub account.
 check_tree() {
-    local branch status have kind
+    local branch status have kind ident who
+    for ident in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do
+        who=$(git -C "$repo" var "$ident") || die "git var $ident failed"
+        [[ $who == *"@users.noreply.github.com> "* ]] ||
+            die "$ident must be the noreply address of the GitHub account (git config user.email)"
+    done
     branch=$(git -C "$repo" symbolic-ref --short -q HEAD) || true
     [ "$branch" = main ] || die "release only from the branch main, not ${branch:-a detached HEAD}"
     status=$(git -C "$repo" status --porcelain) || die "git status failed"
@@ -41,8 +48,8 @@ check_tree() {
 check_key() {
     local primary expires now days committed=$repo/packaging/keys/orbitop-archive-keyring.asc
     [[ $fpr =~ ^[0-9A-F]{40}$ ]] || die "ORBITOP_KEY must be the fingerprint of the archive key (40 hex digits)"
-    primary=$(gpg --with-colons --list-secret-keys -- "$fpr" 2> /dev/null | awk -F: '$1 == "fpr" { print $10; exit }') ||
-        true
+    primary=$(gpg --with-colons --list-secret-keys -- "$fpr" 2> /dev/null |
+        awk -F: '$1 == "fpr" { print $10; exit }') || true
     [ "$primary" = "$fpr" ] || die "GNUPGHOME has no secret key with the fingerprint ORBITOP_KEY=$fpr"
     expires=$(gpg --with-colons --list-keys -- "$fpr" | awk -F: '$1 == "pub" { print $7; exit }')
     now=$(date +%s)
@@ -61,15 +68,27 @@ check_key() {
 }
 
 # check_readme: every fingerprint in README.md and README.de.md, in one piece or grouped as gpg prints it, is
-# ORBITOP_KEY. The placeholder <FINGERPRINT> (until Task 9) stops a release; a dry run only warns.
+# ORBITOP_KEY. A README without the fingerprint, or with the placeholder <FINGERPRINT> (until Task 9), stops a
+# release; a dry run only warns.
 check_readme() {
-    local readmes=("$repo/README.md" "$repo/README.de.md") found
+    local readmes=("$repo/README.md" "$repo/README.de.md") found problem=""
     found=$(grep -ohE '\b[0-9A-F]{4}( {0,2}[0-9A-F]{4}){9}\b' -- "${readmes[@]}" | tr -d ' ' | sort -u) || true
     [ -z "$found" ] || [ "$found" = "$fpr" ] ||
         die "the README names the fingerprint ${found//$'\n'/ and }, not ORBITOP_KEY=$fpr"
-    grep -qF '<FINGERPRINT>' -- "${readmes[@]}" || return 0
-    [ -n "$dry" ] || die "the README still has the placeholder <FINGERPRINT> instead of the archive key's fingerprint"
-    echo "warning: the README still has the placeholder <FINGERPRINT>; a release refuses that" >&2
+    [ -n "$found" ] || problem="names no fingerprint of the archive key"
+    ! grep -qF '<FINGERPRINT>' -- "${readmes[@]}" || problem="still has the placeholder <FINGERPRINT>"
+    [ -n "$problem" ] || return 0
+    [ -n "$dry" ] || die "the README $problem"
+    echo "warning: the README $problem; a release refuses that" >&2
+}
+
+# check_github (a release only): gh is logged in and may change the repository (admin: the release, GitHub Pages),
+# before anything is built. A dry run never calls gh.
+check_github() {
+    local admin
+    gh auth status > /dev/null 2>&1 || die "gh is not logged in (gh auth login)"
+    admin=$(gh api "repos/$GH_REPO" --jq .permissions.admin 2> /dev/null) || die "gh api repos/$GH_REPO failed"
+    [ "$admin" = true ] || die "the login of gh has no admin rights on $GH_REPO (release, GitHub Pages)"
 }
 
 # remote_state: the tag is not on origin either. pages_rev is the published gh-pages, fetched as

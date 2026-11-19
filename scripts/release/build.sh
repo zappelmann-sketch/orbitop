@@ -1,42 +1,55 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Steps 2, 3 and the files of step 5 of scripts/release.sh: the small source packages the published source already
+# Steps 2 and 3 of scripts/release.sh and the release files: the small source packages the published source already
 # has, the packages and the signed source, the container matrix with docs/distro-check.md, the release assets.
-# Sourced by release.sh after checks.sh (gpg, $tmp/key.asc, $tmp/key.pgp, $pages_rev). Provides published, build,
-# matrix and make_assets ($assets).
+# Sourced by release.sh after checks.sh (gpg, $tmp/key.asc, $tmp/key.pgp, $pages_rev). Provides blob, signed_release,
+# published, build, matrix and make_assets ($assets).
 # shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr, tmp, keyring_version, pages_rev and the images
 
 # The paths of the source, as scripts/build-site.sh lays it out.
 POOL=apt/pool/main/o
 APT_INDEX=apt/dists/stable/main/binary-all/Packages
+# The script of signed's container: the image's own keys leave the rpm database, so that rpm -K accepts ORBITOP_KEY
+# (KEY) alone; then rpm -K of the RPM on stdin. A loop of bash: Tumbleweed has no xargs.
+# shellcheck disable=SC2016  # the container expands it
+RPM_K='set -e; cd "$(mktemp -d)"; printf "%s\n" "$KEY" > key.asc; cat > p.rpm
+keys=$(rpmkeys --list); while read -r k _; do [ -z "$k" ] || rpmkeys --delete "${k%:}"; done <<< "$keys"
+[ -z "$(rpmkeys --list)" ]; rpmkeys --import key.asc; rpm -K p.rpm'
 
-# blob PATH FILE: PATH of the published gh-pages into FILE; fails if there is none.
+# blob PATH FILE: PATH of the published gh-pages into FILE, read from git objects, never from a checkout; fails if
+# there is none.
 blob() {
     git -C "$repo" cat-file -e "$pages_rev:$1" 2> /dev/null || return 1
     mkdir -p -- "${2%/*}" && git -C "$repo" cat-file blob "$pages_rev:$1" > "$2"
 }
 
-# indexed FILE: the published apt index lists a package with the sha256 of FILE, and InRelease signs that index with
-# ORBITOP_KEY.
+# signed_release: $tmp/published/Release is the Release of the published gh-pages, if its InRelease verifies with
+# ORBITOP_KEY alone; fails otherwise.
+signed_release() {
+    local d=$tmp/published
+    [ ! -f "$d/Release" ] || return 0
+    mkdir -p "$d" && blob apt/dists/stable/InRelease "$d/InRelease" &&
+        gpgv --keyring "$tmp/key.pgp" --output "$d/Release.new" "$d/InRelease" 2> /dev/null &&
+        mv -- "$d/Release.new" "$d/Release"
+}
+
+# indexed FILE: the published apt index, which the verified InRelease lists, names a package with the sha256 of FILE.
 indexed() {
     local d=$tmp/published hash
-    mkdir -p "$d"
-    blob apt/dists/stable/InRelease "$d/InRelease" && blob "$APT_INDEX" "$d/Packages" &&
-        gpgv --keyring "$tmp/key.pgp" --output "$d/Release" "$d/InRelease" 2> /dev/null || return 1
+    signed_release && blob "$APT_INDEX" "$d/Packages" || return 1
     hash=$(sha256sum < "$d/Packages") && grep -qE "^ ${hash%% *} +[0-9]+ main/binary-all/Packages$" "$d/Release" &&
         hash=$(sha256sum < "$1") && grep -qxF "SHA256: ${hash%% *}" "$d/Packages"
 }
 
-# signed FAMILY FILE: rpm -K in a disposable container of FAMILY's image, which knows only the public key of
+# signed FAMILY FILE: rpm -K in a disposable container of FAMILY's image (RPM_K), which knows only the public key of
 # ORBITOP_KEY, reports a valid signature for FILE. The container gets the key and FILE on stdin, nothing mounted,
 # no network.
 signed() {
     local image=$FEDORA_IMAGE checked
     [ "$1" = fedora ] || image=$SUSE_IMAGE
     checked=$(docker run --rm -i --network none --cap-drop MKNOD --cap-drop SETFCAP -e KEY="$(cat "$tmp/key.asc")" \
-        "$image" bash -c 'printf "%s\n" "$KEY" > /tmp/key.asc && cat > /tmp/p.rpm && rpmkeys --import /tmp/key.asc &&
-            rpm -K /tmp/p.rpm' < "$2") || return 1
-    [ "$checked" = "/tmp/p.rpm: digests signatures OK" ]
+        "$image" bash -c "$RPM_K" < "$2") || return 1
+    [ "${checked##*$'\n'}" = "p.rpm: digests signatures OK" ]
 }
 
 # published: the small source packages of packaging/keyring.version that gh-pages already serves go to $tmp/reuse, in
@@ -48,7 +61,8 @@ published() {
     mkdir "$tmp/reuse"
     [ -n "$pages_rev" ] || return 0
     if blob "$deb" "$tmp/reuse/deb/${deb##*/}"; then
-        indexed "$tmp/reuse/deb/${deb##*/}" || die "refusing to reuse $deb: it is not in the signed apt index of gh-pages"
+        indexed "$tmp/reuse/deb/${deb##*/}" ||
+            die "refusing to reuse $deb: it is not in the signed apt index of gh-pages"
         echo "reusing the published $deb"
     fi
     for family in fedora opensuse; do
@@ -82,17 +96,18 @@ matrix() {
     (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY python3 -m pytest -q tests/test_readme.py) ||
         die "the README does not match the results in $doc"
     [ -z "$dry" ] || return 0
-    git -C "$repo" diff --quiet -- "$doc" || git -C "$repo" commit -q -m "docs: Distributionsprüfung für orbitop $version" -- "$doc"
+    git -C "$repo" diff --quiet -- "$doc" ||
+        git -C "$repo" commit -q --no-gpg-sign -m "docs: Distributionsprüfung für orbitop $version" -- "$doc"
 }
 
-# make_assets REF: the files of the GitHub release in $tmp/assets, listed in $assets: the source archive of REF, the
-# four packages and the three small source packages under the fixed names of the README (plan K3), each as the signed
-# source serves it (the RPMs with their signature), then SHA256SUMS of these eight and SHA256SUMS.asc, checked as the
-# README tells users to.
+# make_assets: the files of the GitHub release in $tmp/assets, listed in $assets: the source archive of HEAD (step 4
+# tags this commit), the four packages and the three small source packages under the fixed names of the README
+# (plan K3), each as the signed source serves it (the RPMs with their signature), then SHA256SUMS of these eight and
+# SHA256SUMS.asc, checked as the README tells users to.
 make_assets() {
     local a=$tmp/assets s=$tmp/site p=$version-1 k=$keyring_version status
     mkdir "$a"
-    git -C "$repo" archive --format=tar.gz --prefix="orbitop-$version/" -o "$a/orbitop-$version.tar.gz" "$1"
+    git -C "$repo" archive --format=tar.gz --prefix="orbitop-$version/" -o "$a/orbitop-$version.tar.gz" HEAD
     cp -- "$s/$POOL/orbitop/orbitop_${p}_all.deb" "$s/arch/x86_64/orbitop-$p-any.pkg.tar.zst" "$a/"
     cp -- "$s/rpm/fedora/orbitop-$p.noarch.rpm" "$a/orbitop-$p.fedora.noarch.rpm"
     cp -- "$s/rpm/opensuse/orbitop-$p.noarch.rpm" "$a/orbitop-$p.opensuse.noarch.rpm"
