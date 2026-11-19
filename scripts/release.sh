@@ -44,12 +44,13 @@ run() {
     fi
 }
 
-# On every exit: no work directory (packages, sites, the gh-pages worktree) is left for a later run to find, and the
-# gpg-agent of GNUPGHOME stops, so the passphrase is no longer cached.
+# On every exit: the gpg-agent of GNUPGHOME stops first, so the passphrase is no longer cached, and no work directory
+# (packages, sites, the gh-pages worktree) is left for a later run to find. set -e holds in this trap too, so no step
+# may stop the others, not even an rm that root-owned leftovers of a container make fail.
 finish() {
-    rm -rf -- "$tmp"
-    git -C "$repo" worktree prune
     gpgconf --kill gpg-agent 2> /dev/null || true
+    rm -rf -- "$tmp" || true
+    git -C "$repo" worktree prune || true
 }
 tmp=$(mktemp -d)
 trap finish EXIT

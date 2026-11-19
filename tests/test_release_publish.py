@@ -102,6 +102,19 @@ def test_draft_is_published_only_after_pages_serve_the_source(tmp_path, keys, re
     assert max(i for i, step in enumerate(order) if step == "curl") < order.index("gh release edit")
 
 
+def test_pages_commit_ignores_the_excludes_of_git(tmp_path, keys, repo):
+    """Ein globales core.excludesFile mit *.deb und *.rpm darf keine Datei der Quelle aus dem Commit lassen."""
+    excludes = tmp_path / "excludes"
+    excludes.write_text("*.deb\n*.rpm\n*.zst\n")
+    git(repo["repo"], "config", "core.excludesFile", str(excludes))
+    r, _ = run(tmp_path, repo, keys, VERSION)
+    assert r.returncode == 0, r.stderr
+    names = git(repo["remote"], "ls-tree", "-r", "--name-only", "gh-pages").split()
+    assert f"apt/pool/main/o/orbitop/orbitop_{VERSION}-1_all.deb" in names
+    assert f"rpm/fedora/orbitop-release-{KV}-1.noarch.rpm" in names
+    assert f"arch/x86_64/orbitop-{VERSION}-1-any.pkg.tar.zst" in names
+
+
 def test_first_release_replaces_a_leftover_local_gh_pages(tmp_path, keys, repo):
     """D: ein abgebrochener erster Release ließ den Zweig gh-pages zurück; origin hat keinen."""
     git(repo["repo"], "branch", "gh-pages")

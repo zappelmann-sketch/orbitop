@@ -16,9 +16,10 @@ KV = (ROOT / "packaging" / "keyring.version").read_text().strip()
 COPIED = ["scripts/release.sh", "scripts/container-common.sh", "packaging/changelog.py", "packaging/keyring.version",
           f"data/{APP}.metainfo.xml", "README.md", "README.de.md", "docs/distro-check.md", "orbitop/__init__.py",
           *(str(p.relative_to(ROOT)) for p in sorted((ROOT / "scripts" / "release").glob("*")) if p.is_file())]
-REAL = {tool: shutil.which(tool) for tool in ("git", "gpg-agent", "gpgconf")}
+REAL = {tool: shutil.which(tool) for tool in ("git", "gpg-agent", "gpgconf", "rm")}
 GIT_ENV = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
-NOREPLY = "1+test@users.noreply.github.com"
+# Die Identität des Projekts (öffentlich, in jedem Commit); release.sh verlangt genau sie.
+NAME, NOREPLY = "zappelmann-sketch", "235797375+zappelmann-sketch@users.noreply.github.com"
 TOOLS = ("calls", "git", "gh", "curl", "docker", "gpg-agent", "gpgconf")
 # Die Bau-Skripte als Stellvertreter: Sie schreiben nur die Dateinamen, die release.sh liest.
 BUILD_PACKAGES = f"""#!/bin/sh
@@ -40,6 +41,7 @@ echo "rebuilt $out" > "$out/arch/orbitop-{VERSION}-1${{s:+.1}}-any.pkg.tar.zst"
 BUILD_SITE = """#!/bin/sh
 printf '%s\\n' build-site "$@" ---- >> "$LOG_DIR/calls.log"
 while [ $# -gt 0 ]; do case $1 in --packages) p=$2 ;; --out) out=$2 ;; esac; shift 2; done
+sha256sum "$p"/deb/*.deb >> "$LOG_DIR/site-inputs.txt"  # was build-site.sh bekam
 apt=$out/apt/dists/stable/main/binary-all
 mkdir -p "$out/apt/pool/main/o/orbitop" "$out/apt/pool/main/o/orbitop-apt-source" "$apt/by-hash/SHA256" \\
     "$out/arch/x86_64"
@@ -87,6 +89,11 @@ case "$1 $2" in
         echo "gh: Not Found (HTTP 404)" >&2 && exit 1 ;;
 esac
 exit 0
+"""
+# rm: scheitert mit RM_FAILS, wie an root-eigenen Resten eines abgebrochenen Containers.
+RM = f"""#!/bin/sh
+[ -z "$RM_FAILS" ] || exit 1
+exec {REAL["rm"]} "$@"
 """
 # curl: GitHub Pages liefert den Zweig gh-pages des entfernten Repositorys aus.
 CURL = """#!/bin/sh
@@ -155,10 +162,10 @@ def stub(directory, name, text):
     (directory / name).chmod(0o755)
 
 
-def make_repo(tmp_path, fpr, readme=None, email=NOREPLY):
+def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY):
     """Wegwerf-Repository auf main mit den Release-Skripten und Stellvertretern für die Bau-Skripte, origin ein
-    lokales bare-Repository, Identität EMAIL; die Matrix meldet den Schlüssel FPR, die READMEs nennen README statt
-    <FINGERPRINT>. Gibt die Pfade zurück."""
+    lokales bare-Repository, Identität USER <EMAIL>; die Matrix meldet den Schlüssel FPR, die READMEs nennen README
+    statt <FINGERPRINT>. Gibt die Pfade zurück."""
     repo, remote, bin_, rpm_bin = (tmp_path / n for n in ("repo", "remote.git", "bin", "rpm-bin"))
     for name in COPIED:
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
@@ -174,7 +181,7 @@ def make_repo(tmp_path, fpr, readme=None, email=NOREPLY):
     (repo / ".gitignore").write_text("__pycache__/\n.pytest_cache/\n")
     git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
     git(repo.parent, "init", "-q", "-b", "main", str(repo))
-    for key, value in (("user.name", "Test"), ("user.email", email), ("remote.origin.url", str(remote)),
+    for key, value in (("user.name", user), ("user.email", email), ("remote.origin.url", str(remote)),
                        ("remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*")):
         git(repo, "config", key, value)
     git(repo, "add", ".")
@@ -182,9 +189,9 @@ def make_repo(tmp_path, fpr, readme=None, email=NOREPLY):
     git(repo, "push", "-q", "origin", "main")
     bin_.mkdir()
     rpm_bin.mkdir()
-    for name, text in {"gh": GH, "curl": CURL, "docker": DOCKER,
+    for tool, text in {"gh": GH, "curl": CURL, "docker": DOCKER, "rm": RM,
                        **{t: LOGGED.format(tool=t, real=REAL[t]) for t in ("git", "gpg-agent", "gpgconf")}}.items():
-        stub(bin_, name, text)
+        stub(bin_, tool, text)
     stub(rpm_bin, "rpmkeys", RPMKEYS)
     stub(rpm_bin, "rpm", RPM)
     (tmp_path / "matrix.txt").write_text(matrix_output(fpr))

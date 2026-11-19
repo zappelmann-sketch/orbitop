@@ -72,7 +72,7 @@ pages_tree() {
     fi
     cp -a -- "$tmp/site/." "$tree/"
     [ ! -d "$tmp/keep" ] || cp -r -- "$tmp/keep/." "$tree/"  # the names are hashes: an equal name is an equal file
-    git -C "$tree" add --all -- .  # the worktree holds the source and nothing else
+    git -C "$tree" add --all --force -- .  # the worktree holds the source alone; no excludes (*.deb) drop a file
     git -C "$tree" commit -q --no-gpg-sign -m "chore: Paketquelle für orbitop $version"
     git -C "$repo" push --no-follow-tags origin refs/heads/gh-pages:refs/heads/gh-pages
 }

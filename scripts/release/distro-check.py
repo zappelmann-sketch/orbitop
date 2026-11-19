@@ -6,7 +6,8 @@
 Usage: python3 -I distro-check.py DOC VERSION KEYRING-VERSION [--dry-run] < OUTPUT
 OUTPUT is what scripts/check-distros.sh printed: "IMAGE <image>" before the log of each container, then the lines KEY
 and RESULT. Only the part of DOC between START and END is replaced; every image must have passed. The containers
-write the logs, so every line taken over must match its pattern in full, with values of a small character set."""
+write the logs, so every line taken over must match its pattern in full, with values of a small ASCII character set
+(re.ASCII: \\d and \\w match no other digit or letter)."""
 import re
 import sys
 from datetime import datetime, timezone
@@ -43,8 +44,8 @@ def lines(kind: str, text: str, where: str) -> list[tuple[str, ...]]:
     found = []
     for line in text.splitlines():
         line = line.strip()
-        if re.match(head, line):
-            match = re.fullmatch(pattern, line)
+        if re.match(head, line, re.ASCII):
+            match = re.fullmatch(pattern, line, re.ASCII)
             if not match:
                 stop(f"{where}: unexpected line {line!r}")
             found.append(match.groups())
@@ -63,7 +64,7 @@ def logs(output: str) -> dict[str, str]:
     found, image = {}, None
     for line in output.splitlines():
         if line.startswith("IMAGE "):
-            image = (re.fullmatch(rf"IMAGE ({IMAGE})", line) or stop(f"unexpected line {line!r}"))[1]
+            image = (re.fullmatch(rf"IMAGE ({IMAGE})", line, re.ASCII) or stop(f"unexpected line {line!r}"))[1]
             if image in found:
                 stop(f"{image} appears twice")
             found[image] = []
@@ -113,7 +114,7 @@ def block(output: str, version: str, keyring: str, dry: bool) -> str:
 
 def main() -> None:
     doc, version, keyring, *dry = sys.argv[1:]
-    if dry not in ([], ["--dry-run"]) or not re.fullmatch(SAFE, version) or not re.fullmatch(SAFE, keyring):
+    if dry not in ([], ["--dry-run"]) or not all(re.fullmatch(SAFE, v, re.ASCII) for v in (version, keyring)):
         sys.exit(__doc__)
     with open(doc, encoding="utf-8") as f:
         text = f.read()

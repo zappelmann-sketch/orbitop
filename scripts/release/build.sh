@@ -16,11 +16,14 @@ RPM_K='set -e; cd "$(mktemp -d)"; printf "%s\n" "$KEY" > key.asc; cat > p.rpm
 keys=$(rpmkeys --list); while read -r k _; do [ -z "$k" ] || rpmkeys --delete "${k%:}"; done <<< "$keys"
 [ -z "$(rpmkeys --list)" ]; rpmkeys --import key.asc; rpm -K p.rpm'
 
-# blob PATH FILE: PATH of the published gh-pages into FILE, read from git objects, never from a checkout; fails if
-# there is none.
+# blob PATH FILE: PATH of the published gh-pages into FILE, read from git objects, never from a checkout; fails, and
+# leaves no FILE, if PATH is no blob there (missing, or a directory).
 blob() {
-    git -C "$repo" cat-file -e "$pages_rev:$1" 2> /dev/null || return 1
-    mkdir -p -- "${2%/*}" && git -C "$repo" cat-file blob "$pages_rev:$1" > "$2"
+    [ "$(git -C "$repo" cat-file -t "$pages_rev:$1" 2> /dev/null)" = blob ] && mkdir -p -- "${2%/*}" || return 1
+    if ! git -C "$repo" cat-file blob "$pages_rev:$1" > "$2"; then
+        rm -f -- "$2"
+        return 1
+    fi
 }
 
 # signed_release: $tmp/published/Release is the Release of the published gh-pages, if its InRelease verifies with

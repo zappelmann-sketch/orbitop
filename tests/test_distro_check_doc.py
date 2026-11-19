@@ -49,8 +49,10 @@ def test_takes_the_summary_of_a_test_run_over_a_minute(tmp_path):  # pytest hän
     ("pass install", "fail install"),
     (f"KEY {FPR}\nRESULT", f"KEY {'B' * 40}\nRESULT"),  # zwei Schlüssel
     ("RESULT debian:trixie debian@sha256:", "RESULT debian:trixie debian@sha256:x"),
+    ("1000 passed, 50 skipped in", "\u0661\u0660\u0660\u0660 passed, 50 skipped in"),  # re.ASCII: \\d
+    ("50 skipped in", "50 skipp\u00e9d in"),  # re.ASCII: \\w
 ], ids=["versions", "version-id", "update", "tests", "refusal", "duplicate-image", "image", "fail", "two-keys",
-        "digest"])
+        "digest", "non-ascii-digit", "non-ascii-letter"])
 def test_refuses_anything_outside_the_patterns(tmp_path, change):
     output = matrix_output(FPR)
     assert change[0] in output

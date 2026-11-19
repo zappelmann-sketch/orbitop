@@ -70,7 +70,9 @@ CASES = {  # Fall: (README, Trockenlauf, Umgebung, erwarteter Text)
     "tag": ("fpr", True, {}, "exists already"),
     "remote-tag": ("fpr", True, {}, "exists on origin"),
     "changelog": ("fpr", True, {}, "newest <release>"),
-    "identity": ("fpr", True, {}, "GIT_AUTHOR_IDENT must be the noreply address"),
+    "identity-mail": ("fpr", True, {}, "GIT_AUTHOR_IDENT must be exactly zappelmann-sketch <"),
+    "identity-name": ("fpr", True, {}, "GIT_AUTHOR_IDENT must be exactly zappelmann-sketch <"),
+    "committer": ("fpr", True, {"GIT_COMMITTER_NAME": "Alice"}, "GIT_COMMITTER_IDENT must be exactly"),
     "readme-other": ("other", True, {}, "README names the fingerprint"),
     "readme-placeholder": (None, False, {}, "README still has the placeholder <FINGERPRINT>"),
     "readme-none": ("no fingerprint", False, {}, "README names no fingerprint of the archive key"),
@@ -87,7 +89,8 @@ def test_refuses_before_building(tmp_path, keys, case):
     readme, dry, env, text = CASES[case]
     readme = {"fpr": keys["fpr"], "other": keys["fprs"][1]}.get(readme, readme)
     repo = make_repo(tmp_path, keys["fpr"], readme=readme,
-                     **({"email": "test@example.com"} if case == "identity" else {}))
+                     **{"identity-mail": {"email": "alice@example.com"},  # die Adresse oder der Name allein
+                        "identity-name": {"user": "Alice"}}.get(case, {}))
     version = VERSION
     if case == "branch":
         git(repo["repo"], "checkout", "-q", "-b", "other")
@@ -152,6 +155,14 @@ def test_agent_keeps_the_passphrase_for_the_whole_release(tmp_path, keys, repo):
                                    "--default-cache-ttl", "7200", "--max-cache-ttl", "7200"]]
     assert calls["gpgconf"][0] == calls["gpgconf"][-1] == ["--kill", "gpg-agent"]  # vor dem Start und am Ende
     assert not (keys["home"] / "gpg-agent.conf").exists()  # keine Datei im GnuPG-Ordner geändert
+
+
+def test_agent_stops_even_when_the_cleanup_fails(tmp_path, keys, repo):
+    """set -e gilt auch im EXIT-Trap: ein scheiterndes rm (root-eigene Reste) darf das Beenden nicht verhindern."""
+    r, calls = run(tmp_path, repo, keys, VERSION, "--dry-run", env={"RM_FAILS": "1"})
+    assert calls["gpgconf"].count(["--kill", "gpg-agent"]) == 2, calls["gpgconf"]  # beim Start und am Ende
+    assert calls["gpgconf"][-1] == ["--kill", "gpg-agent"]
+    assert git(repo["repo"], "worktree", "list").count("\n") == 1  # auch prune lief
 
 
 def test_dry_run_never_calls_gh_or_push(tmp_path, keys):

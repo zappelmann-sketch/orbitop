@@ -8,6 +8,7 @@
 
 APP=io.github.zappelmann_sketch.orbitop
 GH_REPO=zappelmann-sketch/orbitop
+IDENT="zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>"  # of every commit and tag
 WARN_DAYS=180  # spec 4: the key's remaining time
 
 gpg() { command gpg --no-options --batch "$@"; }  # never a gpg.conf: its options would reach the release
@@ -21,13 +22,12 @@ fingerprint() {
 
 # check_tree: a clean main at VERSION, without the tag; the Debian and the RPM changelog of this version come from the
 # one source, the <release> entries of the metainfo (packaging/changelog.py). The commits and the tag of the release
-# carry only the noreply address of the GitHub account.
+# carry the account's name and noreply address and nothing else (git var prints IDENT, then time and zone).
 check_tree() {
     local branch status have kind ident who
     for ident in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do
         who=$(git -C "$repo" var "$ident") || die "git var $ident failed"
-        [[ $who == *"@users.noreply.github.com> "* ]] ||
-            die "$ident must be the noreply address of the GitHub account (git config user.email)"
+        [ "${who% * *}" = "$IDENT" ] || die "$ident must be exactly $IDENT (git config user.name, user.email)"
     done
     branch=$(git -C "$repo" symbolic-ref --short -q HEAD) || true
     [ "$branch" = main ] || die "release only from the branch main, not ${branch:-a detached HEAD}"

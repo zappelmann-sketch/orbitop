@@ -127,6 +127,21 @@ def test_planted_by_hash_files_never_reach_the_new_source(tmp_path, keys, repo):
     assert found.returncode == 1 and not found.stdout  # in keiner Datei der neuen Quelle
 
 
+def test_a_directory_at_a_published_path_is_no_file(tmp_path, keys, repo):
+    """Re-Review: cat-file -e gilt auch für einen Baum; blob nimmt nur Blobs und lässt keine leere Datei zurück, weder
+    als by-hash-Datei noch als wiederverwendetes deb."""
+    old = published(keys)
+    listed = f"{BIN}/by-hash/SHA256/{sha256(old[f'{BIN}/Packages'])}"
+    del old[listed], old[DEB]
+    publish_pages(tmp_path, repo, {**old, f"{listed}/inner": b"x\n", f"{DEB}/inner": b"y\n"})
+    (tmp_path / "pages-on").touch()
+    r, _ = run(tmp_path, repo, keys, VERSION)
+    assert r.returncode == 0, r.stderr
+    names = tree(repo["remote"])
+    assert not {listed, f"{listed}/inner"} & names
+    assert blob(repo["remote"], DEB) != b"" and sha256(b"") not in (tmp_path / "site-inputs.txt").read_text()
+
+
 @pytest.mark.parametrize("case,text", [("unlisted", "not in the signed apt index"),
                                        ("foreign-index", "not in the signed apt index"),
                                        ("tampered-rpm", "no valid signature of ORBITOP_KEY"),
