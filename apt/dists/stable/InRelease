@@ -1,0 +1,30 @@
+-----BEGIN PGP SIGNED MESSAGE-----
+Hash: SHA512
+
+Acquire-By-Hash: yes
+Architectures: all
+Codename: stable
+Components: main
+Date: Thu, 19 Nov 2026 18:42:45 +0000
+Label: orbitop
+Origin: orbitop
+Suite: stable
+MD5Sum:
+ f86c419407b9c21aa9c9d563586133ab             1979 main/binary-all/Packages
+ ce24e21e5bc5219759c37e77772d67de             1030 main/binary-all/Packages.gz
+SHA1:
+ 6de685f558a01d5793c52498bcbf212f9689f7d3             1979 main/binary-all/Packages
+ f1c3f4f68effa75828f704d10f6a222b94c077db             1030 main/binary-all/Packages.gz
+SHA256:
+ 62690ff54ddc6748a949e3001fd190363a2461d248534d0757547f5f2b798b40             1979 main/binary-all/Packages
+ 3b631435913facbd92dd23ae199c319956d5bea8aa3b2476728efc12026deab5             1030 main/binary-all/Packages.gz
+SHA512:
+ f11a5d7cf2b55c2fda7d6e0e8b134556e3e75da172ce64e0496e064e971e7ad8b2186a76cde5b580f499b25e7e74f75d1da0d949edc1d9d329baddadcfadb775             1979 main/binary-all/Packages
+ b6f4ab366ef3471e51931ba0f81d1904f9d904212d3b42407acc88a822e644c1835eeaea2c3f4272ec935f09e75ac3ac85be54b02b5eddcb26a7d1be9c622e9a             1030 main/binary-all/Packages.gz
+-----BEGIN PGP SIGNATURE-----
+
+iHUEARYKAB0WIQS28Q5+dqY9nVad4GdLXRM/cURcAQUCav9DJQAKCRBLXRM/cURc
+AZ3TAP4pwN/ROmmtx9VAPtZwRqr1rhZ66iA3ULYRqt33FJUl0gD+K/dqRQ0VlDHG
+U5YiET1cHJojoksXknEEXkDOhsyQVwk=
+=WbDk
+-----END PGP SIGNATURE-----
