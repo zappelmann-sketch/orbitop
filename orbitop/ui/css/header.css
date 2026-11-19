@@ -1,0 +1,56 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 zappelmann-sketch */
+/* Kopfzeile mit Reitern und Info-Knopf, darunter die Lastzeile */
+
+/* ---- Kopfzeile ---- */
+.hdr { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.brand { font-family: Orbitron, sans-serif; font-weight: 700; letter-spacing: .2em; font-size: 12px; }
+.tabs { display: flex; gap: 6px; margin: 0 auto; }
+.s { color: var(--mut); font-size: 11.5px; font-variant-numeric: tabular-nums; }
+
+/* Reiter, Chips und Knöpfe: Form auf ::before, damit Leuchten und Fokusrahmen nicht abgeschnitten werden */
+.tab, .chip, .btn, .filters button { position: relative; z-index: 0; }
+.tab::before, .chip::before, .btn::before, .filters button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+}
+.tab {
+  padding: 4px 20px;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  font-weight: 600;
+  font-size: 11.5px;
+  color: var(--mut);
+}
+.tab::before { background: #141b20; clip-path: polygon(9px 0, 100% 0, calc(100% - 9px) 100%, 0 100%); }
+.tab:hover { color: var(--ink); }
+.tab.on { color: #04161d; filter: drop-shadow(0 0 7px rgba(79, 216, 255, .6)); }
+.tab.on::before { background: var(--cyan); }
+
+/* ---- Kopfzeile: Info-Knopf ---- */
+.info { display: grid; place-items: center; width: 24px; height: 24px; color: var(--mut); }
+.info:hover { color: var(--ink); }
+.info svg { width: 16px; height: 16px; }
+.info path, .st path, .notice path { fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
+
+/* ---- Lastzeile ---- */
+.strip {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+  padding: 7px 14px;
+  background: #10161a;
+  clip-path: polygon(0 0, calc(100% - 12px) 0, 100% 12px, 100% 100%, 0 100%);
+  border-left: 2px solid var(--amber);
+}
+.strip .lbl { letter-spacing: .14em; text-transform: uppercase; font-size: 11px; color: var(--amber); font-weight: 600; }
+.chips { display: flex; flex: 1; min-width: 0; gap: 8px; flex-wrap: wrap; }
+.chip { padding: 3px 12px; font-variant-numeric: tabular-nums; }
+.chip::before { background: #1a232a; clip-path: polygon(6px 0, 100% 0, calc(100% - 6px) 100%, 0 100%); }
+.chip:hover::before { background: #24313a; }
+.chip b { color: #fff; font-weight: 600; overflow-wrap: anywhere; }
+.strip .hint { margin-left: auto; }
+.strip .lbl, .strip .hint { white-space: nowrap; }

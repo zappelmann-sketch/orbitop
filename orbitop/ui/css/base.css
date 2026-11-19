@@ -1,0 +1,44 @@
+/* SPDX-License-Identifier: GPL-3.0-or-later */
+/* Copyright © 2026 zappelmann-sketch */
+/* Look „Raumstation-Konsole mit Cockpit-Schrift“ nach docs/superpowers/specs/entwuerfe/{uebersicht,prozesse}.html.
+   Immer dunkel. Hier Schriften, Farben und Grundregeln; danach binden die Seiten header, tiles, procs und
+   dialogs in dieser Reihenfolge ein, die Kaskade hängt daran. */
+
+@font-face {
+  font-family: Orbitron;
+  src: url("../fonts/Orbitron.ttf") format("truetype");
+  font-weight: 400 900;
+  font-display: block;
+}
+@font-face {
+  font-family: Oxanium;
+  src: url("../fonts/Oxanium.ttf") format("truetype");
+  font-weight: 200 800;
+  font-display: block;
+}
+
+:root {
+  --ink: #e9f6ff;
+  --mut: #6f8b98;
+  --amber: #ffb54a;
+  --cyan: #4fd8ff;
+  --red: #ff5f7a;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html { background: #06080a; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  box-sizing: border-box;
+  padding: 16px;
+  background: linear-gradient(180deg, #0c1115, #06080a) fixed;
+  color: var(--ink);
+  font: 13px Oxanium, system-ui, sans-serif;
+}
+button { font: inherit; color: inherit; border: 0; background: none; cursor: pointer; }
+button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+/* Namen und Beschriftungen aus dem System: eigene Schreibrichtung */
+.nm, .aside, .kv span, .lg span { unicode-bidi: isolate; }
+.kv span, .lg span, .dev .nm { overflow-wrap: anywhere; } /* lange Namen ohne Leerzeichen sprengen sonst die Kachel */

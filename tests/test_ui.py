@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Prüfseite tests/ui/check.html im kopflosen Chrome: Zahlenformat, sichere Texte, Nachrichten an Python.
-Dazu der Aufbau der Module unter orbitop/ui/js: zyklenfrei, klein, genau eine Stelle für terminate."""
+Dazu der Aufbau der Module unter orbitop/ui/js: zyklenfrei, klein, genau eine Stelle für terminate.
+Und die Stylesheets unter orbitop/ui/css: in Regelreihenfolge eingebunden, als text/css ausgeliefert."""
 import contextlib
 import functools
 import http.server
@@ -13,11 +14,16 @@ from pathlib import Path
 
 import pytest
 
+from orbitop.app import ui_file
+
 CHROME = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
 REPO = Path(__file__).resolve().parent.parent
-JS_DIR = REPO / "orbitop" / "ui" / "js"
+UI = REPO / "orbitop" / "ui"
+JS_DIR = UI / "js"
 CHECK_DIR = REPO / "tests" / "ui"
 IMPORT = re.compile(r'^(?:import|export)\s+(?:[^;"]*?\s+from\s+)?"(\.\.?/[^"]+)";', re.M)
+CSS = ["base.css", "header.css", "tiles.css", "procs.css", "dialogs.css"]  # Reihenfolge der Regeln im früheren style.css
+LINK = re.compile(r'<link rel="stylesheet" href="([^"]+)">')
 
 
 def relative_imports(src):
@@ -148,3 +154,14 @@ def test_terminate_is_posted_only_by_the_confirm_button():
     assert not re.search(r"cYes\s*\.\s*(click|dispatchEvent)\b", js)
 
 
+def test_stylesheets_linked_in_order():
+    """Die Kaskade hängt an der Reihenfolge: Seite, Prüfseite und Demo binden genau die fünf Stylesheets so ein."""
+    for page in (UI / "index.html", CHECK_DIR / "check.html", CHECK_DIR / "demo.html"):
+        hrefs = LINK.findall(page.read_text(encoding="utf-8"))
+        assert [(page.parent / h).resolve() for h in hrefs] == [UI / "css" / n for n in CSS], page.name
+
+
+def test_css_files_are_served():  # im Standardmodus nimmt die Engine ein Stylesheet nur mit text/css an
+    assert sorted(p.relative_to(UI).as_posix() for p in UI.rglob("*.css")) == sorted("css/" + n for n in CSS)
+    for name in CSS:
+        assert ui_file("orbitop://ui/css/" + name, str(UI)) == (str(UI / "css" / name), "text/css")

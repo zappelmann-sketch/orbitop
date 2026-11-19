@@ -51,7 +51,7 @@ function shiftOf(prev, series) {
   return -1;
 }
 
-/** Gitter als SVG-Pfad unter der Canvas (CSS-Pixel, Farbe in style.css): 4 waagerechte Linien, senkrecht alle
+/** Gitter als SVG-Pfad unter der Canvas (CSS-Pixel, Farbe in css/tiles.css): 4 waagerechte Linien, senkrecht alle
  * gridEvery Punkte vom neuesten Wert aus. Es steht still, während das Kurvenbild verschoben wird. */
 function drawGrid(grid, w, h, opts) {
   const step = w / (opts.points - 1), d = [];
