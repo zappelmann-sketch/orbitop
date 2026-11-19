@@ -8,9 +8,9 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'">
 <title>RUNNING</title>
 <link rel="stylesheet" href="../../orbitop/ui/style.css">
-<script src="check.js" defer></script>
-<script src="../../orbitop/ui/chart.js" defer></script>
-<script src="../../orbitop/ui/app.js" defer></script>
+<!-- check.js zuerst: Module laufen in dieser Reihenfolge, so steht die gefälschte Brücke vor dem Einstieg main.js -->
+<script type="module" src="check.js"></script>
+<script type="module" src="../../orbitop/ui/js/main.js"></script>
 </head>
 <body></body>
 </html>

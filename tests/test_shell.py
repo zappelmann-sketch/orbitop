@@ -262,7 +262,7 @@ NAV, NEW, RESP = (WebKit.PolicyDecisionType.NAVIGATION_ACTION, WebKit.PolicyDeci
 @pytest.mark.parametrize("kind,uri,supported,verdict", [
     (NAV, shell.INDEX_URI, True, "use"),
     (NAV, shell.INDEX_URI + "#procs", True, "use"),
-    (NAV, "orbitop://ui/app.js", True, "ignore"),  # oben nur Seiten, nie Skripte
+    (NAV, "orbitop://ui/js/main.js", True, "ignore"),  # oben nur Seiten, nie Skripte
     (NAV, (UI / "index.html").as_uri(), True, "ignore"),
     (NAV, "file:///etc/passwd", True, "ignore"),
     (NAV, "orbitop://ui/../app.py", True, "ignore"),

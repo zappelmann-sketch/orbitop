@@ -163,6 +163,13 @@ def test_ui_file_real_index():
     assert ui_file("orbitop://ui/index.html", str(UI)) == (str(UI / "index.html"), "text/html")
 
 
+def test_module_files_are_served():  # WebKit führt ein Modul nur mit JavaScript-Inhaltstyp aus
+    files = sorted((UI / "js").rglob("*.js"))
+    assert UI / "js" / "main.js" in files
+    for p in files:
+        assert ui_file("orbitop://ui/" + p.relative_to(UI).as_posix(), str(UI)) == (str(p), "text/javascript")
+
+
 # ---- snapshot_path ----
 def test_snapshot_path(tmp_path):
     good = str(tmp_path / "shot.png")
@@ -300,14 +307,19 @@ def test_launcher_is_executable():
     assert os.access(REPO / "bin" / "orbitop", os.X_OK)
 
 
-# ---- index.html / app.js ----
+# ---- index.html / Module ----
 def test_index_has_csp_and_no_inline_script():
     html = (UI / "index.html").read_text(encoding="utf-8")
     assert ('http-equiv="Content-Security-Policy" content="default-src \'none\'; script-src \'self\'; '
             "style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'none'") in html
-    assert html.count("<script") == html.count('<script src="') >= 1
-    js = (UI / "app.js").read_text(encoding="utf-8")
+    assert html.count("<script") == html.count('<script type="module" src="') >= 1
+    js = "".join(p.read_text(encoding="utf-8") for p in sorted((UI / "js").rglob("*.js")))
     assert "innerHTML" not in js and "textContent" in js
+
+
+def test_index_loads_only_the_module_entry():
+    html = (UI / "index.html").read_text(encoding="utf-8")
+    assert html.count("<script") == 1 and '<script type="module" src="js/main.js"></script>' in html
 
 
 # ---- Worker ----

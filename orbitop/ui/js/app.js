@@ -3,7 +3,7 @@
 // Oberfläche: Kopfzeile, Lastzeile, Kachelraster, Fußzeile, Reiter „Prozesse“ und Dialoge. Alles aus dem Schnappschuss
 // und aus texts kommt per textContent ins DOM, nie als HTML. Inline-Stile verbietet die CSP; Farben setzt nur CSSOM.
 // Ein terminate geht nur aus dem Bestätigungsknopf des Rückfrage-Dialogs an Python (confirmed).
-"use strict";
+import { drawArea, drawSegments } from "./chart.js";
 
 const POINTS = 300, THREAD_POINTS = 60, GRID_SECONDS = 30, MAX_MINIS = 8; // Puffergrößen wie im Sampler, 1 s je Punkt
 const AREA = { cpu: "#4fd8ff", gpu: "#c48bff", mem: "#3dffa8", power: "#ffd84f", temp: "#ff5f7a", fan: "#ff7ad9",
@@ -1321,58 +1321,53 @@ function notify(code, t) {
 }
 
 // ---- Brücke ----
-window.orbitop = {
-  receive(msg) {
-    if (!msg) return;
-    if (msg.type === "init") {
-      state.lang = msg.lang === "de" ? "de" : "en";
-      state.texts = msg.texts || {};
-      state.version = String(msg.version || "");
-      state.collator = new Intl.Collator(state.lang);
-      document.documentElement.lang = state.lang;
-      for (const [node, key, attr] of ui.labels) {
-        if (attr) node.setAttribute(attr, text(key));
-        else node.textContent = text(key);
-      }
-      applyLayout(state.saving ? state.layout : msg.layout); // Meldung steht aus: der neuere Stand der Seite gilt
-      labelHead(); // auch ohne Neuaufbau des Kopfes
-      setText(ui.version, fill("about.version", { version: state.version }));
-      state.autostart = typeof msg.autostart === "boolean" ? msg.autostart : null;
-      renderAutostart();
-      hdrInfo();
-    } else if (msg.type === "tick") {
-      const prev = state.last;
-      // Python lässt die unveränderte Liste weg: dasselbe Array behalten, equal() endet dann bei a === b
-      if (msg.procs_same === true) msg.procs = prev && Array.isArray(prev.procs) ? prev.procs : null;
-      state.last = msg;
-      state.n++;
-      renderFooter(msg.missing, msg.hints);
-      if (state.tab === "overview") renderOverview(msg); // ausgeblendete Kacheln nicht zeichnen
-      // Prozesse kommen alle 2 s: dazwischen bleiben Tabelle und Detail, nur das Alter im Detail läuft weiter
-      else if (Array.isArray(msg.procs) && prev && equal(msg.procs, prev.procs) && equal(msg.detail, prev.detail)) renderDetail(msg);
-      else renderProcs(msg);
-    } else if (msg.type === "terminate_result") {
-      const t = state.pending;
-      state.pending = null; // Python nimmt erst jetzt wieder ein terminate an
-      notify(msg.result, t && t.pid === msg.pid ? t : null);
-      refresh();
-    } else if (msg.type === "terminate_check") {
-      const t = state.lastTerm;
-      if (!t || msg.pid !== t.pid) return;
-      if (msg.alive) state.alert = keyOf(t); // „Sofort beenden“ hervorheben
-      else notify("gone", t);
-      refresh();
-    } else if (msg.type === "autostart_state") {
-      state.autostart = typeof msg.on === "boolean" ? msg.on : null;
-      state.autoBusy = false;
-      renderAutostart();
+function receive(msg) {
+  if (!msg) return;
+  if (msg.type === "init") {
+    state.lang = msg.lang === "de" ? "de" : "en";
+    state.texts = msg.texts || {};
+    state.version = String(msg.version || "");
+    state.collator = new Intl.Collator(state.lang);
+    document.documentElement.lang = state.lang;
+    for (const [node, key, attr] of ui.labels) {
+      if (attr) node.setAttribute(attr, text(key));
+      else node.textContent = text(key);
     }
-  },
-};
-
-build();
-if (location.hash === "#procs") { // Sichtprüfung: demo.html#procs, App mit ORBITOP_TAB=procs
-  state.autoPick = true;
-  select("procs", null, null);
+    applyLayout(state.saving ? state.layout : msg.layout); // Meldung steht aus: der neuere Stand der Seite gilt
+    labelHead(); // auch ohne Neuaufbau des Kopfes
+    setText(ui.version, fill("about.version", { version: state.version }));
+    state.autostart = typeof msg.autostart === "boolean" ? msg.autostart : null;
+    renderAutostart();
+    hdrInfo();
+  } else if (msg.type === "tick") {
+    const prev = state.last;
+    // Python lässt die unveränderte Liste weg: dasselbe Array behalten, equal() endet dann bei a === b
+    if (msg.procs_same === true) msg.procs = prev && Array.isArray(prev.procs) ? prev.procs : null;
+    state.last = msg;
+    state.n++;
+    renderFooter(msg.missing, msg.hints);
+    if (state.tab === "overview") renderOverview(msg); // ausgeblendete Kacheln nicht zeichnen
+    // Prozesse kommen alle 2 s: dazwischen bleiben Tabelle und Detail, nur das Alter im Detail läuft weiter
+    else if (Array.isArray(msg.procs) && prev && equal(msg.procs, prev.procs) && equal(msg.detail, prev.detail)) renderDetail(msg);
+    else renderProcs(msg);
+  } else if (msg.type === "terminate_result") {
+    const t = state.pending;
+    state.pending = null; // Python nimmt erst jetzt wieder ein terminate an
+    notify(msg.result, t && t.pid === msg.pid ? t : null);
+    refresh();
+  } else if (msg.type === "terminate_check") {
+    const t = state.lastTerm;
+    if (!t || msg.pid !== t.pid) return;
+    if (msg.alive) state.alert = keyOf(t); // „Sofort beenden“ hervorheben
+    else notify("gone", t);
+    refresh();
+  } else if (msg.type === "autostart_state") {
+    state.autostart = typeof msg.on === "boolean" ? msg.on : null;
+    state.autoBusy = false;
+    renderAutostart();
+  }
 }
-post({ type: "ready" });
+
+// main.js setzt window.orbitop und startet die Seite; check.js und demo.js prüfen bzw. füllen sie
+export { applyLayout, build, COLS, compare, cpuTime, DEFAULT_SPLIT, fmt, layoutMessage, MIN_PROCESS_W, plot, post,
+         receive, select, setText, setWidth, sizeCols, state, toggleColumn, ui };

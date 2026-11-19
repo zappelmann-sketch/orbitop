@@ -156,7 +156,7 @@ def test_load_recursion_error_is_none(tmp_path, monkeypatch):
 
 
 def test_js_columns_match_python():
-    js = (REPO / "orbitop" / "ui" / "app.js").read_text(encoding="utf-8")
+    js = (REPO / "orbitop" / "ui" / "js" / "app.js").read_text(encoding="utf-8")
     block = js[js.index("const COLS = ["):]
     lines = [ln for ln in block[:block.index("\n];")].splitlines() if 'id: "' in ln]
     assert [re.search(r'id: "(\w+)"', ln)[1] for ln in lines] == list(COLUMNS)

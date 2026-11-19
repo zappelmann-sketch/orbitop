@@ -5,8 +5,11 @@
 // ?replay=N spielt vorher N Takte ein, deren Verläufe je einen Schritt zurückliegen (links mit dem ältesten Wert
 // aufgefüllt): So zeichnen die Diagramme am Ende inkrementell, für den Bildvergleich mit vollem Zeichnen.
 // ?cols=all blendet alle Spalten ein (Sichtprüfung, Messung).
-// #procs öffnet den Reiter „Prozesse“ und wählt den obersten Prozess (app.js).
-"use strict";
+// #procs öffnet den Reiter „Prozesse“ und wählt den obersten Prozess (main.js).
+import "./demo-data.js";
+import { COLS } from "../../orbitop/ui/js/app.js";
+import "../../orbitop/ui/js/main.js";
+
 (() => {
   const { init, tick } = window.ORBITOP_DEMO;
   const params = new URLSearchParams(location.search);

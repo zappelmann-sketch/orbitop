@@ -1,9 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
-// Läuft vor app.js: fängt die Nachrichten an Python ab und prüft nach dem Laden Format, sichere Texte, Zeichnen, Reiter,
+// Läuft vor main.js: fängt die Nachrichten an Python ab und prüft nach dem Laden Format, sichere Texte, Zeichnen, Reiter,
 // Prozessliste, Spalten, Spaltenmenü, Ziehen (Breite, Reihenfolge, Trenner), Detail, Beenden mit Rückfrage (gefälschte
 // Brücke, nie ein echtes Beenden) und Dialoge. #narrow (zweiter Lauf, 1000×800) prüft nur die gestapelte Ansicht.
-"use strict";
+import { applyLayout, COLS, compare, cpuTime, DEFAULT_SPLIT, fmt, layoutMessage, MIN_PROCESS_W, plot, setText, setWidth,
+         sizeCols, state, toggleColumn, ui } from "../../orbitop/ui/js/app.js";
+import { drawArea, paint, runs } from "../../orbitop/ui/js/chart.js";
+
 const posted = [], timers = [];
 window.onerror = (msg) => { document.title = "FAIL Ausnahme: " + msg; }; // sonst bliebe RUNNING stehen
 window.webkit = { messageHandlers: { orbitop: { postMessage: (m) => posted.push(JSON.stringify(m)) } } };
@@ -18,6 +21,10 @@ document.addEventListener("DOMContentLoaded", () => {
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => document.querySelectorAll(sel);
   const plain = (s) => s.replace(/ /g, " ");
+  if (typeof window.orbitop?.receive !== "function") { // die erste Nachricht von Python ginge sonst verloren
+    document.title = "FAIL window.orbitop.receive fehlt vor DOMContentLoaded";
+    return;
+  }
   const { receive } = window.orbitop;
   eq(posted[0], '{"type":"ready"}', "ready");
   const texts = {

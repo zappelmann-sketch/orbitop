@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
 // Flächendiagramm (Canvas) und Segmentanzeige. Gezeichnet wird nur auf Aufruf aus receive, es gibt keinen eigenen Takt.
-"use strict";
-
 const GLOW_PX = 24; // Reichweite von Leuchtsaum und Punktschatten (shadowBlur 6 und 8) in Bildpunkten, großzügig
 
 // Canvas-Größen kommen aus dem ResizeObserver: gemessen nach dem Layout, also nie ein erzwungenes Layout im Takt.
@@ -23,7 +21,7 @@ function size(canvas) {
 }
 
 /** Zusammenhängende Abschnitte ohne Lücke: {pts: [x0, y0, x1, y1, …], top: höchster Punkt}. */
-function runs(s, points, step, h) {
+export function runs(s, points, step, h) {
   const max = s.max > 0 ? s.max : 1, off = points - s.values.length, out = [];
   let run = null;
   s.values.forEach((v, j) => {
@@ -63,7 +61,7 @@ function drawGrid(grid, w, h, opts) {
 }
 
 /** Flächen, Leuchtsaum, Kurven und Punkt; nur Punkte zwischen from und to (x), je einer außerhalb bleibt dabei. */
-function paint(ctx, series, lines, colors, w, h, from = -Infinity, to = Infinity) {
+export function paint(ctx, series, lines, colors, w, h, from = -Infinity, to = Infinity) {
   const small = h < 40;
   let dot = null;
   series.forEach((s, i) => {
@@ -128,7 +126,7 @@ function paint(ctx, series, lines, colors, w, h, from = -Infinity, to = Infinity
  * gezeichnet. Der Bruchteil des Schritts, der beim ganzzahligen Verschieben übrig bleibt (moved - shifted), verschiebt
  * auch den Streifen, so bleibt das ganze Bild in sich stimmig (höchstens ein halber Bildpunkt neben der Sollposition).
  */
-function drawArea(canvas, series, opts) {
+export function drawArea(canvas, series, opts) {
   canvas.last = [series, opts];
   const [w, h] = size(canvas);
   if (!w || !h) return; // ausgeblendet
@@ -184,7 +182,7 @@ function drawArea(canvas, series, opts) {
 }
 
 /** 20 Segmente zu je 5 %; mit warn (absolute Obergrenze) leuchten die oberhalb von 80 % bernsteinfarben. */
-function drawSegments(el, pct, warn) {
+export function drawSegments(el, pct, warn) {
   if (el.childElementCount !== 20) el.replaceChildren(...Array.from({ length: 20 }, () => document.createElement("b")));
   const on = Math.round(Math.min(Math.max(pct || 0, 0), 100) / 5);
   for (let i = 0; i < 20; i++) el.children[i].className = i >= on ? "" : warn && i >= 16 ? "hot" : "on";
