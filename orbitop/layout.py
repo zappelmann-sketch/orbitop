@@ -9,7 +9,7 @@ from collections.abc import Mapping
 from orbitop.userfile import config_home, read_regular, write_atomic
 
 COLUMNS = ("pid", "process", "user", "cpu", "last60", "ram", "io", "state", "pri", "nice", "virt", "shr", "s",
-           "mem", "time")  # Grundreihenfolge; app.js hat dieselbe Liste (Test)
+           "mem", "time")  # Grundreihenfolge; ui/js/procs/columns.js hat dieselbe Liste (Test)
 DEFAULT_HIDDEN = ("pri", "nice", "virt", "shr", "s", "mem", "time")
 WIDTH_MIN, WIDTH_MAX = 40, 1200
 SPLIT_MIN, SPLIT_MAX = 0.2, 0.8

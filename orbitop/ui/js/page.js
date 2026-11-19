@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
 // Aufbau der Seite (Kopfzeile, Übersicht, Prozesse, Fußzeile, Dialoge) und Wechsel der Reiter.
-import { buildProcs, renderProcs } from "./app.js";
+import { buildProcs, renderProcs } from "./procs/view.js";
 import { ask, buildDialogs, openDialog } from "./dialogs.js";
 import { button, el, label, svg } from "./dom.js";
 import { hdrInfo } from "./header.js";
@@ -60,4 +60,4 @@ export function renderOverview(msg) {
   renderTiles(msg.tiles || []);
 }
 
-calls.select = select; // spät gebunden: select → renderProcs → select (autoPick); strip.js und app.js wählen darüber
+calls.select = select; // spät gebunden: select → renderProcs → select (autoPick); strip.js und procs/rows.js wählen darüber

@@ -2,7 +2,7 @@
 // Copyright © 2026 zappelmann-sketch
 // Dialoge: Rückfrage vor dem Beenden und „Über“ mit Legende und Autostart. Ein terminate geht nur aus dem
 // Bestätigungsknopf der Rückfrage an Python (confirmed).
-import { KIND, makeBadge, RESULTS, refresh, same, setBadge } from "./app.js";
+import { KIND, makeBadge, RESULTS, refresh, same, setBadge } from "./procs/view.js";
 import { button, el, fillInto, label, setText } from "./dom.js";
 import { text } from "./format.js";
 import { post } from "./post.js";

@@ -7,7 +7,7 @@
 // ?cols=all blendet alle Spalten ein (Sichtprüfung, Messung).
 // #procs öffnet den Reiter „Prozesse“ und wählt den obersten Prozess (main.js).
 import "./demo-data.js";
-import { COLS } from "../../orbitop/ui/js/app.js";
+import { COLS } from "../../orbitop/ui/js/procs/columns.js";
 import "../../orbitop/ui/js/main.js";
 
 (() => {

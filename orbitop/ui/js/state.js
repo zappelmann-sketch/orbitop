@@ -16,6 +16,6 @@ export const ui = { labels: [] };
 export const tiles = new Map(); // Kachel-id -> Elemente
 export const procRows = new Map(); // "pid:start" -> Zeilenelemente, nur gezeichnete Zeilen
 export const formats = new Map();
-/** Aufruf gegen die Importrichtung: Lastzeile (strip.js) und Prozessliste (app.js) wählen über select aus page.js, und
+/** Aufruf gegen die Importrichtung: Lastzeile (strip.js) und Prozessliste (procs/rows.js) wählen über select aus page.js, und
  * select ruft renderProcs, das bei autoPick wieder select ruft. page.js trägt select beim Laden ein. */
 export const calls = {};

@@ -126,7 +126,7 @@ export function checkTerminate() {
 export function checkInfo() {
   // ---- Info-Dialog ----
   const info = $(".info"), about = $("dialog.about");
-  info.click(); // ohne vorherigen Fokus: nur app.js gibt ihn an den Knopf zurück
+  info.click(); // ohne vorherigen Fokus: nur dialogs.js gibt ihn an den Knopf zurück
   eq(about.open + "/" + (document.activeElement === $("dialog.about .btn.plain")), "true/true", "Info: offen, Fokus auf Schließen");
   eq($("dialog.about p").textContent, "Version 9.9.9", "Info: Version aus init");
   about.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

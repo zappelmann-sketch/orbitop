@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
 // Brücke von Python: window.orbitop.receive verteilt init, tick und die Antworten an die Module der Seite.
-import { applyLayout, equal, keyOf, labelHead, refresh, renderDetail, renderProcs } from "./app.js";
+import { applyLayout, equal, keyOf, labelHead, refresh, renderDetail, renderProcs } from "./procs/view.js";
 import { notify, renderAutostart } from "./dialogs.js";
 import { setText } from "./dom.js";
 import { fill, text } from "./format.js";

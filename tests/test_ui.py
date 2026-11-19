@@ -18,8 +18,6 @@ REPO = Path(__file__).resolve().parent.parent
 JS_DIR = REPO / "orbitop" / "ui" / "js"
 CHECK_DIR = REPO / "tests" / "ui"
 IMPORT = re.compile(r'^(?:import|export)\s+(?:[^;"]*?\s+from\s+)?"(\.\.?/[^"]+)";', re.M)
-# bis Task 3: beide halten noch den Reiter „Prozesse“; Task 3 teilt sie auf und entfernt die Ausnahme
-TOO_LONG_UNTIL_TASK3 = {"orbitop/ui/js/app.js", "tests/ui/check/procs.js"}
 
 
 def relative_imports(src):
@@ -107,16 +105,19 @@ def test_relative_imports(src, want):
 
 def test_ui_modules_have_no_import_cycle():
     """Ein Zyklus ließe einen importierten Namen beim Auswerten undefined. Dazu: Jedes importierte Modul gibt es,
-    und jede Datei der Seite und der Prüfseite hat höchstens 300 Zeilen."""
+    jede Datei der Seite und der Prüfseite hat höchstens 300 Zeilen, und die Seite nutzt den Reiter „Prozesse“
+    außerhalb von procs/ nur über dessen Fassade procs/view.js."""
     files = [*JS_DIR.rglob("*.js"), CHECK_DIR / "check.js", *(CHECK_DIR / "check").rglob("*.js")]
+    procs = JS_DIR / "procs"
     graph = {}
     for p in sorted(files):
         src = p.read_text(encoding="utf-8")
         deps = [(p.parent / m).resolve() for m in relative_imports(src)]
         assert all(d.is_file() for d in deps), (p.name, [str(d) for d in deps if not d.is_file()])
         graph[p.resolve()] = deps
-        if p.relative_to(REPO).as_posix() not in TOO_LONG_UNTIL_TASK3:
-            assert len(src.splitlines()) <= 300, p.name
+        assert len(src.splitlines()) <= 300, p.relative_to(REPO).as_posix()
+        if p.parent == JS_DIR:
+            assert {d.name for d in deps if d.parent == procs} <= {"view.js"}, p.name
     assert graph[(JS_DIR / "main.js").resolve()], "keine Importe in main.js erkannt"
     done = set()
 

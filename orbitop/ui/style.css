@@ -94,7 +94,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 @media (width < 1300px) { .grid { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (width < 1000px) { .grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 
-/* Rahmen = äußere Fläche mit Farbverlauf, innen 1 px kleiner, beide mit abgeschrägten Ecken; --c setzt app.js */
+/* Rahmen = äußere Fläche mit Farbverlauf, innen 1 px kleiner, beide mit abgeschrägten Ecken; --c setzt tiles.js */
 .tile, .frame {
   --c: var(--cyan);
   padding: 1px;
@@ -222,8 +222,8 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 /* ---- Prozesse (entwuerfe/prozesse.html) ---- */
 .procs {
   display: grid;
-  /* Liste, Trenner (die frühere Lücke), Detail; Anteile --list/--detail setzt app.js. Die Mindestbreiten gelten auch,
-     wenn ein gespeicherter Anteil im schmaleren Fenster nicht passt. */
+  /* Liste, Trenner (die frühere Lücke), Detail; Anteile --list/--detail setzt procs/layout.js. Die Mindestbreiten
+     gelten auch, wenn ein gespeicherter Anteil im schmaleren Fenster nicht passt. */
   grid-template-columns: minmax(360px, var(--list, 1.55fr)) 12px minmax(300px, var(--detail, 1fr));
   grid-template-rows: minmax(0, 1fr);
   gap: 12px 0;
@@ -267,7 +267,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .filters button[aria-pressed="true"]::before { background: #24323b; }
 
 .scroll { flex: 1; min-height: 0; overflow: auto; }
-/* Breiten setzt app.js per CSSOM auf col und table */
+/* Breiten setzt procs/layout.js per CSSOM auf col und table */
 .ptable { table-layout: fixed; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .ptable th {
   position: sticky;
@@ -299,7 +299,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ptable thead .grip:hover::after { background: var(--mut); }
 .ptable thead .grip.on::after { background: var(--cyan); }
 .ptable th.on button { color: var(--cyan); } /* Kopf, der gerade umgeordnet wird */
-/* Einfügemarke beim Umordnen, Lage setzt app.js per CSSOM */
+/* Einfügemarke beim Umordnen, Lage setzt procs/drag.js per CSSOM */
 .drop {
   position: fixed;
   z-index: 2;
@@ -312,7 +312,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .ptable .r { text-align: right; }
 .ptable td { padding: 6px; border-bottom: 1px solid #141c21; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .ptable tbody tr { cursor: pointer; }
-.ptable tr.pad td { padding: 0; } /* Abstandszeile für nicht gezeichnete Zeilen, Höhe setzt app.js */
+.ptable tr.pad td { padding: 0; } /* Abstandszeile für nicht gezeichnete Zeilen, Höhe setzt procs/rows.js */
 .ptable tbody tr:hover td { background: rgba(255, 255, 255, .025); }
 .ptable tr.sel td { background: rgba(79, 216, 255, .10); }
 .ptable tr.sel td:first-child { box-shadow: inset 2px 0 0 var(--cyan); }
@@ -413,7 +413,7 @@ button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
 .notice .x:hover { color: var(--ink); }
 .notice svg { width: 10px; height: 10px; }
 
-/* Spaltenmenü: Rahmen wie die Kacheln, Einträge wie die Filterknöpfe; Lage setzt app.js per CSSOM */
+/* Spaltenmenü: Rahmen wie die Kacheln, Einträge wie die Filterknöpfe; Lage setzt procs/menu.js per CSSOM */
 .menu { position: fixed; z-index: 3; min-width: 180px; }
 .menu .in { gap: 0; padding: 8px 8px 12px; max-height: calc(100vh - 16px); overflow-y: auto; }
 .menu button { display: flex; gap: 6px; padding: 4px 12px 4px 6px; font-size: 12px; text-align: left; white-space: nowrap; }

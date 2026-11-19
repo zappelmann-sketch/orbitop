@@ -471,7 +471,7 @@ sampler.py          rates, histories, JSON snapshot
 shell.py            GTK 4 window, WebKitGTK 6.0 view, orbitop://ui/
    |  window.orbitop.receive(msg)
    v
-orbitop/ui/app.js   page, chart.js draws the charts
+orbitop/ui/js/      page as ES modules from main.js, chart.js draws the charts
    |  postMessage: ready, view, layout, terminate, autostart, quit
    v
 app.py parse_message
