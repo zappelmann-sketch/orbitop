@@ -465,7 +465,7 @@ python3 -m pytest -q
 sysfs.py  system.py  sensors.py  gpu.py  gpu_tools.py  procs.py  classify.py
    |
    v
-sampler.py          rates, histories, JSON snapshot
+sampler.py tiles.py rates, histories, tiles, JSON snapshot
    |  app.py Worker: threads orbitop-worker (1 s), orbitop-procs (2 s)
    v
 shell.py            GTK 4 window, WebKitGTK 6.0 view, orbitop://ui/

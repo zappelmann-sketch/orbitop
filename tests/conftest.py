@@ -6,7 +6,7 @@ import warnings
 
 import pytest
 
-from tests.roots import INTEL
+from tests.roots import INTEL, VM
 
 # PyGObject 3.56 warnt schon beim ersten Import von GLib über sein eigenes veraltetes unix_signal_add_full
 # (gi/overrides/__init__.py, nicht orbitop). Einmal still vorladen, damit -W error::DeprecationWarning nur eigenen Code trifft.
@@ -33,6 +33,25 @@ def tree_copy(tmp_path):
         dst = str(tmp_path / "root")
         shutil.copytree(src, dst, symlinks=True)
         return dst
+    return make
+
+
+@pytest.fixture
+def patched(monkeypatch):
+    """Sampler, dessen Leser (read_sensors, read_battery, RaplReader.read) feste Werte liefern."""
+    from orbitop import sampler as sampler_mod
+    from orbitop.sampler import Sampler
+    from tests.sampler_helpers import NoTools, fake_clock
+
+    def make(root=VM, rapl=None, tools=None, ticks=4, **readers):
+        for name, val in readers.items():
+            monkeypatch.setattr(sampler_mod, name, lambda *a, val=val: val)
+        s = Sampler(root, tools=tools or NoTools(), clock=fake_clock(), uid=1000)
+        s._rapl.read = lambda now: rapl
+        for _ in range(ticks):
+            s.tick_system()
+            s.tick_procs()
+        return s
     return make
 
 

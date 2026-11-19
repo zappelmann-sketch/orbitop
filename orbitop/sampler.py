@@ -1,14 +1,13 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Sampler: Ringpuffer (5 min) und die tick-Nachricht des Schnappschuss-Vertrags."""
+"""Sampler: Leser, Raten, Ringpuffer (5 min) und die tick-Nachricht des Schnappschuss-Vertrags (Kacheln: tiles)."""
 import json
-import math
 import os
 import threading
 import time
 from collections import deque
 
-from orbitop import procs, sysfs
+from orbitop import procs, sysfs, tiles
 from orbitop.app import encode
 from orbitop.gpu import FdinfoScanner, GpuReader, discover_gpus
 from orbitop.gpu_tools import GpuTools
@@ -22,82 +21,7 @@ CPU_CHIPS = {"coretemp", "k10temp", "zenpower", "k8temp", "via_cputemp", "macsmc
 CPU_KEY, CHIPSET_KEY = "series.cpu_package", "series.chipset"
 KINDS = ("cpu", "gpu", "mem", "power", "temp", "fan", "net", "disk")
 _PROCS = object()  # Platzhalter für die Prozessliste im Schnappschuss, eingesetzt von snapshot / snapshot_json
-_SLOT = json.dumps("\0procs\0")  # ihr Platz im JSON; echte Texte enthalten nie NUL (_clean, sysfs.printable)
-
-
-def _num(v, u, of=None, p=None):
-    n = {"v": v, "u": u}
-    if of is not None:
-        n["of"] = of
-    if p:
-        n["p"] = p
-    return n
-
-
-def _opt(v, u, of=None):
-    """Zelle der Geräte-Tabelle: fehlender Wert ist null („–“), kein Num mit v=None."""
-    return None if v is None else _num(v, u, of)
-
-
-def _kv(k, v):
-    return {"k": k, "v": v}
-
-
-def _kl(label, v):
-    return {"l": label, "v": v}
-
-
-def _tk(key):
-    return {"k": key}
-
-
-def _tl(label):
-    return {"l": label}
-
-
-def _sum(vals):
-    vals = [v for v in vals if v is not None]
-    return sum(vals) if vals else None
-
-
-def _pct(part, whole):
-    return 100.0 * part / whole if part is not None and whole else None
-
-
-def _nice(v: float) -> float:
-    """1, 2 oder 5 x 10^n, mindestens 1."""
-    if v <= 1:
-        return 1.0
-    e = 10 ** math.floor(math.log10(v))
-    return float(next(m * e for m in (1, 2, 5, 10) if v <= m * e))
-
-
-def _seg(v, ref) -> float:
-    if v is None or not ref or ref <= 0:
-        return 0.0
-    return min(100.0, max(0.0, 100.0 * v / ref))
-
-
-def _unique(labels):
-    seen: dict[str, int] = {}
-    out = []
-    for lb in labels:
-        seen[lb] = seen.get(lb, 0) + 1
-        out.append(lb if seen[lb] == 1 else f"{lb} {seen[lb]}")
-    return out
-
-
-def _clean(o):
-    """Nur endliche Zahlen (höchstens 2 Nachkommastellen) oder None, nur druckbare Texte: JSON-sicher und klein."""
-    if isinstance(o, float):
-        return round(o, 2) if math.isfinite(o) else None
-    if isinstance(o, str):
-        return sysfs.printable(o)
-    if isinstance(o, dict):
-        return {k: _clean(v) for k, v in o.items()}
-    if isinstance(o, (list, tuple)):
-        return [_clean(v) for v in o]
-    return o
+_SLOT = json.dumps("\0procs\0")  # ihr Platz im JSON; echte Texte enthalten nie NUL (tiles.clean, sysfs.printable)
 
 
 def _crit(root: str) -> float | None:
@@ -202,15 +126,15 @@ class Sampler:
 
     def _tick_mem(self, now) -> None:
         mem = self._s["mem"] = _safe(read_memory, self._root)
-        self._push("mem", mem and _pct(mem.used, mem.total))
-        self._push("swap", mem and _pct(mem.swap_used, mem.swap_total))
+        self._push("mem", mem and tiles.pct(mem.used, mem.total))
+        self._push("swap", mem and tiles.pct(mem.swap_used, mem.swap_total))
 
     def _tick_gpus(self, now) -> None:
         for g in self._gpus:
             smp = _safe(g.read, now)
             self._s["gpus"].append((g, smp))
             if smp is not None:
-                v = smp.busy if self._busy_gpu[g.info.card] else _pct(smp.freq_mhz, smp.freq_max_mhz)
+                v = smp.busy if self._busy_gpu[g.info.card] else tiles.pct(smp.freq_mhz, smp.freq_max_mhz)
                 self._push("gpu:" + g.info.card, v)
 
     def _tick_power(self, now) -> None:
@@ -235,26 +159,26 @@ class Sampler:
         temps = [("temp:#cpu", ("key", CPU_KEY), sens.cpu_temp)] if sens and sens.cpu_temp is not None else []
         if sens:
             temps += [(f"temp:{lb}", ("key", CHIPSET_KEY) if t.chip.startswith("pch_") else ("label", lb), t.value)
-                      for t, lb in zip(sens.temps, _unique([t.label for t in sens.temps]))]
+                      for t, lb in zip(sens.temps, tiles.unique([t.label for t in sens.temps]))]
         self._s["temps"] = temps
         for buf, _, v in temps:
             self._push(buf, v)
 
     def _tick_fans(self, now) -> None:
         sens = self._s["sens"]
-        self._s["fans"] = list(zip(_unique([f.label for f in sens.fans]), sens.fans)) if sens else []
+        self._s["fans"] = list(zip(tiles.unique([f.label for f in sens.fans]), sens.fans)) if sens else []
         for k, f in self._s["fans"]:
             self._push("fan:" + k, f.rpm)
 
     def _tick_net(self, now) -> None:
         nets = self._s["nets"] = _safe(self._net.read, now, default=[])
-        self._push("rx", _sum(d.rx_bps for d in nets))
-        self._push("tx", _sum(d.tx_bps for d in nets))
+        self._push("rx", tiles.total(d.rx_bps for d in nets))
+        self._push("tx", tiles.total(d.tx_bps for d in nets))
 
     def _tick_disks(self, now) -> None:
         disks = self._s["disks"] = _safe(self._disk.read, now, default=[])
-        self._push("read", _sum(d.read_bps for d in disks))
-        self._push("write", _sum(d.write_bps for d in disks))
+        self._push("read", tiles.total(d.read_bps for d in disks))
+        self._push("write", tiles.total(d.write_bps for d in disks))
         self._disk_temps(disks, self._s["sens"])
 
     def _disk_temps(self, disks, sens) -> None:
@@ -290,161 +214,28 @@ class Sampler:
         if self._own_tools:
             self._tools.stop()
 
-    # ---- Kacheln ----
-    def _plot(self, unit, *specs):
-        """specs: ((\"key\"|\"label\", Name), Puffer, gefüllt). Alle Kurven einer Kachel teilen eine Skala."""
-        vals = [list(self._bufs.get(buf, ())) for _, buf, _ in specs]
-        wmax = max((v for s in vals for v in s if v is not None), default=0.0)
-        top = 100.0 if unit == "%" else max(100.0, 1.1 * wmax) if unit == "°C" else _nice(wmax)
-        return [{name[0]: name[1], "fill": f, "max": top, "u": unit, "values": v}
-                for (name, _, f), v in zip(specs, vals)]
-
-    @staticmethod
-    def _tile(kind, id, name, main, aside, seg, series, kv, warn, devices=None, threads=None):
-        """warn: seg hat eine absolute Obergrenze, Bernstein ab 80 % ist dann eine echte Warnung."""
-        return {"id": id, "kind": kind, "name": name, "main": main, "aside": aside, "seg": seg,
-                "series": series, "threads": threads, "kv": kv, "devices": devices, "warn": warn}
-
-    def _cpu_tile(self):
-        c = self._s["cpu"]
-        if c is None:
-            return None
-        series = self._plot("%", (("key", "series.used"), "cpu", True))
-        temp = self._s["sens"].cpu_temp if self._s["sens"] else None
-        kv = [_kv("kv.temperature", _num(temp, "°C"))] if temp is not None else []
-        n_proc, n_thr = self._table.counts()
-        if n_proc:
-            kv.append(_kv("kv.procs_threads", _num(n_proc, "", n_thr)))
-        return self._tile("cpu", "cpu", c.model, _num(c.total, "%"), _num(c.freq_ghz, "GHz"),
-                          _seg(c.total, 100), series, kv, True,
-                          threads=[list(self._bufs.get(f"t{i}", ())) for i in range(len(c.threads))])
-
-    def _gpu_tile(self, g, smp):
-        card = "gpu:" + g.info.card
-        if not any(v is not None for v in (smp.busy, smp.freq_mhz, smp.freq_max_mhz, smp.power_w,
-                                            smp.temp_c, smp.vram_used, smp.vram_total)):
-            return None
-        busy = self._busy_gpu[g.info.card]
-        series = self._plot("%", (("key", "series.used" if busy else "kv.clock"), card, True))
-        main = smp.busy if busy else _pct(smp.freq_mhz, smp.freq_max_mhz)
-        kv = [_kv("kv.clock", _num(smp.freq_mhz, "MHz"))] if smp.freq_mhz is not None else []
-        if smp.power_w is not None:
-            kv.append(_kv("kv.power", _num(smp.power_w, "W")))
-        if smp.temp_c is not None:
-            kv.append(_kv("kv.temperature", _num(smp.temp_c, "°C")))
-        if smp.vram_used is not None:
-            kv.append(_kv("kv.memory", _num(smp.vram_used, "B", smp.vram_total)))
-        elif g.info.vendor == "intel":
-            kv.append(_kv("kv.memory", _tk("kv.shared_with_ram")))
-        return self._tile("gpu", "gpu", g.name, _num(main, "%"), _num(smp.freq_mhz, "MHz", smp.freq_max_mhz),
-                          _seg(main, 100), series, kv, True)
-
-    def _mem_tile(self):
-        m = self._s["mem"]
-        if m is None or not m.total:
-            return None
-        specs = [(("key", "series.used"), "mem", True)] + (
-            [(("key", "series.swap"), "swap", False)] if m.swap_total else [])
-        series = self._plot("%", *specs)
-        used = _pct(m.used, m.total)
-        kv = [_kv("kv.available", _num(m.available, "B"))]
-        if m.swap_total:
-            kv.append(_kv("kv.swap", _num(m.swap_used, "B", m.swap_total)))
-        return self._tile("mem", "mem", "", _num(used, "%"), _num(m.used, "B", m.total), _seg(used, 100), series, kv,
-                          True)
-
-    def _power_tile(self):
-        s = self._s
-        batt, gpu_w = s["batt"], _sum(smp.power_w for _, smp in s["gpus"] if smp)
-        if s["pwr"] is None and batt is None and gpu_w is None:
-            return None
-        name = s["pwr_name"]
-        series = self._plot("W", (name, "power:" + name[1], True))
-        kv = []
-        core = s["rapl"].get("core")
-        if core is not None:
-            kv.append(_kv("kv.cpu_cores", _num(core, "W")))
-        if gpu_w is not None:
-            kv.append(_kv("kv.gpu", _num(gpu_w, "W")))
-        if batt is not None:
-            state = _tk("kv.on_ac") if batt.on_ac else _num(batt.discharge_w, "W") if batt.discharge_w is not None else None
-            kv.append(_kv("kv.battery", [_num(batt.percent, "%")] + ([state] if state else [])))
-        return self._tile("power", "power", "", _num(s["pwr"], "W"), _tk(name[1]) if name[0] == "key" else _tl(name[1]),
-                          _seg(s["pwr"], series[0]["max"]), series, kv, False)
-
-    def _temp_tile(self):
-        temps = self._s["temps"]
-        if not temps:
-            return None
-        series = self._plot("°C", *[(name, buf, i == 0) for i, (buf, name, _) in enumerate(temps[:3])])
-        hottest = max(v for _, _, v in temps)
-        return self._tile("temp", "temp", "", _num(hottest, "°C"), _tk("tile.temp_aside"),
-                          _seg(hottest, self._crit or 100), series,
-                          [(_kv if name[0] == "key" else _kl)(name[1], _num(v, "°C")) for _, name, v in temps[3:]],
-                          True)
-
-    def _fan_tile(self):
-        fans = self._s["fans"]
-        if not fans:
-            return None
-        series = self._plot("rpm", *[(("label", k), "fan:" + k, i == 0) for i, (k, _) in enumerate(fans[:3])])
-        first = [v for v in self._bufs["fan:" + fans[0][0]] if v is not None]
-        kv = [_kv("kv.fan_min", _num(min(first), "rpm")), _kv("kv.fan_max", _num(max(first), "rpm"))]
-        return self._tile("fan", "fan", "", _num(fans[0][1].rpm, "rpm"), _tl(fans[0][0]),
-                          _seg(fans[0][1].rpm, fans[0][1].max_rpm or series[0]["max"]), series, kv,
-                          bool(fans[0][1].max_rpm))
-
-    def _net_tile(self):
-        devs = self._s["nets"]
-        if not devs:
-            return None
-        series = self._plot("B/s", (("key", "series.rx"), "rx", True), (("key", "series.tx"), "tx", False))
-        rx, tx = _sum(d.rx_bps for d in devs), _sum(d.tx_bps for d in devs)
-        up = [d.name for d in devs if d.up]
-        kv = [_kv("kv.interface", _tl(up[0]))] if len(up) == 1 else []
-        kv.append(_kv("kv.since_boot", [_num(sum(d.rx_total for d in devs), "B", p="↓"),
-                                        _num(sum(d.tx_total for d in devs), "B", p="↑")]))
-        # Absolut nur, wenn jedes aktive Gerät seine Link-Geschwindigkeit kennt (Mbit/s -> B/s), sonst relativ zur Skala
-        link = sum(d.speed for d in devs if d.up) * 125000 if up and all(d.speed for d in devs if d.up) else None
-        return self._tile("net", "net", up[0] if len(up) == 1 else "", _num(rx, "B/s", p="↓"),
-                          _num(tx, "B/s", p="↑"), _seg(rx, link or series[0]["max"]), series, kv, link is not None,
-                          {"cols": ["series.rx", "series.tx"],
-                           "rows": [{"name": d.name, "values": [_opt(d.rx_bps, "B/s"), _opt(d.tx_bps, "B/s")]}
-                                    for d in devs]})
-
-    def _disk_tile(self):
-        disks = self._s["disks"]
-        if not disks:
-            return None
-        series = self._plot("B/s", (("key", "series.read"), "read", True), (("key", "series.write"), "write", False))
-        rd, wr = _sum(d.read_bps for d in disks), _sum(d.write_bps for d in disks)
-        kv = [_kv("kv.write", _num(wr, "B/s"))]
-        used, size = _sum(d.used for d in disks), _sum(d.size for d in disks)
-        if used is not None:  # Summe über die eingehängten Dateisysteme, nicht die Rohkapazität
-            kv.append(_kv("kv.used", _num(used, "B", size)))
-        temp = max((d.temp_c for d in disks if d.temp_c is not None), default=None)
-        if temp is not None:
-            kv.append(_kv("kv.temperature", _num(temp, "°C")))
-        one = disks[0] if len(disks) == 1 else None
-        return self._tile("disk", "disk", (one.model or one.name) if one else "", _num(rd, "B/s"),
-                          _tk("series.read"), _seg(rd, series[0]["max"]), series, kv, False,
-                          {"cols": ["series.read", "series.write", "kv.used", "kv.temperature"],
-                           "rows": [{"name": d.name, "values": [_opt(d.read_bps, "B/s"), _opt(d.write_bps, "B/s"),
-                                                                _opt(d.used, "B", d.size), _opt(d.temp_c, "°C")]}
-                                    for d in disks]})
-
+    # ---- Kacheln (Bau in tiles.py) ----
     def _tiles(self) -> list[dict]:
-        out = [_safe(self._cpu_tile)]
-        gpu = [_safe(self._gpu_tile, g, smp) for g, smp in self._s.get("gpus", []) if smp]
+        """Jede Kachel für sich: ein Fehler beim Bau einer Kachel lässt nur diese weg."""
+        s, bufs = self._s, self._bufs
+        out = [_safe(lambda: tiles.cpu_tile(s["cpu"], s["sens"], self._table.counts(), bufs))]
+        gpu = [_safe(lambda g=g, smp=smp: tiles.gpu_tile(g.info, g.name, smp, self._busy_gpu[g.info.card], bufs))
+               for g, smp in s.get("gpus", []) if smp]
         gpu = [t for t in gpu if t]
         for i, t in enumerate(gpu):  # Nummern zählen nur Grafikchips mit Kachel
             t["id"] = f"gpu{i}"
         out += gpu
-        out += [_safe(getattr(self, f"_{k}_tile")) for k in ("mem", "power", "temp", "fan", "net", "disk")]
+        out += [_safe(lambda: tiles.mem_tile(s["mem"], bufs)),
+                _safe(lambda: tiles.power_tile(s["pwr"], s["pwr_name"], s["rapl"], s["batt"],
+                                               [smp for _, smp in s["gpus"]], bufs)),
+                _safe(lambda: tiles.temp_tile(s["temps"], self._crit, bufs)),
+                _safe(lambda: tiles.fan_tile(s["fans"], bufs)),
+                _safe(lambda: tiles.net_tile(s["nets"], bufs)),
+                _safe(lambda: tiles.disk_tile(s["disks"], bufs))]
         return [t for t in out if t]
 
     def _rows(self) -> list:
-        return _clean(_safe(self._table.rows, self._now_procs, default=[]))
+        return tiles.clean(_safe(self._table.rows, self._now_procs, default=[]))
 
     def snapshot(self, view: dict) -> dict:
         with self._procs_lock:  # _tiles (CPU-Kachel) und der Rest lesen die Prozesstabelle
@@ -476,8 +267,8 @@ class Sampler:
         valid = tab == "procs" and all(isinstance(x, int) and not isinstance(x, bool) for x in (pid, start))
         # genau einmal zuweisen, vor jedem Lesen der Tabelle: der Prozess-Thread liest selected ohne Sperre
         self._table.selected = (pid, start) if valid else None
-        tiles = _safe(self._tiles, default=[]) if self._s else []
-        kinds = {t["kind"] for t in tiles}
+        built = _safe(self._tiles, default=[]) if self._s else []
+        kinds = {t["kind"] for t in built}
         hints = list(_safe(self._tools.hints, default=None) or [])
         # erst nach ein paar Takten: intel_gpu_top liefert pkg_w nicht sofort
         if self._rapl_noperm and self._n > 3 and self._s["pkg"] is None:
@@ -485,5 +276,5 @@ class Sampler:
         procs_rows = _PROCS if tab == "procs" else None  # setzt snapshot oder snapshot_json ein
         detail = _safe(self._table.detail, pid, start, self._now_procs) if valid else None
         top = {"cpu": _safe(self._table.top_cpu, 3, default=[]), "mem": _safe(self._table.top_mem)}
-        return _clean({"type": "tick", "tiles": tiles, "missing": [k for k in KINDS if k not in kinds],
-                       "hints": hints, "top": top, "procs": procs_rows, "detail": detail})
+        return tiles.clean({"type": "tick", "tiles": built, "missing": [k for k in KINDS if k not in kinds],
+                            "hints": hints, "top": top, "procs": procs_rows, "detail": detail})
