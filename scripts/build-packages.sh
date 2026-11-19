@@ -43,10 +43,27 @@ out=$(cd -- "$out" && pwd -P)
 tracked_files
 version=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$tmp/src/orbitop/__init__.py")
 [[ $version =~ ^[0-9]+(\.[0-9]+)*$ ]] || die "no version in orbitop/__init__.py"
-# One disposable container per build: the archive read-only, only DIR writable, the checked key on stdin.
-container "$out" "$DEB_IMAGE" -- /src/packaging/debian/build-inside.sh "$version-$REVISION${suffix:++$suffix}"
-for image in "$FEDORA_IMAGE" "$SUSE_IMAGE"; do
-    container "$out" "$image" -- /src/packaging/rpm/build-inside.sh "$version" "$REVISION${suffix:+.$suffix}"
-done
-container "$out" "$ARCH_IMAGE" -- /src/packaging/arch/build-inside.sh "$version" "$REVISION${suffix:+.1}"
+# build FORMAT IMAGE SCRIPT [ARG…]: one disposable container, the archive read-only, the checked key on stdin and a
+# new, empty output directory of its own writable, never DIR: no image can touch the packages of another one. That
+# directory may then hold only FORMAT/ and lint/ with files, which go to DIR/FORMAT and DIR/lint, never over a file
+# that is there already.
+build() {
+    local format=$1 image=$2 work odd file files=()
+    shift 2
+    work=$(mktemp -d -p "$tmp")
+    container "$work" "$image" -- "$@"
+    odd=$(cd -- "$work" && find . -mindepth 1 ! \( -type d -regex "\./\($format\|lint\)" \) \
+        ! \( -type f -regex "\./\($format\|lint\)/[^/]+" \) -print -quit) || die "refusing the output of $image"
+    [ -z "$odd" ] || die "refusing the output of $image: ${odd#./} is not a file in $format/ or lint/"
+    while IFS= read -r -d '' file; do
+        [ ! -e "$out/$file" ] || die "refusing the output of $image: $file is in DIR already"
+        files+=("$file")
+    done < <(cd -- "$work" && find . -mindepth 2 -type f -printf '%P\0')
+    mkdir -p -- "$out/$format" "$out/lint"
+    for file in "${files[@]}"; do mv -- "$work/$file" "$out/$file"; done
+}
+build deb "$DEB_IMAGE" /src/packaging/debian/build-inside.sh "$version-$REVISION${suffix:++$suffix}"
+build rpm-fedora "$FEDORA_IMAGE" /src/packaging/rpm/build-inside.sh "$version" "$REVISION${suffix:+.$suffix}"
+build rpm-opensuse "$SUSE_IMAGE" /src/packaging/rpm/build-inside.sh "$version" "$REVISION${suffix:+.$suffix}"
+build arch "$ARCH_IMAGE" /src/packaging/arch/build-inside.sh "$version" "$REVISION${suffix:+.1}"
 ls -lR -- "$out"

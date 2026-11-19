@@ -10,7 +10,7 @@
 #        end "RESULT <image> <digest> pass|fail <step>" per image; exits 1 unless every image passed.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=container-common.sh
-. "$(dirname -- "$0")/container-common.sh"  # die, usage, workdir, tracked_files
+. "$(dirname -- "$0")/container-common.sh"  # die, usage, workdir, tracked_files, fingerprint
 
 IMAGES=(debian:trixie ubuntu:24.04 ubuntu:26.04 fedora:latest opensuse/tumbleweed archlinux:latest debian:bookworm
     ubuntu:22.04)
@@ -38,14 +38,6 @@ done
 site=$(cd -- "$site" && pwd -P)
 site2=$(cd -- "$site2" && pwd -P)
 
-# fingerprint SITE: the fingerprint of the one primary key in the keyring of SITE, read in an empty keyring.
-fingerprint() {
-    gpg --homedir "$tmp/gnupg" --no-options --batch --with-colons --show-keys -- \
-        "$1/orbitop-archive-keyring.asc" 2> /dev/null |
-        awk -F: '$1 == "pub" { n++ } $1 == "fpr" && !f { f = $10 }
-            END { if (n != 1 || f !~ /^[0-9A-F]{40}$/) exit 1; print f }'
-}
-
 # verdict IMAGE RC: "pass -", "pass install" for an expected refusal, or "fail <first failed step>".
 verdict() {
     local failed first
@@ -67,8 +59,10 @@ verdict() {
 workdir
 mkdir -m 700 "$tmp/gnupg"  # never the caller's GNUPGHOME
 # The containers trust whatever key the sites carry; the run names it, and Task 10 compares it with ORBITOP_KEY.
-key=$(fingerprint "$site") || die "--site: orbitop-archive-keyring.asc must hold exactly one key"
-[ "$(fingerprint "$site2" || true)" = "$key" ] || die "--site2 must carry the same key as --site ($key)"
+key=$(fingerprint "$site/orbitop-archive-keyring.asc") ||
+    die "--site: orbitop-archive-keyring.asc must hold exactly one key"
+[ "$(fingerprint "$site2/orbitop-archive-keyring.asc" || true)" = "$key" ] ||
+    die "--site2 must carry the same key as --site ($key)"
 echo "KEY $key"
 tracked_files  # a container sees only the files of HEAD, never local ones such as CLAUDE.md or .git
 results=()

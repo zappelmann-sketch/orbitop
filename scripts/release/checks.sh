@@ -1,9 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Step 1 of scripts/release.sh, before anything is built: the tree, the versions, the key, the README and GitHub.
-# Sourced by release.sh, which sets repo, version, dry, fpr (ORBITOP_KEY in upper case) and tmp. Provides APP,
-# GH_REPO, gpg, fingerprint, check_tree, check_key ($tmp/key.asc and $tmp/key.pgp), check_committed, check_readme,
-# check_github, remote_state ($pages_rev) and run_tests.
+# Sourced by release.sh after container-common.sh (die, fingerprint), which sets repo, version, dry, fpr (ORBITOP_KEY
+# in upper case) and tmp. Provides APP, GH_REPO, gpg, check_tree, check_key ($tmp/key.asc and $tmp/key.pgp),
+# check_committed, check_readme, check_github, remote_state ($pages_rev) and run_tests.
 # shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr and tmp come from release.sh
 
 APP=io.github.zappelmann_sketch.orbitop
@@ -12,13 +12,6 @@ IDENT="zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>"
 WARN_DAYS=180  # spec 4: the key's remaining time
 
 gpg() { command gpg --no-options --batch "$@"; }  # never a gpg.conf: its options would reach the release
-
-# fingerprint FILE: the fingerprint of the one primary key in FILE, read in the empty keyring $tmp/gnupg.
-fingerprint() {
-    gpg --homedir "$tmp/gnupg" --with-colons --show-keys -- "$1" 2> /dev/null |
-        awk -F: '$1 == "pub" { n++ } $1 == "fpr" && !f { f = $10 }
-            END { if (n != 1 || f !~ /^[0-9A-F]{40}$/) exit 1; print f }'
-}
 
 # check_ident DIR: git in DIR writes commits and tags as the account's name and noreply address and nothing else (git
 # var prints IDENT, then time and zone). DIR is the repository or the gh-pages worktree: an includeIf of the git

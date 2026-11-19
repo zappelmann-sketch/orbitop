@@ -114,12 +114,17 @@ def test_build_site_signs_no_package_a_container_changed(tmp_path, key, step):
 
 
 @needs_git
-def test_build_site_signs_only_the_package_from_packages(tmp_path, key):
-    r, _ = run(tmp_path, key, env={"PLANT": "extra"})
-    assert r.returncode == 0, r.stderr
-    arch = tmp_path / "site" / "arch" / "x86_64"
-    assert (arch / "orbitop-0.2.0-1-any.pkg.tar.zst.sig").exists()
-    assert not (arch / "evil-1-1-any.pkg.tar.zst.sig").exists()
+@pytest.mark.parametrize("plant, refused", [("extra", "arch/x86_64"), ("rpm-extra", "rpm/fedora"),
+                                            ("rpm-missing", "rpm/fedora"), ("rpm-changed", "rpm/fedora")])
+def test_build_site_refuses_files_no_step_writes(tmp_path, key, plant, refused):
+    """Audit F3: Nach dem RPM- und dem Arch-Container stehen dort genau die erwarteten Dateien, und jedes RPM ist ab
+    dem Haupt-Header das aus --packages; sonst signiert der Rechner nichts davon und hält an."""
+    r, calls = run(tmp_path, key, env={"PLANT": plant})
+    assert r.returncode == 1 and f"refusing {refused}" in r.stderr, r.stderr
+    site = tmp_path / "site"
+    assert not list((site / refused).rglob("*.sig")) and not list((site / refused).rglob("*.asc"))
+    images = [c[c.index("bash") - 1] for c in calls if c[0] == "run"]
+    assert images[-1] == ("archlinux:latest" if plant == "extra" else "orbitop-site-rpm-fedora:local"), images
 
 
 @needs_git

@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Gemeinsames der Tests von scripts/build-site.sh: Wegwerfschlüssel und ein docker-Stellvertreter."""
+import hashlib
 import os
 import shutil
 import subprocess
@@ -18,6 +19,10 @@ PACKAGES = ["deb/orbitop_0.2.0-1_all.deb", "deb/orbitop-apt-source_2026.11.18_al
             "arch/orbitop-0.2.0-1-any.pkg.tar.zst", "lint/orbitop_0.2.0-1_all.txt"]
 # build-site.sh nimmt Vorlage und Container-Skripte aus git archive HEAD
 needs_git = pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")
+RPMS = ROOT / "tests" / "fixtures" / "rpm"  # echte Paare aus build-packages.sh und build-site.sh (test_rpm_same.py)
+# createrepo_c schreibt neben repomd.xml je Index eine Datei <sha256>-<Name>.xml.zst
+REPODATA = [f"repodata/{hashlib.sha256(t.encode() + b'\n').hexdigest()}-{t}.xml.zst"
+            for t in ("primary", "filelists", "other")]
 LEAK = "ORBITOP-LEAK"  # steht in der gpg.conf des Wegwerf-GNUPGHOME und darf nie in die Seite gelangen
 # Der Stellvertreter legt nur an, was die Container-Schritte schreiben; PLANT legt dabei etwas Fremdes in /out.
 DOCKER = """#!/bin/sh
@@ -27,7 +32,14 @@ for a; do case $a in *:/out) out=${a%:/out} ;; /src/packaging/site/*) step=${a##
 cat >> "$LOG_DIR/stdin.bin"
 case $step in
     apt-inside.sh) python3 -I "$APT_TREE" index "$out" stable main $([ "$PLANT" = apt-forged ] && echo forge) ;;
-    rpm-inside.sh) mkdir -p "$out/repodata" && echo '<repomd/>' > "$out/repodata/repomd.xml" ;;
+    rpm-inside.sh)  # "signiert": das unsignierte Paar der Familie wird zum signierten
+        for r in "$out"/*.rpm; do
+            for f in fedora opensuse; do ! cmp -s "$r" "$RPMS/$f-unsigned.rpm" || cp "$RPMS/$f-signed.rpm" "$r"; done
+        done
+        mkdir -p "$out/repodata" && echo '<repomd/>' > "$out/repodata/repomd.xml"
+        for t in primary filelists other; do
+            echo "$t" > "$out/repodata/$(echo "$t" | sha256sum | cut -c1-64)-$t.xml.zst"
+        done ;;
     arch-inside.sh) echo db > "$out/orbitop.db" && echo files > "$out/orbitop.files" ;;
 esac
 case $step:$PLANT in
@@ -39,6 +51,9 @@ case $step:$PLANT in
     arch-inside.sh:setgid) chmod 2755 "$out/orbitop.db" ;;
     arch-inside.sh:changed-arch) printf x >> "$out/orbitop-0.2.0-1-any.pkg.tar.zst" ;;
     arch-inside.sh:extra) echo evil > "$out/evil-1-1-any.pkg.tar.zst" ;;
+    rpm-inside.sh:rpm-extra) echo x > "$out/repodata/primary.sqlite.zst" ;;
+    rpm-inside.sh:rpm-missing) rm "$out/orbitop-0.2.0-1.noarch.rpm" ;;
+    rpm-inside.sh:rpm-changed) cp "$RPMS/opensuse-signed.rpm" "$out/orbitop-0.2.0-1.noarch.rpm" ;;
 esac
 """
 # getcap -r -- DIR wie das echte, das ohne Rechte keine Datei mit Capability sieht: "capfile" trägt eine.
@@ -81,6 +96,8 @@ def run(tmp_path, key, *, packages=PACKAGES, fpr=None, socket=None, env=(), stub
             continue
         if name.endswith(".deb"):  # echte, kleine debs: build-site.sh prüft den apt-Index gegen sie
             make_deb(pkgs / name, *Path(name).name.split("_")[:2])
+        elif name.endswith(".rpm"):  # echte RPMs: build-site.sh vergleicht sie nach rpmsign mit diesen
+            shutil.copy(RPMS / f"{name.split('/')[0].removeprefix('rpm-')}-unsigned.rpm", pkgs / name)
         else:
             (pkgs / name).write_bytes(name.encode())
     fake = tmp_path / "bin"
@@ -96,7 +113,7 @@ exec {shutil.which("gpgconf")} "$@"
         f.chmod(0o755)
     env = {**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "GNUPGHOME": str(key["home"]),
            "ORBITOP_KEY": key["fpr"] if fpr is None else fpr, "LOG_DIR": str(tmp_path),
-           "APT_TREE": str(ROOT / "tests" / "apt_tree.py"), **dict(env)}
+           "APT_TREE": str(ROOT / "tests" / "apt_tree.py"), "RPMS": str(RPMS), **dict(env)}
     r = subprocess.run(["bash", str(SCRIPT), "--packages", str(pkgs), "--out", str(tmp_path / "site")],
                        capture_output=True, text=True, env=env, timeout=120)
     log = tmp_path / "docker.log"

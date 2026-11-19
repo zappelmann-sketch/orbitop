@@ -43,19 +43,28 @@ def keys(tmp_path_factory):
 
 
 def build(tmp_path, *args, plant=""):
-    """Lauf mit docker-Stellvertreter: schreibt die Argumente nach docker.log und stdin nach stdin.bin; PLANT legt
-    etwas Fremdes in /out, wie es ein Container als root könnte."""
+    """Lauf mit docker-Stellvertreter: schreibt die Argumente nach docker.log und stdin nach stdin.bin, dazu je Format
+    ein Paket und einen Lint-Bericht wie die Container; PLANT legt etwas Fremdes in /out, wie es ein Container als root
+    könnte, "cross" und "lint" erst im zweiten Container (Fedora)."""
     fake = tmp_path / "bin"
     fake.mkdir(exist_ok=True)
     (fake / "docker").write_text(f"""#!/bin/sh
 printf '%s\\n' "$@" >> {tmp_path}/docker.log
-for a; do case $a in *:/out) out=${{a%:/out}} && mkdir -p "$out/deb" ;; esac; done
+for a; do case $a in *:/out) out=${{a%:/out}} ;; esac; done
+for a; do [ "$a" = bash ] && break; image=$a; done
+case $image in
+    debian:*) fmt=deb lint=orbitop_9.9.9-1_all ;; fedora:*) fmt=rpm-fedora lint=rpm-fedora ;;
+    opensuse/*) fmt=rpm-opensuse lint=rpm-opensuse ;; *) fmt=arch lint=arch-orbitop ;;
+esac
+mkdir -p "$out/$fmt" "$out/lint" && echo "$image" > "$out/$fmt/package-$fmt" && echo ok > "$out/lint/$lint.txt"
 cat >> {tmp_path}/stdin.bin
-case $PLANT in
-    symlink) ln -s {tmp_path}/victim.txt "$out/deb/orbitop_9.9.9-1_all.deb" ;;
-    fifo) mkfifo "$out/deb/fifo" ;;
-    setuid) touch "$out/deb/x" && chmod 4755 "$out/deb/x" ;;
-    cap) touch "$out/deb/capfile" ;;
+case $PLANT:$fmt in
+    symlink:deb) ln -s {tmp_path}/victim.txt "$out/deb/orbitop_9.9.9-1_all.deb" ;;
+    fifo:deb) mkfifo "$out/deb/fifo" ;;
+    setuid:deb) touch "$out/deb/x" && chmod 4755 "$out/deb/x" ;;
+    cap:deb) touch "$out/deb/capfile" ;;
+    cross:rpm-fedora) mkdir "$out/deb" && echo evil > "$out/deb/package-deb" ;;
+    lint:rpm-fedora) echo evil > "$out/lint/orbitop_9.9.9-1_all.txt" ;;
 esac
 """)
     (fake / "getcap").write_text(GETCAP)
@@ -98,15 +107,38 @@ def test_build_runs_disposable_containers(tmp_path, keys):
               "opensuse/tumbleweed": ("rpm", __version__, "1.check1"),
               "archlinux:latest": ("arch", __version__, "1.1")}  # K6: Prüfbau mit Suffix je Format
     assert len(runs) == len(images)
+    outs = set()
     for args in runs:
         assert args[:6] == ["--rm", "-i", "--cap-drop", "MKNOD", "--cap-drop", "SETFCAP"], args
         mounts = [args[i + 1] for i, a in enumerate(args) if a == "-v"]
         assert [m.rsplit(":", 1)[-1] for m in mounts] == ["ro", "/out"]
+        outs.add(mounts[1].rsplit(":", 1)[0])
         assert not [a for a in args if a in ("--privileged", "--cap-add", "--network=host")]
         fmt, *versions = images.pop(args[args.index("bash") - 1])
         assert args[args.index("bash") + 1:] == [f"/src/packaging/{fmt}/build-inside.sh", *versions]
     # Jeder Container bekommt nur den schon geprüften Schlüssel, binär wie im Paket
     assert (tmp_path / "stdin.bin").read_bytes() == keys["binary"].read_bytes() * 4
+    # Audit F2: jeder Container schreibt in einen eigenen, frischen Ordner, nie in DIR; DIR bekommt das Ergebnis danach
+    out = tmp_path / "out"
+    assert len(outs) == 4 and not {str(out), *map(str, out.rglob("*"))} & outs, outs
+    assert sorted(str(p.relative_to(out)) for p in out.rglob("*") if p.is_file()) == [
+        "arch/package-arch", "deb/package-deb", "lint/arch-orbitop.txt", "lint/orbitop_9.9.9-1_all.txt",
+        "lint/rpm-fedora.txt", "lint/rpm-opensuse.txt", "rpm-fedora/package-rpm-fedora",
+        "rpm-opensuse/package-rpm-opensuse"]
+
+
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")
+@pytest.mark.parametrize("plant", ["cross", "lint"])
+def test_build_refuses_writes_into_another_format(tmp_path, keys, plant):
+    """Audit F2: Der Fedora-Container schreibt ein Paket unter deb/ oder überschreibt den Lint-Bericht des Debian-Baus.
+    Das Skript hält an, und was der Debian-Container in DIR gelegt hat, bleibt, wie es war."""
+    r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), plant=plant)
+    assert r.returncode == 1 and "refusing the output of fedora:latest" in r.stderr, r.stderr
+    assert calls.count("run") == 2  # Abbruch gleich nach dem Fedora-Container
+    out = tmp_path / "out"
+    assert (out / "deb" / "package-deb").read_text() == "debian:trixie\n"
+    assert (out / "lint" / "orbitop_9.9.9-1_all.txt").read_text() == "ok\n"
+    assert not (out / "rpm-fedora").exists()
 
 
 @pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")

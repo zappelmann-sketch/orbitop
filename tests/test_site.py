@@ -10,7 +10,7 @@ import subprocess
 import pytest
 
 from tests.packaging_common import APT_SOURCE, PKG, deb822
-from tests.site_stub import LEAK, SCRIPT, kill_agent, make_keys, needs_git, run
+from tests.site_stub import LEAK, REPODATA, RPMS, SCRIPT, kill_agent, make_keys, needs_git, run
 
 INDEX = PKG / "site" / "index.html"
 PAGES = "https://zappelmann-sketch.github.io/orbitop/"
@@ -74,7 +74,7 @@ def test_build_site_tree_and_signatures(tmp_path, key):
         "apt/pool/main/o/orbitop/orbitop_0.2.0-1_all.deb",
         "apt/pool/main/o/orbitop-apt-source/orbitop-apt-source_2026.11.18_all.deb",
         *(f"rpm/{fam}/{name}" for fam in ("fedora", "opensuse") for name in (
-            *VERSIONED, "repodata/repomd.xml", "repodata/repomd.xml.asc", "repodata/repomd.xml.key")),
+            *VERSIONED, "repodata/repomd.xml", "repodata/repomd.xml.asc", "repodata/repomd.xml.key", *REPODATA)),
         *(f"arch/x86_64/{name}{sig}" for name in ARCH_FILES for sig in ("", ".sig"))])
     # Jede Signatur gilt mit dem öffentlichen Schlüssel allein; pacman will sie binär, apt und RPM armored
     arch, dists = site / "arch/x86_64", site / "apt/dists/stable"
@@ -88,6 +88,9 @@ def test_build_site_tree_and_signatures(tmp_path, key):
         assert v.returncode == 0, (files, v.stderr)
         assert files[0].read_bytes().startswith(b"-----BEGIN PGP") == (files[0].parent != arch), files[0]
     assert (site / "orbitop-archive-keyring.pgp").read_bytes() == key["pub"].read_bytes()
+    for fam in ("fedora", "opensuse"):  # die RPMs, wie rpmsign sie im Container signiert hat
+        signed = (RPMS / f"{fam}-signed.rpm").read_bytes()
+        assert {(site / f"rpm/{fam}/{n}").read_bytes() for n in VERSIONED} == {signed}
     # Nichts aus der gpg.conf des GNUPGHOME (comment, sig-notation, armor) erreicht die Seite
     assert not [p for p in site.rglob("*") if p.is_file() and LEAK.encode() in p.read_bytes()]
     html = (site / "index.html").read_text(encoding="utf-8")

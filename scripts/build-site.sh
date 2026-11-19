@@ -73,11 +73,40 @@ put() {  # put PATTERN DIR: exactly one file per package, so that the source hol
     cp -- "${found[0]}" "$out/$2/"
     (cd -- "$out" && sha256sum -- "$2/${found[0]##*/}") >> "$tmp/inputs.sha256"
 }
+# inputs DIR: the names of the packages put into DIR, one per line.
+inputs() { grep -F "  $1/" "$tmp/inputs.sha256" | awk -v d="$1/" '{ print substr($2, length(d) + 1) }'; }
 # unchanged DIR: after its container, the packages in DIR are still byte for byte those from --packages, so that the
 # host signs no package a container replaced.
 unchanged() {
     (cd -- "$out" && grep -F "  $1/" "$tmp/inputs.sha256" | sha256sum --check --quiet --strict -) ||
         die "refusing $1: a package there is not the one from --packages any more"
+}
+# exactly DIR PATTERN…: after its container, DIR holds exactly one file per PATTERN (an extended regular expression of
+# its path below DIR) and no other file, so that the host signs and publishes nothing a container added.
+exactly() {
+    local dir=$1 files pattern
+    shift
+    files=$(cd -- "$out/$dir" && find . -type f -printf '%P\n' | LC_ALL=C sort) || die "refusing $dir: find failed"
+    for pattern; do
+        [ "$(grep -cxE -- "$pattern" <<< "$files")" -eq 1 ] || die "refusing $dir: not exactly one file like $pattern"
+        files=$(grep -vxE -- "$pattern" <<< "$files") || true
+    done
+    [ -z "$files" ] || die "refusing $dir: files that no step writes: ${files//$'\n'/ }"
+}
+# shellcheck disable=SC2001  # ${var//…} has no back reference in every bash
+literal() { sed 's/[][\.*^$+?(){}|]/\\&/g' <<< "$1"; }  # a file name as an extended regular expression
+# signed_only DIR FAMILY: after rpm-inside.sh, DIR holds the RPMs from --packages and the repodata/ of createrepo_c,
+# and each RPM is its input byte for byte from the main header on: rpmsign changed only its signature header.
+signed_only() {
+    local name names=() patterns=()
+    mapfile -t names < <(inputs "$1")
+    for name in "${names[@]}"; do patterns+=("$(literal "$name")"); done
+    exactly "$1" "${patterns[@]}" 'repodata/repomd\.xml' 'repodata/[0-9a-f]{64}-primary\.xml\.(zst|gz|xz)' \
+        'repodata/[0-9a-f]{64}-filelists\.xml\.(zst|gz|xz)' 'repodata/[0-9a-f]{64}-other\.xml\.(zst|gz|xz)'
+    for name in "${names[@]}"; do
+        python3 -I "$tmp/src/packaging/site/rpm-same.py" "$out/$1/$name" "$packages/rpm-$2/$name" ||
+            die "refusing $1: $name is not the package from --packages with a new signature"
+    done
 }
 put 'deb/orbitop_*_all.deb' "$APT_DIR/pool/$APT_COMPONENT/o/orbitop"
 put 'deb/orbitop-apt-source_*_all.deb' "$APT_DIR/pool/$APT_COMPONENT/o/orbitop-apt-source"
@@ -100,8 +129,7 @@ tools "$SUSE_TOOLS" "$SUSE_IMAGE"
 container "$out/$APT_DIR" "$DEB_IMAGE" -- /src/packaging/site/apt-inside.sh "$APT_SUITE" "$APT_COMPONENT"
 unchanged "$APT_DIR"
 # The container wrote the index; the host signs it only if it lists exactly these debs, true to the byte.
-mapfile -t debs < <(grep -F "  $APT_DIR/" "$tmp/inputs.sha256" |
-    awk -v d="$APT_DIR/" '{ print substr($2, length(d) + 1) }')
+mapfile -t debs < <(inputs "$APT_DIR")
 python3 -I "$tmp/src/packaging/site/check-apt-index.py" "$out/$APT_DIR" "$APT_SUITE" "$APT_COMPONENT" "${debs[@]}" ||
     die "refusing $APT_DIR: its index is not exactly the one of the packages from --packages"
 dists=$out/$APT_DIR/dists/$APT_SUITE
@@ -113,7 +141,9 @@ verify "$dists/Release.gpg" "$dists/Release"
 # RPM: rpmsign through the agent's socket and createrepo_c in the tool image of each family, then repomd.xml here.
 agent=(--network none --mount "type=bind,source=$socket,target=/gnupg/S.gpg-agent")
 container "$out/$FEDORA_DIR" "$FEDORA_TOOLS" "${agent[@]}" -- /src/packaging/site/rpm-inside.sh
+signed_only "$FEDORA_DIR" fedora
 container "$out/$OPENSUSE_DIR" "$SUSE_TOOLS" "${agent[@]}" -- /src/packaging/site/rpm-inside.sh
+signed_only "$OPENSUSE_DIR" opensuse
 for dir in "$FEDORA_DIR" "$OPENSUSE_DIR"; do
     repomd=$out/$dir/repodata/repomd.xml
     sign --armor --detach-sign -o "$repomd.asc" "$repomd"
@@ -125,8 +155,9 @@ done
 # from the server (repo-add embeds no package signature without --include-sigs, and pacman 7 does not need it).
 container "$out/$ARCH_DIR" "$ARCH_IMAGE" --network none -- /src/packaging/site/arch-inside.sh
 unchanged "$ARCH_DIR"
-pkg=$(grep -F "  $ARCH_DIR/" "$tmp/inputs.sha256" | awk '{ print $2 }')  # only the package from --packages
-for file in "$out/$pkg" "$out/$ARCH_DIR/orbitop.db" "$out/$ARCH_DIR/orbitop.files"; do
+pkg=$(inputs "$ARCH_DIR")  # only the package from --packages
+exactly "$ARCH_DIR" "$(literal "$pkg")" 'orbitop\.db' 'orbitop\.files'
+for file in "$out/$ARCH_DIR/$pkg" "$out/$ARCH_DIR/orbitop.db" "$out/$ARCH_DIR/orbitop.files"; do
     sign --no-armor --detach-sign -o "$file.sig" "$file"
     verify "$file.sig" "$file"
 done

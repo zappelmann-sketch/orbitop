@@ -230,7 +230,7 @@ def test_checks_accept_the_repository(tmp_path):
                                                "export-minimal", fpr))
     finally:
         kill_agent(tmp_path / "import")
-    script = 'die() { echo "$*" >&2; exit 1; }; . scripts/release/checks.sh; check_readme; check_committed'
+    script = ". scripts/container-common.sh; . scripts/release/checks.sh; check_readme; check_committed"
     r = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=ROOT, capture_output=True, text=True,
                        env={**os.environ, "repo": str(ROOT), "fpr": fpr, "tmp": str(tmp_path), "dry": ""})
     assert r.returncode == 0 and not r.stderr, r.stderr

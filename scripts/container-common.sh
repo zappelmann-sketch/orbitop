@@ -1,9 +1,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Shared by scripts/build-packages.sh, scripts/build-site.sh and scripts/check-distros.sh (die, usage, workdir and
-# tracked_files only), sourced right after set -euo pipefail: the images, option parsing, a work directory with the
-# tracked files, and the disposable container whose output is checked.
-# Provides $repo, die, usage (prints $USAGE), options, fresh_out, workdir ($tmp), tracked_files, only_plain, container.
+# Shared by scripts/build-packages.sh, scripts/build-site.sh, scripts/check-distros.sh and scripts/release.sh,
+# sourced right after set -euo pipefail: the images, option parsing, a work directory with the tracked files, the
+# disposable container whose output is checked, and the fingerprint of a key file.
+# Provides $repo, die, usage (prints $USAGE), options, fresh_out, workdir ($tmp), tracked_files, only_plain, container,
+# fingerprint.
 # shellcheck shell=bash disable=SC2034  # the images are used by the scripts that source this file
 
 DEB_IMAGE=debian:trixie
@@ -72,4 +73,12 @@ container() {
     docker run --rm -i --cap-drop MKNOD --cap-drop SETFCAP -e OWNER="$(id -u):$(id -g)" -v "$tmp/src:/src:ro" \
         -v "$dir:/out" "${opts[@]}" "$image" bash "$@" < "$tmp/key.pgp"
     only_plain "$dir"
+}
+
+# fingerprint FILE: the fingerprint of the one primary key in the key file FILE, read in the empty keyring $tmp/gnupg
+# (the caller makes it, never its GNUPGHOME); fails unless FILE holds exactly one primary key.
+fingerprint() {
+    command gpg --homedir "$tmp/gnupg" --no-options --batch --with-colons --show-keys -- "$1" 2> /dev/null |
+        awk -F: '$1 == "pub" { n++ } $1 == "fpr" && !f { f = $10 }
+            END { if (n != 1 || f !~ /^[0-9A-F]{40}$/) exit 1; print f }'
 }
