@@ -14,7 +14,7 @@ NO_HEADER = {PKG / "debian" / "source" / "format", APT_SOURCE / "debian" / "sour
 # Eingaben von orbitop-apt-source samt dem Schlüssel KEY_FILE, je packaging/keyring.version. Ändert sich eine, steigt
 # die Version, und hier kommt ein Eintrag dazu; sonst gäbe es zwei verschiedene Pakete mit derselben Version.
 # Nur vor der ersten Veröffentlichung (Task 10) darf ein Eintrag ersetzt werden.
-APT_SOURCE_INPUTS = {"2026.11.18": "20dd42aae4c91c617c5fd516fd679c01e60658637285bfaf81732551fc340e74"}
+APT_SOURCE_INPUTS = {"2026.11.18": "5215e6ccb0f9d127bf2a24ccf88fdcdb91df425a1c538e7b3c7457c6494413a5"}
 KEYRING = "/etc/apt/keyrings/orbitop-archive-keyring.pgp"
 
 
@@ -82,6 +82,9 @@ def test_apt_source_pins_its_origin_to_100():  # UseThirdParty: nie über Pakete
         "Package": "*", "Pin": "origin zappelmann-sketch.github.io", "Pin-Priority": "100"}
     (src,) = deb822(APT_SOURCE / "orbitop.sources")
     assert pref["Pin"].split()[1] == urlsplit(src["URIs"]).hostname
+    # Review M4: die Beschreibung des Pakets nennt das Pinning
+    (_, control) = deb822(APT_SOURCE / "debian" / "control")
+    assert "priority 100" in " ".join(control["Description"].split()), control["Description"]
 
 
 def test_only_lintian_override_is_the_preferences_file():  # Ruling: genau diese eine Ausnahme, sonst keine

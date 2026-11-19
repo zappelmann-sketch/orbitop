@@ -15,4 +15,6 @@ Depends: ${misc:Depends}
 Description: OpenPGP key and apt source of the orbitop package repository
  Installs the signing key of the orbitop package repository and the apt
  source that uses it, so that new versions of orbitop arrive with the
- regular system update.
+ regular system update. It also pins the origin of the repository to
+ priority 100 (apt_preferences(5)), so that its packages never replace
+ packages of the distribution.
