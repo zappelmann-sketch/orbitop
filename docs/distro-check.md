@@ -10,7 +10,7 @@ containers trust whatever key that is; the run checks that both carry the same o
 `KEY <fingerprint>`, which `release.sh` compares with `ORBITOP_KEY`.
 
 <!-- matrix:start: scripts/release.sh writes this part from the output of scripts/check-distros.sh -->
-- Run: `scripts/release.sh 0.2.0 --dry-run` on 2026-11-19, `KEY BEB38C09E2CB0A5254FA037BE38C7E649D290C9C`, the key of `ORBITOP_KEY`; a dry run may sign with a throwaway key instead of the archive key.
+- Run: `scripts/release.sh 0.2.0` on 2026-11-19, `KEY B6F10E7E76A63D9D569DE0674B5D133F71445C01`, the archive key, whose fingerprint is in the README.
 - `SITE`: orbitop `0.2.0-1`, `orbitop-apt-source` and `orbitop-release` `2026.11.18`. `SITE2`: the check build (Debian `0.2.0-1+check1`, RPM `0.2.0-1.check1`, Arch `0.2.0-1.1`; plan K6).
 
 | Distribution | Image | Digest | Packages | Tests | Result |
@@ -19,7 +19,7 @@ containers trust whatever key that is; the run checks that both carry the same o
 | Ubuntu 24.04 | `ubuntu:24.04` | `ubuntu@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8` | `orbitop 0.2.0-1` → `0.2.0-1+check1`: Python 3.12.3, PyGObject 3.48.2, GTK 4.14.5, WebKitGTK 2.52.6 | 974 passed, 138 skipped | pass |
 | Ubuntu 26.04 | `ubuntu:26.04` | `ubuntu@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db` | `orbitop 0.2.0-1` → `0.2.0-1+check1`: Python 3.14.4, PyGObject 3.56.2, GTK 4.22.4, WebKitGTK 2.52.6 | 975 passed, 137 skipped | pass |
 | Fedora 45 | `fedora:latest` | `fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c` | `orbitop 0.2.0-1` → `0.2.0-1.check1`: Python 3.15.2, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | 992 passed, 120 skipped | pass |
-| openSUSE Tumbleweed | `opensuse/tumbleweed` | `opensuse/tumbleweed@sha256:5675226bebb80ead08e486d0391d7580105697d1a9dacd9f72e5f191ed99be0d` | `orbitop 0.2.0-1` → `0.2.0-1.check1`: Python 3.13.18, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | 992 passed, 120 skipped | pass |
+| openSUSE Tumbleweed | `opensuse/tumbleweed` | `opensuse/tumbleweed@sha256:873ddd8d2a548bbd38c9d8485bd710ab6d17d013cacb38a252005f634b3ab187` | `orbitop 0.2.0-1` → `0.2.0-1.check1`: Python 3.13.18, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | 992 passed, 120 skipped | pass |
 | Arch Linux | `archlinux:latest` | `archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899` | `orbitop 0.2.0-1` → `0.2.0-1.1`: Python 3.14.10, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | 992 passed, 120 skipped | pass |
 | Debian 12 | `debian:bookworm` | `debian@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8` | `orbitop 0.2.0-1` refused | – | pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.11.2-1+b1 is to be installed" |
 | Ubuntu 22.04 | `ubuntu:22.04` | `ubuntu@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde` | `orbitop 0.2.0-1` refused | – | pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.10.6-1~22.04.1 is to be installed" |
