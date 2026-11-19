@@ -28,8 +28,9 @@ tag_release() {
 release_github() {
     run git -C "$repo" push --atomic --no-follow-tags origin refs/heads/main:refs/heads/main \
         "refs/tags/v$version:refs/tags/v$version"
+    # The notes are the tag message ($tmp/notes of tag_release); gh 2.104 refuses --notes-from-tag with --repo.
     run gh release create "v$version" --repo "$GH_REPO" --verify-tag --draft --title "orbitop $version" \
-        --notes-from-tag "${assets[@]}"
+        --notes-file "$tmp/notes" "${assets[@]}"
 }
 
 # previous_by_hash KEEP: the by-hash copies of the apt index that the published gh-pages serves go to KEEP, so that a

@@ -92,9 +92,16 @@ case "$1 $2" in
     "auth status") exit "${GH_AUTH_RC:-0}" ;;
     "api repos/zappelmann-sketch/orbitop") echo "${GH_ADMIN:-true}" ;;
     "release create")
+        case " $* " in *" --repo "*" --notes-from-tag "*)  # wie gh 2.104
+            echo "using \\`--notes-from-tag\\` with \\`--repo\\` is not supported" >&2 && exit 1 ;; esac
         "$REAL_GIT" --git-dir "$REMOTE" rev-parse -q --verify "refs/tags/$3" > /dev/null || exit 1
         mkdir -p "$LOG_DIR/assets"
-        for a; do [ ! -f "$a" ] || cp "$a" "$LOG_DIR/assets/"; done ;;
+        notes=""
+        for a; do
+            if [ "$notes" = next ]; then cp "$a" "$LOG_DIR/notes" && notes=done
+            elif [ "$a" = --notes-file ]; then notes=next
+            elif [ -f "$a" ]; then cp "$a" "$LOG_DIR/assets/"; fi
+        done ;;
     "api -X") touch "$LOG_DIR/pages-on" ;;
     "api repos/zappelmann-sketch/orbitop/pages")
         [ -f "$LOG_DIR/pages-on" ] && echo "gh-pages /" && exit 0

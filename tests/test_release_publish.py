@@ -66,10 +66,12 @@ def test_release_assets_list(tmp_path, keys, repo):
     r, calls = run(tmp_path, repo, keys, VERSION)
     assert r.returncode == 0, r.stderr
     (create,) = [c for c in calls["gh"] if c[:2] == ["release", "create"]]
-    files = [a for a in create if a.startswith("/")]
-    assert create[:len(create) - len(files)] == ["release", "create", f"v{VERSION}", "--repo",
-                                                 "zappelmann-sketch/orbitop", "--verify-tag", "--draft", "--title",
-                                                 f"orbitop {VERSION}", "--notes-from-tag"]
+    i = create.index("--notes-file")  # gh 2.104 lehnt --notes-from-tag mit --repo ab
+    files = create[i + 2:]
+    assert create[:i + 1] == ["release", "create", f"v{VERSION}", "--repo", "zappelmann-sketch/orbitop",
+                              "--verify-tag", "--draft", "--title", f"orbitop {VERSION}", "--notes-file"]
+    tag_message = git(repo["remote"], "tag", "-l", "--format=%(contents)", f"v{VERSION}")
+    assert (tmp_path / "notes").read_text().strip() == tag_message.strip() != ""
     assert sorted(f.rsplit("/", 1)[1] for f in files) == sorted([*ASSETS, "SHA256SUMS", "SHA256SUMS.asc"])
     assets = tmp_path / "assets"
     sums = (assets / "SHA256SUMS").read_text().splitlines()
