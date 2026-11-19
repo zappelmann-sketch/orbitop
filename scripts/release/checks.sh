@@ -2,14 +2,17 @@
 # Copyright © 2026 zappelmann-sketch
 # Step 1 of scripts/release.sh, before anything is built: the tree, the versions, the key, the README and GitHub.
 # Sourced by release.sh after container-common.sh (die, fingerprint), which sets repo, version, dry, fpr (ORBITOP_KEY
-# in upper case) and tmp. Provides APP, GH_REPO, gpg, check_tree, check_key ($tmp/key.asc and $tmp/key.pgp),
-# check_committed, check_readme, check_github, remote_state ($pages_rev) and run_tests.
+# in upper case) and tmp. Provides APP, GH_REPO, gpg, check_tree ($pinned), check_date, check_origin, check_key
+# ($tmp/key.asc and $tmp/key.pgp), check_committed, check_readme, check_github, remote_state ($pages_rev), run_tests
+# and check_head.
 # shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr and tmp come from release.sh
 
 APP=io.github.zappelmann_sketch.orbitop
 GH_REPO=zappelmann-sketch/orbitop
 IDENT="zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>"  # of every commit and tag
 WARN_DAYS=180  # spec 4: the key's remaining time
+# The push URL of origin, the one repository a release pushes to: GH_REPO on GitHub, over https or ssh.
+ORIGIN_URL='(https://github\.com/|git@github\.com:|ssh://git@github\.com/)zappelmann-sketch/orbitop(\.git)?'
 
 gpg() { command gpg --no-options --batch "$@"; }  # never a gpg.conf: its options would reach the release
 
@@ -27,6 +30,7 @@ check_ident() {
 
 # check_tree: a clean main at VERSION, without the tag, whose commits and tag carry IDENT; the Debian and the RPM
 # changelog of this version come from the one source, the <release> entries of the metainfo (packaging/changelog.py).
+# pinned is this HEAD: the release files and the tag are of it or of the one commit of step 3 on top (check_head).
 check_tree() {
     local branch status have kind
     check_ident "$repo"
@@ -41,6 +45,34 @@ check_tree() {
         python3 -I "$repo/packaging/changelog.py" "$kind" "$repo/data/$APP.metainfo.xml" "$version-1" > /dev/null ||
             die "packaging/changelog.py $kind: the metainfo must name $version as its newest <release>"
     done
+    pinned=$(git -C "$repo" rev-parse --verify HEAD) || die "git rev-parse HEAD failed"
+}
+
+# warn_or_die MESSAGE: a release stops; a dry run, which publishes nothing, only warns.
+warn_or_die() {
+    [ -n "$dry" ] || die "$1"
+    echo "warning: $1; a release refuses that" >&2
+}
+
+# check_date: the newest <release> of the metainfo, which becomes the changelogs and the release notes, has today's
+# date (UTC).
+check_date() {
+    local released today
+    released=$(python3 -I -c 'import sys, xml.etree.ElementTree as E
+print(E.parse(sys.argv[1]).find("releases/release").get("date"))' "$repo/data/$APP.metainfo.xml") ||
+        die "cannot read the date of the newest <release> of the metainfo"
+    today=$(date -u +%F)
+    [ "$released" = "$today" ] ||
+        warn_or_die "the newest <release> of the metainfo has the date $released, not today ($today, UTC)"
+}
+
+# check_origin: every URL that git push origin pushes to is one, the repository GH_REPO on GitHub. git remote get-url
+# --all --push names them after pushurl, insteadOf and pushInsteadOf of the git configuration.
+check_origin() {
+    local urls re="^${ORIGIN_URL}\$"
+    urls=$(git -C "$repo" remote get-url --all --push origin 2> /dev/null) || urls=""
+    [[ $urls =~ $re ]] || warn_or_die "origin pushes to ${urls:-nowhere}, not to $GH_REPO on GitHub (git remote" \
+        "get-url --all --push origin: url, pushurl, insteadOf)"
 }
 
 # check_key: ORBITOP_KEY is the primary key of a secret key in GNUPGHOME and has not expired (a warning when less than
@@ -91,8 +123,7 @@ check_readme() {
     [ -n "$found" ] || problem="names no fingerprint of the archive key"
     ! grep -qF '<FINGERPRINT>' -- "${readmes[@]}" || problem="still has the placeholder <FINGERPRINT>"
     [ -n "$problem" ] || return 0
-    [ -n "$dry" ] || die "the README $problem"
-    echo "warning: the README $problem; a release refuses that" >&2
+    warn_or_die "the README $problem"
 }
 
 # check_github (a release only): gh is logged in and may change the repository (admin: the release, GitHub Pages),
@@ -123,4 +154,16 @@ remote_state() {
 run_tests() {
     (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY python3 -m pytest -q -W error::ResourceWarning \
         -W error::DeprecationWarning) || die "the strict test suite failed"
+}
+
+# check_head (before the tag): HEAD is still release_rev, the commit of the release files (step 3), and that is the
+# pinned HEAD of step 1 or the commit of step 3 right on top of it. A commit of another process during the run (another
+# session, an agent with a shell) stops the release before anything is tagged or pushed.
+check_head() {
+    local head parent=""
+    head=$(git -C "$repo" rev-parse --verify HEAD) || die "git rev-parse HEAD failed"
+    [ "$head" = "$release_rev" ] || die "HEAD moved during the run: it is $head, the release files are of $release_rev"
+    [ "$head" = "$pinned" ] || parent=$(git -C "$repo" rev-parse -q --verify "$head^") || true
+    [ "$head" = "$pinned" ] || [ "$parent" = "$pinned" ] ||
+        die "HEAD $head is neither the HEAD of step 1 ($pinned) nor the commit of step 3 on top of it"
 }

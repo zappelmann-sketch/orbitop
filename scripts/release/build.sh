@@ -2,9 +2,9 @@
 # Copyright © 2026 zappelmann-sketch
 # Steps 2 and 3 of scripts/release.sh and the release files: the small source packages the published source already
 # has, the packages and the signed source, the container matrix with docs/distro-check.md, the release assets.
-# Sourced by release.sh after checks.sh (gpg, $tmp/key.asc, $tmp/key.pgp, $pages_rev). Provides blob, signed_release,
-# published, build, matrix and make_assets ($assets).
-# shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr, tmp, keyring_version, pages_rev and the images
+# Sourced by release.sh after checks.sh (gpg, $tmp/key.asc, $tmp/key.pgp, $pages_rev, $pinned). Provides blob,
+# signed_release, published, build, matrix ($release_rev) and make_assets ($assets).
+# shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr, tmp, keyring_version, pages_rev, pinned, the images
 
 # The paths of the source, as scripts/build-site.sh lays it out.
 POOL=apt/pool/main/o
@@ -87,9 +87,10 @@ build() {
 
 # matrix: check-distros.sh with both trees must pass on every image and name ORBITOP_KEY. Its output becomes the
 # results in docs/distro-check.md, which must still list every distribution of the README as passed; a release commits
-# the file, a dry run only writes it.
+# the file, a dry run only writes it. release_rev is the commit of the release files: that commit, or the pinned HEAD.
 matrix() {
     local key doc=docs/distro-check.md
+    release_rev=$pinned
     bash "$repo/scripts/check-distros.sh" --site "$tmp/site" --site2 "$tmp/site2" | tee "$tmp/matrix.log" ||
         die "the container matrix failed (RESULT lines above)"
     key=$(sed -n 's/^KEY //p' "$tmp/matrix.log" | sort -u)
@@ -99,18 +100,19 @@ matrix() {
     (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY python3 -m pytest -q tests/test_readme.py) ||
         die "the README does not match the results in $doc"
     [ -z "$dry" ] || return 0
-    git -C "$repo" diff --quiet -- "$doc" ||
-        git -C "$repo" commit -q --no-gpg-sign -m "docs: Distributionsprüfung für orbitop $version" -- "$doc"
+    ! git -C "$repo" diff --quiet -- "$doc" || return 0
+    git -C "$repo" commit -q --no-gpg-sign -m "docs: Distributionsprüfung für orbitop $version" -- "$doc"
+    release_rev=$(git -C "$repo" rev-parse --verify HEAD)
 }
 
-# make_assets: the files of the GitHub release in $tmp/assets, listed in $assets: the source archive of HEAD (step 4
-# tags this commit), the four packages and the three small source packages under the fixed names of the README
+# make_assets: the files of the GitHub release in $tmp/assets, listed in $assets: the source archive of release_rev
+# (step 4 tags this commit), the four packages and the three small source packages under the fixed names of the README
 # (plan K3), each as the signed source serves it (the RPMs with their signature), then SHA256SUMS of these eight and
 # SHA256SUMS.asc, checked as the README tells users to.
 make_assets() {
     local a=$tmp/assets s=$tmp/site p=$version-1 k=$keyring_version status
     mkdir "$a"
-    git -C "$repo" archive --format=tar.gz --prefix="orbitop-$version/" -o "$a/orbitop-$version.tar.gz" HEAD
+    git -C "$repo" archive --format=tar.gz --prefix="orbitop-$version/" -o "$a/orbitop-$version.tar.gz" "$release_rev"
     cp -- "$s/$POOL/orbitop/orbitop_${p}_all.deb" "$s/arch/x86_64/orbitop-$p-any.pkg.tar.zst" "$a/"
     cp -- "$s/rpm/fedora/orbitop-$p.noarch.rpm" "$a/orbitop-$p.fedora.noarch.rpm"
     cp -- "$s/rpm/opensuse/orbitop-$p.noarch.rpm" "$a/orbitop-$p.opensuse.noarch.rpm"

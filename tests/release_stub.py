@@ -8,6 +8,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 
 from tests.packaging_common import APP, ROOT
 
@@ -62,13 +63,23 @@ gpg --no-options --batch --armor --export "$ORBITOP_KEY" > "$out/orbitop-archive
 gpg --no-options --batch --export "$ORBITOP_KEY" > "$out/orbitop-archive-keyring.pgp"
 : > "$out/.nojekyll"
 """
+# MATRIX_COMMIT: während der Matrix committet ein anderer Prozess (eine andere Sitzung) im Repository.
 CHECK_DISTROS = """#!/bin/sh
 printf '%s\\n' check-distros "$@" ---- >> "$LOG_DIR/calls.log"
+[ -z "$MATRIX_COMMIT" ] || "$REAL_GIT" -C "$REPO" commit -q --allow-empty -m other
 cat "$LOG_DIR/matrix.txt"
 exit "${MATRIX_RC:-0}"
 """
 LOGGED = """#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/{tool}.log"
+exec {real} "$@"
+"""
+# git: wie LOGGED; die Push-Adressen von origin sind die von GitHub (ORIGIN_PUSH), gepusht wird ins lokale Remote.
+GIT = """#!/bin/sh
+printf '%s\\n' "$@" ---- >> "$LOG_DIR/git.log"
+case " $* " in *" remote get-url --all --push origin "*)
+    printf '%s\\n' "${{ORIGIN_PUSH-https://github.com/zappelmann-sketch/orbitop.git}}"; exit 0 ;;
+esac
 exec {real} "$@"
 """
 # gh: angemeldet (GH_AUTH_RC), Admin (GH_ADMIN); release create nur mit dem Tag im entfernten Repository
@@ -163,10 +174,11 @@ def stub(directory, name, text):
     (directory / name).chmod(0o755)
 
 
-def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY):
+def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY, date=None):
     """Wegwerf-Repository auf main mit den Release-Skripten und Stellvertretern für die Bau-Skripte, origin ein
     lokales bare-Repository, Identität USER <EMAIL>; die Matrix meldet den Schlüssel FPR, die READMEs nennen README
-    statt des Fingerabdrucks des Archivschlüssels (None: den Platzhalter <FINGERPRINT>). Gibt die Pfade zurück."""
+    statt des Fingerabdrucks des Archivschlüssels (None: den Platzhalter <FINGERPRINT>), der neueste <release> der
+    metainfo trägt DATE (None: heute, UTC). Gibt die Pfade zurück."""
     repo, remote, bin_, rpm_bin = (tmp_path / n for n in ("repo", "remote.git", "bin", "rpm-bin"))
     for name in COPIED:
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
@@ -176,6 +188,10 @@ def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY):
         (repo / "scripts" / name).write_text(text)
     for name in ("README.md", "README.de.md"):
         (repo / name).write_text(re.sub(r"\b[0-9A-F]{40}\b", readme or "<FINGERPRINT>", (repo / name).read_text()))
+    metainfo = repo / "data" / f"{APP}.metainfo.xml"
+    date = date or time.strftime("%Y-%m-%d", time.gmtime())
+    metainfo.write_text(re.sub(r'(<release version="[^"]+" date=")[0-9-]+', rf"\g<1>{date}", metainfo.read_text(),
+                               count=1))
     (repo / "tests").mkdir()
     for name in ("test_ok.py", "test_readme.py"):  # die strenge Suite und der README-Abgleich nach der Matrix
         (repo / "tests" / name).write_text("def test_ok():\n    pass\n")
@@ -190,8 +206,8 @@ def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY):
     git(repo, "push", "-q", "origin", "main")
     bin_.mkdir()
     rpm_bin.mkdir()
-    for tool, text in {"gh": GH, "curl": CURL, "docker": DOCKER, "rm": RM,
-                       **{t: LOGGED.format(tool=t, real=REAL[t]) for t in ("git", "gpg-agent", "gpgconf")}}.items():
+    for tool, text in {"gh": GH, "curl": CURL, "docker": DOCKER, "rm": RM, "git": GIT.format(real=REAL["git"]),
+                       **{t: LOGGED.format(tool=t, real=REAL[t]) for t in ("gpg-agent", "gpgconf")}}.items():
         stub(bin_, tool, text)
     stub(rpm_bin, "rpmkeys", RPMKEYS)
     stub(rpm_bin, "rpm", RPM)
@@ -221,6 +237,7 @@ def run(tmp_path, paths, key, *args, env=()):
     Argumente)."""
     env = {**os.environ, **GIT_ENV, "PATH": f"{paths['bin']}:{os.environ['PATH']}", "LOG_DIR": str(tmp_path),
            "REAL_GIT": REAL["git"], "REMOTE": str(paths["remote"]), "RPM_BIN": str(paths["rpm_bin"]),
+           "REPO": str(paths["repo"]),
            "GNUPGHOME": str(key["home"]), "ORBITOP_KEY": key["fpr"], "TMPDIR": str(tmp_path / "tmp"), **dict(env)}
     r = subprocess.run(["bash", str(paths["repo"] / "scripts" / "release.sh"), *args], capture_output=True,
                        text=True, cwd=tmp_path, env=env, timeout=180)
