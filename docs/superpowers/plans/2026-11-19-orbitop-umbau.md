@@ -308,8 +308,8 @@
 ### Task 11: Kleinigkeiten in der App
 
 **Files:**
-- Modify: `orbitop/userfile.py`, `orbitop/autostart.py`, `orbitop/layout.py`.
-- Test: `tests/test_userfile.py`, `tests/test_autostart.py`, `tests/test_layout.py`.
+- Modify: `orbitop/userfile.py`, `orbitop/autostart.py`, `orbitop/layout.py`, `orbitop/actions.py` (Step 3), `orbitop/locale/{en,de}.json` (Step 3).
+- Test: `tests/test_userfile.py`, `tests/test_autostart.py`, `tests/test_layout.py`, die Tests von `actions.py` (nach Task 6 aufgeteilt).
 
 **Interfaces:**
 - Produces:
@@ -324,7 +324,16 @@
   - `test_autostart_write_error_is_reported_once` (capsys, zwei Fehlschläge → eine Zeile);
   - `test_layout_write_error_is_reported_once`.
 - [ ] **Step 2: Rot, Umsetzung, Grün.**
-- [ ] **Step 3: Commit** `fix: klare Regeln für Konfigordner und gemeldete Schreibfehler`.
+- [ ] **Step 3: Nur das echte pkexec von polkit** (Security-Runde, zweite Prüfung I-3, gilt schon für 0.2.0).
+  - **Problem:** Auf openSUSE stellt `run0-wrappers` ein `/usr/bin/pkexec` als Shell-Wrapper um `run0` bereit. Der umgeht die polkit-Action von orbitop samt Text, und manche Konten brauchen dann gar kein Passwort.
+  - **Prüfung:** Vor jedem Aufruf von `PKEXEC` in `orbitop/actions.py` muss `/usr/bin/pkexec` diese Bedingungen erfüllen. Sonst ist das Ergebnis `nohelper`, und der Hinweistext nennt in beiden Sprachen „pkexec von polkit nötig“.
+    - eine reguläre Datei, ohne Symlink (`lstat`);
+    - Eigentümer root, mit gesetztem `S_ISUID`;
+    - beginnt mit `\x7fELF`.
+  - **Umsetzung:** als kleine Funktion neben `_trusted`, gelesen mit `O_NOFOLLOW` aus einem fd.
+  - **Tests** mit `lstat`- und Datei-Ersatz: echtes ELF mit setuid (ok), Shell-Skript mit setuid (`nohelper`), ELF ohne setuid (`nohelper`), Symlink (`nohelper`), nicht root-eigen (`nohelper`).
+  - Der Wächter in `tests/conftest.py` bleibt; kein Test startet pkexec.
+- [ ] **Step 4: Commit** `fix: klare Regeln für Konfigordner, gemeldete Schreibfehler, nur echtes pkexec`.
 
 ---
 

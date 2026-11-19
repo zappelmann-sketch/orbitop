@@ -252,7 +252,7 @@ Die genaue Bauweise legt das Dokument aus Teil B fest. Sichtbar für den Benutze
 ### Teil D: Testversion, Release 0.3.0 und Umstieg
 
 0. **Testversion auf echter Hardware** (Entscheidung des Users), nach der Schlussprüfung und vor dem Go:
-   - Der Controller baut die Pakete als Testversion `0.3.0~rc1`. Sie bleibt unsigniert, unveröffentlicht und kommt nicht nach `main`; wie sie ihre Nummer bekommt, entscheidet der Builder. `~rc1` sortiert in allen vier Formaten vor `0.3.0`, deshalb kommt 0.3.0 danach als normales Update.
+   - Der Controller baut nur das `.deb` als Testversion `0.3.0~rc1`. Es bleibt unsigniert, unveröffentlicht und kommt nicht nach `main`; wie es seine Nummer bekommt, entscheidet der Builder. `~rc1` sortiert bei dpkg vor `0.3.0`, deshalb kommt 0.3.0 danach als normales Update. Bei pacman sortiert `~rc1` nach `0.3.0` (zweite Prüfung der Security-Runde, M-11); eine Arch-Testversion gäbe es deshalb nur als `0.3.0rc1`.
    - Der User installiert sie mit `sudo apt install ./<datei>.deb`.
    - Er prüft den Schalter: an, aus, Passwortdialog, Zustand. Beim ersten „aus“ fällt die von Hand gesetzte Fähigkeit auf `intel_gpu_top` weg. Damit ist der Umstieg der Freigabe (Punkt 5) schon erledigt.
    - Für den Knopf „Installieren“ entfernt er kurz die Intel-Werkzeuge (`sudo apt remove intel-gpu-tools`) und lässt orbitop sie neu installieren.
