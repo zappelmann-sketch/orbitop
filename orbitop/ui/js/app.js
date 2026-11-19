@@ -1,368 +1,17 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
-// Oberfläche: Kopfzeile, Lastzeile, Kachelraster, Fußzeile, Reiter „Prozesse“ und Dialoge. Alles aus dem Schnappschuss
-// und aus texts kommt per textContent ins DOM, nie als HTML. Inline-Stile verbietet die CSP; Farben setzt nur CSSOM.
-// Ein terminate geht nur aus dem Bestätigungsknopf des Rückfrage-Dialogs an Python (confirmed).
-import { drawArea, drawSegments } from "./chart.js";
-
-const POINTS = 300, THREAD_POINTS = 60, GRID_SECONDS = 30, MAX_MINIS = 8; // Puffergrößen wie im Sampler, 1 s je Punkt
-const AREA = { cpu: "#4fd8ff", gpu: "#c48bff", mem: "#3dffa8", power: "#ffd84f", temp: "#ff5f7a", fan: "#ff7ad9",
-               net: "#5b8cff", disk: "#2ff0d0" };
-const SECOND = "#ffb347"; // Zweitlinie: Swap, Senden, Schreiben
-const GPU_SHADES = [AREA.gpu, "#a17bff", "#dfb5ff", "#8a62dc"]; // weitere Grafikchips
-const EXTRA = { mem: [SECOND], temp: [AREA.mem, AREA.gpu], fan: [SECOND, AREA.cpu], net: [SECOND], disk: [SECOND] };
-const CAPS = { cpu: "cap.usage", gpu: "cap.usage", mem: "cap.occupancy", power: "cap.watt", temp: "cap.celsius",
-               fan: "cap.rpm", net: "cap.rate", disk: "cap.rate" };
-const TABS = ["overview", "procs"];
-const BYTES = ["B", "KB", "MB", "GB", "TB"];
-const DIGITS = { GHz: 1, W: 1 }; // sonst ganze Zahlen; Bytes unter 10 mit einer Nachkommastelle
-
-/** 1024er-Stufe für big; eine Stufe höher, wenn die Rundung 1024 ergäbe (1023,7 B/s -> 1 KB/s). */
-function byteStep(big) {
-  let e = 0;
-  while (e < BYTES.length - 1 && Math.round(big / 1024 ** e) >= 1024) e++;
-  return e;
-}
-
-const state = {
-  lang: "en", texts: {}, version: "", tab: "overview", last: null, n: 0, briefs: [], collator: new Intl.Collator(),
-  sel: null, cursor: null, sort: { col: "cpu", desc: true }, filter: "all", query: "", autoPick: false,
-  rows: [], scrollTop: 0, viewH: 0, viewW: 0, pitch: 0, block: null, // Prozessliste: sortiert, Rollstand, gemessene Größen
-  layout: null, memTotal: null, menuCol: null, savedAt: -Infinity, saving: false, // Spalten, %MEM, Menü, layout-Meldung
-  drag: null, noClick: false, // laufendes Ziehen; Klick nach dem Umordnen verwerfen
-  target: null, opener: null, pending: null, lastTerm: null, alert: null, // Rückfrage, laufendes Beenden, Nachsehen
-  autostart: null, autoBusy: false, // Stand aus init oder autostart_state (null: kein Befehl orbitop); Antwort steht aus
-};
-const ui = { labels: [] };
-const tiles = new Map(); // Kachel-id -> Elemente
-const procRows = new Map(); // "pid:start" -> Zeilenelemente, nur gezeichnete Zeilen
-const formats = new Map();
-
-// ---- Texte und Zahlen ----
-function text(key) {
-  return Object.hasOwn(state.texts, key) ? state.texts[key] : key;
-}
-
-/** Platzhalter wie {list} per reiner Zeichenkettenersetzung, ohne $-Muster von String.replace. */
-function fill(key, vars) {
-  return text(key).replace(/\{(\w+)\}/g, (m, k) => (Object.hasOwn(vars, k) ? String(vars[k]) : m));
-}
-
-function number(v, lang, min, max, group) {
-  const key = `${lang}|${min}|${max}|${group}`;
-  let f = formats.get(key);
-  if (!f) {
-    f = new Intl.NumberFormat(lang, { minimumFractionDigits: min, maximumFractionDigits: max, useGrouping: group });
-    formats.set(key, f);
-  }
-  return f.format(v);
-}
-
-/** Num -> Text: Bytes in 1024er-Stufen, „v / of Einheit“, Präfix p, Dezimalzeichen nach Sprache, null als „–“. */
-function fmt(num, lang) {
-  if (!num || num.v == null) return "–";
-  const u = num.u, of = num.of;
-  let unit = u, scale = 1;
-  if (u === "B" || u === "B/s") {
-    const e = byteStep(Math.max(Math.abs(num.v), Math.abs(of || 0)));
-    scale = 1024 ** e;
-    unit = BYTES[e] + u.slice(1);
-  } else if (u === "rpm") {
-    unit = text("unit.rpm");
-  }
-  const part = (x) => {
-    x /= scale;
-    if (scale > 1) return number(x, lang, 0, Math.abs(x) < 10 ? 1 : 0, false);
-    const d = DIGITS[u] || 0;
-    return number(x, lang, d, d, u === ""); // Tausenderpunkt nur bei Anzahlen (Entwurf: „1.904“, aber „4800 U/min“)
-  };
-  const sep = u === "" || (u === "%" && lang === "en") ? "" : " ";
-  return (num.p ? num.p + " " : "") + part(num.v) + (of == null ? "" : " / " + part(of)) + sep + unit;
-}
-
-/** Num | Txt | [Num|Txt] -> Text; Txt.k wird übersetzt, Txt.l bleibt roh. */
-function show(x) {
-  if (Array.isArray(x)) return x.map(show).join(" · ");
-  if (x && "k" in x) return text(x.k);
-  if (x && "l" in x) return String(x.l);
-  return fmt(x, state.lang);
-}
-
-/** Modellnamen kürzen wie im Entwurf („i7-7600U“ statt „Intel(R) Core(TM) i7-7600U CPU @ 2.80GHz“). */
-function shortName(name) {
-  return name.replace(/\((R|TM)\)|[®™]/gi, "").replace(/\s+(CPU\s+)?@\s.*$/i, "").replace(/\s+/g, " ").trim();
-}
-
-// ---- DOM ----
-function el(tag, cls, parent, content) {
-  const e = document.createElement(tag);
-  if (cls) e.className = cls;
-  if (content != null) e.textContent = content;
-  if (parent) parent.append(e);
-  return e;
-}
-
-/** Text (oder mit attr ein Attribut) aus texts, neu gesetzt bei jedem init. */
-function label(node, key, attr) {
-  ui.labels.push([node, key, attr]);
-  return node;
-}
-
-function setText(node, s) {
-  if (node.textContent !== s) node.textContent = s;
-}
-
-/** Zweispaltige Liste (Name, Wert) mit wiederverwendeten Elementen. */
-function pairs(box, rows) {
-  while (box.childElementCount > rows.length * 2) box.lastChild.remove();
-  while (box.childElementCount < rows.length * 2) el("span", "", box);
-  rows.forEach(([a, b], i) => {
-    setText(box.children[2 * i], a);
-    setText(box.children[2 * i + 1], b);
-  });
-  box.hidden = !rows.length;
-}
-
-function post(msg) {
-  window.webkit?.messageHandlers?.orbitop?.postMessage(msg); // fehlt auf der Testseite
-}
-
-function button(cls, parent, onClick) {
-  const b = el("button", cls, parent);
-  b.type = "button";
-  b.addEventListener("click", onClick);
-  return b;
-}
-
-function build() {
-  const body = document.body;
-  const hdr = el("header", "hdr", body);
-  el("span", "brand", hdr, "ORBITOP");
-  const nav = el("nav", "tabs", hdr);
-  ui.tabs = TABS.map((name) => label(button("tab", nav, () => select(name, null, null)), "tab." + name));
-  ui.hdrInfo = el("span", "s", hdr);
-  ui.infoBtn = label(button("info", hdr, () => openDialog(ui.about, ui.infoBtn, ui.aboutClose)), "about.title", "aria-label");
-  svg(ui.infoBtn, "", "0 0 16 16", ["M2 8a6 6 0 1 0 12 0a6 6 0 1 0-12 0", "M8 7v4.5", "M8 4.3v.4"]);
-  ui.overview = el("section", "overview", body);
-  const strip = el("div", "strip", ui.overview);
-  label(el("span", "lbl", strip), "strip.top");
-  ui.chips = el("span", "chips", strip);
-  label(el("span", "s hint", strip), "strip.hint");
-  ui.grid = el("div", "grid", ui.overview);
-  ui.procs = el("section", "procs", body);
-  buildProcs();
-  ui.footer = el("footer", "foot", body);
-  buildDialogs();
-  showTab("overview");
-}
-
-/** Rechts in der Kopfzeile: Takt in der Übersicht, Prozessanzahl im Reiter „Prozesse“. */
-function hdrInfo() {
-  const procs = state.tab === "procs" && state.last && state.last.procs;
-  setText(ui.hdrInfo, procs ? fill("strip.count", { n: number(procs.length, state.lang, 0, 0, true) }) : text("strip.tick"));
-}
-
-function showTab(name) {
-  state.tab = name;
-  ui.overview.hidden = name !== "overview";
-  ui.procs.hidden = name !== "procs";
-  ui.footer.classList.toggle("off", name !== "overview"); // Hinweise der Fußzeile betreffen die Kacheln
-  ui.tabs.forEach((b, i) => {
-    b.classList.toggle("on", TABS[i] === name);
-    b.setAttribute("aria-pressed", String(TABS[i] === name));
-  });
-  hdrInfo();
-}
-
-/** Reiter zeigen und Python melden; pid/start (Lastzeile, Tabellenzeile) wählen einen Prozess. Die Auswahl bleibt. */
-function select(name, pid, start) {
-  if (pid != null) state.sel = { pid, start };
-  showTab(name);
-  const sel = name === "procs" ? state.sel : null;
-  post({ type: "view", tab: name, pid: sel ? sel.pid : null, start: sel ? sel.start : null });
-  if (state.last) (name === "overview" ? renderOverview : renderProcs)(state.last);
-}
-
-// ---- Lastzeile ----
-function renderStrip(top) {
-  const cpu = (top && top.cpu) || [];
-  const briefs = state.briefs = top && top.mem ? [...cpu, top.mem] : cpu;
-  while (ui.chips.childElementCount > briefs.length) ui.chips.lastChild.remove();
-  while (ui.chips.childElementCount < briefs.length) {
-    const i = ui.chips.childElementCount;
-    const b = button("chip", ui.chips, () => {
-      const p = state.briefs[i];
-      if (p) select("procs", p.pid, p.start);
-    });
-    el("b", "nm", b);
-    el("span", "", b);
-  }
-  briefs.forEach((p, i) => {
-    const chip = ui.chips.children[i];
-    setText(chip.firstChild, String(p.name));
-    setText(chip.lastChild, " " + (i < cpu.length
-      ? fill("strip.cpu", { pct: number(p.cpu, state.lang, 0, 0, false) })
-      : fill("strip.ram", { size: fmt({ v: p.rss, u: "B" }, state.lang) })));
-  });
-}
-
-// ---- Kacheln ----
-function colorsOf(t) {
-  const gpu = /^gpu(\d+)$/.exec(t.id);
-  const first = t.kind === "gpu" ? GPU_SHADES[(gpu ? Number(gpu[1]) : 0) % GPU_SHADES.length] : AREA[t.kind] || AREA.cpu;
-  return [first, ...(EXTRA[t.kind] || [])];
-}
-
-/** Diagrammfläche: Beschriftung, Gitter (SVG) und darüber die Canvas der Kurven (zurückgegeben). */
-function plot(parent, cls, cap) {
-  const box = el("div", cls, parent);
-  el("span", "cap", box, cap);
-  const c = el("canvas", "", box);
-  c.grid = svg(box, "gridlines", null, [""]);
-  box.append(c);
-  return c;
-}
-
-/** Beschriftung folgt der ersten Kurve: Takt statt Auslastung, Einheit der Skala bei Raten. */
-function caption(t) {
-  const s = t.series[0];
-  const key = s && s.key === "kv.clock" ? "cap.clock" : CAPS[t.kind] || "cap.usage";
-  return fill(key, { unit: s && s.u === "B/s" ? BYTES[byteStep(s.max)] + "/s" : "" });
-}
-
-function makeTile(t) {
-  const root = el("div", "tile");
-  const colors = colorsOf(t);
-  colors.forEach((c, i) => root.style.setProperty(i ? `--c${i + 1}` : "--c", c)); // CSSOM, von der CSP erlaubt
-  const inner = el("div", "in", root);
-  const head = el("div", "head", inner);
-  const left = el("div", "who", head);
-  const title = el("div", "t", left);
-  const v = {
-    root, colors, kind: el("span", "", title), name: el("span", "nm", title), main: el("div", "v", left),
-    aside: el("div", "s aside", head), seg: el("div", "seg", inner),
-    canvas: plot(inner, "plot", ""),
-    threads: el("div", "", inner), threadEls: [], legend: el("div", "lg", inner), legendSig: null,
-    kv: el("div", "kv", inner), dev: el("table", "dev", inner), devShape: null,
-  };
-  v.cap = v.canvas.parentNode.firstChild;
-  v.threads.hidden = true; // nur die CPU-Kachel zeigt Threads
-  tiles.set(t.id, v);
-  return v;
-}
-
-function latest(values) {
-  for (let i = values.length - 1; i >= 0; i--) if (values[i] != null) return values[i];
-  return null;
-}
-
-function updateThreads(v, threads) {
-  const n = threads ? threads.length : 0, bars = n > MAX_MINIS;
-  if (v.threadEls.length !== n) {
-    v.threads.className = bars ? "bars" : "cores";
-    v.threads.replaceChildren();
-    v.threadEls = (threads || []).map((_, i) => (bars ? el("i", "", v.threads)
-      : plot(v.threads, "plot mini", fill("cap.thread", { n: i }))));
-    v.threads.hidden = !n;
-  }
-  (threads || []).forEach((values, i) => {
-    if (bars) {
-      const x = Math.min(Math.max(latest(values) || 0, 0), 100);
-      v.threadEls[i].style.setProperty("--v", String(x));
-      v.threadEls[i].classList.toggle("hot", x >= 80);
-    } else if ((v.threadEls[i].at ?? -Infinity) <= state.n - 2) { // Mini-Verläufe nur alle 2 s (Spec, Eigenlast)
-      v.threadEls[i].at = state.n;
-      drawArea(v.threadEls[i], [{ fill: true, max: 100, values }],
-               { color: v.colors[0], gridEvery: GRID_SECONDS, points: THREAD_POINTS });
-    }
-  });
-}
-
-/** Geräte als Tabelle: Kopf aus cols (übersetzt), je Gerät eine Zeile, null als „–“. */
-function updateDevices(v, devices) {
-  const cols = devices ? devices.cols : [], rows = devices ? devices.rows : [];
-  const shape = cols.join("\n") + "|" + rows.length;
-  if (v.devShape !== shape) {
-    v.devShape = shape;
-    v.dev.replaceChildren();
-    const head = el("tr", "", el("thead", "", v.dev));
-    el("th", "", head);
-    for (const c of cols) el("th", "", head, text(c)).scope = "col";
-    const body = el("tbody", "", v.dev);
-    for (let i = 0; i < rows.length; i++) {
-      const tr = el("tr", "", body);
-      el("th", "nm", tr).scope = "row";
-      for (let j = 0; j < cols.length; j++) el("td", "", tr);
-    }
-    v.dev.hidden = !rows.length;
-  }
-  rows.forEach((r, i) => {
-    const cells = v.dev.tBodies[0].rows[i].cells;
-    setText(cells[0], String(r.name));
-    for (let j = 0; j < cols.length; j++) setText(cells[j + 1], fmt(r.values[j], state.lang));
-  });
-}
-
-function updateTile(v, t) {
-  const name = t.name ? shortName(String(t.name)) : "";
-  setText(v.kind, text("tile." + t.kind) + (name ? " · " : ""));
-  setText(v.name, name);
-  v.name.title = t.name ? String(t.name) : "";
-  setText(v.main, fmt(t.main, state.lang));
-  setText(v.aside, t.aside == null ? "" : show(t.aside));
-  drawSegments(v.seg, t.seg, t.warn);
-  setText(v.cap, caption(t));
-  drawArea(v.canvas, t.series, { color: v.colors[0], color2: v.colors[1], color3: v.colors[2],
-                                 gridEvery: GRID_SECONDS, points: POINTS });
-  if (t.kind === "cpu") updateThreads(v, t.threads);
-  const names = t.series.length > 1 ? t.series.map((s) => ("key" in s ? text(s.key) : String(s.label))) : [];
-  if (v.legendSig !== names.join("\n")) {
-    v.legendSig = names.join("\n");
-    v.legend.replaceChildren(...names.map((n, i) => {
-      const item = el("span", "l" + i);
-      el("i", "", item);
-      el("span", "", item, n);
-      return item;
-    }));
-    v.legend.hidden = !names.length;
-  }
-  pairs(v.kv, (t.kv || []).map((r) => ["k" in r ? text(r.k) : String(r.l), show(r.v)]));
-  updateDevices(v, t.devices);
-}
-
-function renderTiles(list) {
-  const views = list.map((t) => tiles.get(t.id) || makeTile(t));
-  const ids = new Set(list.map((t) => t.id));
-  for (const [id, v] of tiles) {
-    if (!ids.has(id)) {
-      v.root.remove();
-      tiles.delete(id);
-    }
-  }
-  if (views.some((v, i) => ui.grid.children[i] !== v.root)) ui.grid.replaceChildren(...views.map((v) => v.root));
-  list.forEach((t, i) => updateTile(views[i], t)); // erst im DOM, sonst hat die Canvas keine Größe
-}
-
-// ---- Fußzeile ----
-function renderFooter(missing, hints) {
-  const lines = (missing && missing.length)
-    ? [fill("footer.missing", { list: missing.map((k) => text("missing." + k)).join(" · ") })] : [];
-  const all = [...lines, ...(hints || []).map(text)];
-  if (ui.footerSig === all.join("\n")) return;
-  ui.footerSig = all.join("\n");
-  ui.footer.replaceChildren(...all.map((s, i) => el("p", i < lines.length ? "" : "hint", null, s)));
-  ui.footer.hidden = !all.length;
-}
-
-function renderOverview(msg) {
-  renderStrip(msg.top);
-  renderTiles(msg.tiles || []);
-}
+// Reiter „Prozesse“: Spalten, Tabelle (gezeichnet nur im Sichtbereich), Ziehen, Spaltenmenü und Detail.
+// Systemtexte kommen nur per textContent ins DOM, nie als HTML; Breiten und Lagen setzt nur CSSOM.
+import { drawArea } from "./chart.js";
+import { button, el, fillInto, label, pairs, pathEl, setText, svg } from "./dom.js";
+import { fill, fmt, number, text } from "./format.js";
+import { post } from "./post.js";
+import { calls, procRows, state, ui } from "./state.js";
+import { AREA, plot } from "./tiles.js";
 
 // ---- Prozesse ----
 const PROC_POINTS = 150, PROC_GRID = 15, SPARK_POINTS = 30; // 2 s je Punkt: Detail 5 min, Linie alle 30 s; Zeile 60 s
 const BUFFER_ROWS = 6, GUESS_PITCH = 31; // Zeilen über und unter dem Sichtbereich; Zeilenabstand, bis er gemessen ist
-const SVG_NS = "http://www.w3.org/2000/svg";
 const KIND = { working: "ok", waiting: "idle", busy_noio: "warn", busy_iounknown: "warn", kernel_hang: "bad",
                stopped: "stop", zombie: "dead" }; // Farbe und Symbol je Zustand, wie im Entwurf
 const ICONS = { ok: ["M2 6.5l2.5 2.5L10 3.5"], idle: ["M3 6a3 3 0 1 0 6 0a3 3 0 1 0-6 0"], warn: ["M6 1.5l5 9H1z", "M6 5v2.5"],
@@ -411,32 +60,6 @@ function memShare(p) {
 function cpuTime(sec) {
   const h = Math.round(sec * 100), s = h % 6000;
   return `${Math.floor(h / 6000)}:${String(Math.floor(s / 100)).padStart(2, "0")}.${String(s % 100).padStart(2, "0")}`;
-}
-
-function svg(parent, cls, viewBox, paths) {
-  const s = document.createElementNS(SVG_NS, "svg");
-  if (viewBox) s.setAttribute("viewBox", viewBox);
-  s.setAttribute("aria-hidden", "true");
-  if (cls) s.setAttribute("class", cls);
-  s.append(...paths.map(pathEl));
-  parent.append(s);
-  return s;
-}
-
-function pathEl(d) {
-  const p = document.createElementNS(SVG_NS, "path");
-  p.setAttribute("d", d);
-  return p;
-}
-
-/** Wie fill, aber als Knoten: jeder Wert wird ein eigenes span.nm (unicode-bidi: isolate), lead steht fett davor. */
-function fillInto(node, tpl, vars, lead) {
-  const sig = [lead, tpl, ...Object.values(vars)].join("\0");
-  if (node.sig === sig) return;
-  node.sig = sig;
-  const parts = tpl.split(/\{(\w+)\}/).map((s, i) => (i % 2 === 0 ? s
-    : Object.hasOwn(vars, s) ? el("span", "nm", null, String(vars[s])) : `{${s}}`));
-  node.replaceChildren(...(lead ? [el("b", "", null, lead)] : []), ...parts);
 }
 
 /** Sekunden als „45 s“, „4 Min 12 s“ (unter 10 Min), „38 Min“, „2 Std 5 Min“, „2 T 4 Std“. */
@@ -589,8 +212,8 @@ function buildProcs() {
   ui.dkv = el("div", "kv", ui.dbody);
   ui.verdict = el("div", "verdict", ui.dbody);
   const btns = el("div", "btns", ui.dbody);
-  ui.term = label(button("btn term", btns, () => ask(false, ui.term)), "btn.terminate");
-  ui.kill = label(button("btn kill", btns, () => ask(true, ui.kill)), "btn.kill");
+  ui.term = label(button("btn term", btns, () => calls.ask(false, ui.term)), "btn.terminate");
+  ui.kill = label(button("btn kill", btns, () => calls.ask(true, ui.kill)), "btn.kill");
   ui.reason = el("p", "s reason", ui.dbody);
   ui.reason.id = "reason";
   for (const b of [ui.term, ui.kill]) b.setAttribute("aria-describedby", "reason");
@@ -963,7 +586,7 @@ function menuKey(e) {
 
 function pickRow(tr) {
   const v = tr && procRows.get(tr.dataset.key);
-  if (v) select("procs", v.p.pid, v.p.start);
+  if (v) calls.select("procs", v.p.pid, v.p.start);
 }
 
 function rowKey(e) {
@@ -1074,7 +697,7 @@ function renderProcs(msg) {
     renderButtons(); // auch „läuft …“ gleich nach dem Bestätigen
     return;
   }
-  hdrInfo();
+  calls.hdrInfo();
   const mem = (msg.tiles || []).find((t) => t.id === "mem");
   state.memTotal = mem && mem.aside ? mem.aside.of : null; // für %MEM
   const col = colOf(state.sort.col), dir = state.sort.desc ? -1 : 1, q = state.query;
@@ -1082,7 +705,7 @@ function renderProcs(msg) {
   list.sort((a, b) => dir * compare(col.get(a), col.get(b)) || a.pid - b.pid); // pid: Gleichstand springt nicht
   if (state.autoPick && !state.sel && list.length) { // nur Sichtprüfung (#procs): obersten Prozess wählen
     state.autoPick = false;
-    return select("procs", list[0].pid, list[0].start);
+    return calls.select("procs", list[0].pid, list[0].start);
   }
   state.rows = list;
   renderRows();
@@ -1209,165 +832,7 @@ function renderButtons() {
   ui.kill.classList.toggle("alert", !!full && state.alert === keyOf(full));
 }
 
-// ---- Dialoge ----
-function makeDialog(cls, titleId) {
-  const d = el("dialog", cls, document.body);
-  d.setAttribute("aria-modal", "true");
-  d.setAttribute("aria-labelledby", titleId);
-  d.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") {
-      e.preventDefault();
-      closeDialog(d);
-    }
-  });
-  d.addEventListener("close", () => { // falls die Seite ohne uns schließt; kommt nach unserem Schließen erst später
-    if (!d.open) closeDialog(d);
-  });
-  return el("div", "in", el("div", "frame", d));
-}
-
-/** Schließen und den Fokus sofort an den öffnenden Knopf zurückgeben (das close-Ereignis käme erst später). */
-function closeDialog(d) {
-  d.close();
-  const o = state.opener;
-  state.opener = state.target = null;
-  if (o) o.focus();
-}
-
-function openDialog(d, opener, first) {
-  state.opener = opener;
-  d.showModal();
-  first.focus(); // Rückfrage: „Abbrechen“, nie die Bestätigung
-}
-
-function buildDialogs() {
-  const c = makeDialog("confirm", "confirm-title");
-  ui.confirm = c.parentNode.parentNode;
-  ui.cTitle = el("h2", "t", c);
-  ui.cTitle.id = "confirm-title";
-  ui.cText = el("p", "", c);
-  const cb = el("div", "btns", c);
-  ui.cNo = label(button("btn plain", cb, () => closeDialog(ui.confirm)), "confirm.cancel");
-  ui.cYes = button("btn term", cb, confirmed);
-
-  const a = makeDialog("about", "about-title");
-  ui.about = a.parentNode.parentNode;
-  el("h2", "brand", a, "ORBITOP").id = "about-title";
-  ui.version = el("p", "", a);
-  for (const k of ["about.license", "about.copyright", "about.fonts"]) label(el("p", "s", a), k);
-  label(el("h3", "t", a), "legend.title");
-  const leg = el("div", "legend", a);
-  for (const s of Object.keys(KIND)) {
-    const b = makeBadge(el("div", "", leg));
-    setBadge(b, s, "");
-    label(b.lastChild, "state." + s);
-    label(el("p", "", leg), "legend." + s);
-  }
-  label(el("h3", "t", a), "settings.title");
-  ui.auto = label(button("switch", a, toggleAutostart), "settings.autostart");
-  ui.auto.setAttribute("role", "switch");
-  ui.autoHint = el("p", "s", a);
-  ui.autoHint.id = "autostart-hint";
-  ui.auto.setAttribute("aria-describedby", ui.autoHint.id);
-  renderAutostart();
-  const ab = el("div", "btns", a);
-  ui.aboutClose = label(button("btn plain", ab, () => closeDialog(ui.about)), "btn.close");
-  label(button("btn term", ab, () => post({ type: "quit" })), "about.quit");
-}
-
-/** Schalter „Beim Anmelden starten“: gesperrt ohne Befehl orbitop (null) und bis zur Antwort auf einen Klick. */
-function renderAutostart() {
-  const on = state.autostart;
-  ui.auto.setAttribute("aria-checked", String(on === true));
-  ui.auto.setAttribute("aria-disabled", String(on === null || state.autoBusy));
-  setText(ui.autoHint, text(on === null ? "settings.autostart_unavailable" : "settings.autostart_hint"));
-}
-
-function toggleAutostart() {
-  if (ui.auto.getAttribute("aria-disabled") === "true") return;
-  state.autoBusy = true;
-  post({ type: "autostart", on: !state.autostart });
-  renderAutostart();
-}
-
-/** Rückfrage öffnen; das Ziel (pid, start) wird jetzt festgehalten, nicht erst beim Bestätigen. */
-function ask(force, opener) {
-  const d = ui.shown;
-  if (!d || !same(d, state.sel) || opener.getAttribute("aria-disabled") === "true") return;
-  state.target = { pid: d.pid, start: d.start, force, name: String(d.name) };
-  ui.confirm.classList.toggle("kill", force);
-  setText(ui.cTitle, text(force ? "confirm.title_kill" : "confirm.title"));
-  fillInto(ui.cText, text(force ? "confirm.kill_text" : "confirm.terminate_text"), { name: String(d.name), pid: d.pid });
-  setText(ui.cYes, text(force ? "confirm.yes_kill" : "confirm.yes"));
-  ui.cYes.className = "btn " + (force ? "kill" : "term");
-  openDialog(ui.confirm, opener, ui.cNo);
-}
-
-function confirmed() {
-  const t = state.target;
-  closeDialog(ui.confirm);
-  if (!t || state.pending) return; // Python verwirft ein zweites terminate ohnehin still
-  state.pending = state.lastTerm = t;
-  state.alert = null;
-  post({ type: "terminate", pid: t.pid, start: t.start, force: t.force });
-  refresh();
-}
-
-/** Ergebnis als Meldung; t (Ziel der Rückfrage) nennt den Prozess, denn die Auswahl kann inzwischen eine andere sein. */
-function notify(code, t) {
-  const msg = text("result." + (RESULTS.includes(code) ? code : "error"));
-  fillInto(ui.noticeText, t ? text("notice.for") : msg, t ? { name: t.name, pid: t.pid, text: msg } : {});
-  ui.notice.hidden = false;
-}
-
-// ---- Brücke ----
-function receive(msg) {
-  if (!msg) return;
-  if (msg.type === "init") {
-    state.lang = msg.lang === "de" ? "de" : "en";
-    state.texts = msg.texts || {};
-    state.version = String(msg.version || "");
-    state.collator = new Intl.Collator(state.lang);
-    document.documentElement.lang = state.lang;
-    for (const [node, key, attr] of ui.labels) {
-      if (attr) node.setAttribute(attr, text(key));
-      else node.textContent = text(key);
-    }
-    applyLayout(state.saving ? state.layout : msg.layout); // Meldung steht aus: der neuere Stand der Seite gilt
-    labelHead(); // auch ohne Neuaufbau des Kopfes
-    setText(ui.version, fill("about.version", { version: state.version }));
-    state.autostart = typeof msg.autostart === "boolean" ? msg.autostart : null;
-    renderAutostart();
-    hdrInfo();
-  } else if (msg.type === "tick") {
-    const prev = state.last;
-    // Python lässt die unveränderte Liste weg: dasselbe Array behalten, equal() endet dann bei a === b
-    if (msg.procs_same === true) msg.procs = prev && Array.isArray(prev.procs) ? prev.procs : null;
-    state.last = msg;
-    state.n++;
-    renderFooter(msg.missing, msg.hints);
-    if (state.tab === "overview") renderOverview(msg); // ausgeblendete Kacheln nicht zeichnen
-    // Prozesse kommen alle 2 s: dazwischen bleiben Tabelle und Detail, nur das Alter im Detail läuft weiter
-    else if (Array.isArray(msg.procs) && prev && equal(msg.procs, prev.procs) && equal(msg.detail, prev.detail)) renderDetail(msg);
-    else renderProcs(msg);
-  } else if (msg.type === "terminate_result") {
-    const t = state.pending;
-    state.pending = null; // Python nimmt erst jetzt wieder ein terminate an
-    notify(msg.result, t && t.pid === msg.pid ? t : null);
-    refresh();
-  } else if (msg.type === "terminate_check") {
-    const t = state.lastTerm;
-    if (!t || msg.pid !== t.pid) return;
-    if (msg.alive) state.alert = keyOf(t); // „Sofort beenden“ hervorheben
-    else notify("gone", t);
-    refresh();
-  } else if (msg.type === "autostart_state") {
-    state.autostart = typeof msg.on === "boolean" ? msg.on : null;
-    state.autoBusy = false;
-    renderAutostart();
-  }
-}
-
-// main.js setzt window.orbitop und startet die Seite; check.js und demo.js prüfen bzw. füllen sie
-export { applyLayout, build, COLS, compare, cpuTime, DEFAULT_SPLIT, fmt, layoutMessage, MIN_PROCESS_W, plot, post,
-         receive, select, setText, setWidth, sizeCols, state, toggleColumn, ui };
+// Für page.js, bridge.js und dialogs.js; check.js und demo.js prüfen bzw. füllen die Seite
+export { applyLayout, buildProcs, COLS, compare, cpuTime, DEFAULT_SPLIT, equal, keyOf, KIND, labelHead, layoutMessage,
+         makeBadge, MIN_PROCESS_W, refresh, renderDetail, renderProcs, RESULTS, same, setBadge, setWidth, sizeCols,
+         toggleColumn };
