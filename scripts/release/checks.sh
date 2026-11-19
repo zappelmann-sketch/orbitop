@@ -48,10 +48,10 @@ check_tree() {
     pinned=$(git -C "$repo" rev-parse --verify HEAD) || die "git rev-parse HEAD failed"
 }
 
-# warn_or_die MESSAGE: a release stops; a dry run, which publishes nothing, only warns.
+# warn_or_die MESSAGE…: a release stops; a dry run, which publishes nothing, only warns.
 warn_or_die() {
-    [ -n "$dry" ] || die "$1"
-    echo "warning: $1; a release refuses that" >&2
+    [ -n "$dry" ] || die "$*"
+    echo "warning: $*; a release refuses that" >&2
 }
 
 # check_date: the newest <release> of the metainfo, which becomes the changelogs and the release notes, has today's

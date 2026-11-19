@@ -47,7 +47,8 @@ def test_origin_must_push_to_the_project(tmp_path, keys, dry):
     repo = make_repo(tmp_path, keys["fpr"], readme=keys["fpr"])
     r, calls = run(tmp_path, repo, keys, VERSION, *(["--dry-run"] if dry else []),
                    env={"ORIGIN_PUSH": "https://github.com/alice/orbitop.git"})
-    text = "origin pushes to https://github.com/alice/orbitop.git, not to zappelmann-sketch/orbitop on GitHub"
+    text = ("origin pushes to https://github.com/alice/orbitop.git, not to zappelmann-sketch/orbitop on GitHub (git"
+            " remote get-url --all --push origin: url, pushurl, insteadOf)")  # die ganze Meldung
     if dry:
         assert r.returncode == 0 and f"warning: {text}" in r.stderr, r.stderr
     else:
