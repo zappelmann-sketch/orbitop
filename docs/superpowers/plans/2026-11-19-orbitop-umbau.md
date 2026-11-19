@@ -152,7 +152,7 @@
 
 **Interfaces:**
 - Consumes: Task 2 (`state.js`, `format.js`, `dom.js`, `bridge.js`, `dialogs.js`).
-- Produces: `procs/table.js` exportiert `buildProcs`, `procs/rows.js` exportiert `renderProcs`. Die Brücke ruft genau diese beiden.
+- Produces: Eine Fassade `procs/view.js` exportiert alles, was die Brücke vom Prozess-Reiter braucht. Heute sind das neben `buildProcs` und `renderProcs` auch `applyLayout`, `labelHead`, `renderDetail`, `equal`, `refresh` und `keyOf`. Gern zusammengefasst zu wenigen Funktionen, ohne das Verhalten zu ändern. Die Brücke importiert aus `procs/` nur `view.js`. (Ruling nach Task 2: Die alte Zeile „genau buildProcs und renderProcs“ war so nicht einhaltbar.)
 
 - [ ] **Step 1: Screenshots vorher** (Prozesse, Prozesse schmal, dazu ein Bild mit offenem Spaltenmenü über `check.html#…`, falls die Prüfseite das schon zeigt), Ablage `$SCRATCH/task3/`.
 - [ ] **Step 2: Rot.** Größentest ohne Ausnahme für `app.js`, erwartet FAIL.
