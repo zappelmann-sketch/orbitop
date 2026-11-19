@@ -2,9 +2,9 @@
 // Copyright © 2026 zappelmann-sketch
 // Aufbau der Seite (Kopfzeile, Übersicht, Prozesse, Fußzeile, Dialoge) und Wechsel der Reiter.
 import { buildProcs, renderProcs } from "./app.js";
-import { buildDialogs, openDialog } from "./dialogs.js";
-import { button, el, label, setText, svg } from "./dom.js";
-import { fill, number, text } from "./format.js";
+import { ask, buildDialogs, openDialog } from "./dialogs.js";
+import { button, el, label, svg } from "./dom.js";
+import { hdrInfo } from "./header.js";
 import { post } from "./post.js";
 import { calls, state, ui } from "./state.js";
 import { renderStrip } from "./strip.js";
@@ -28,16 +28,10 @@ export function build() {
   label(el("span", "s hint", strip), "strip.hint");
   ui.grid = el("div", "grid", ui.overview);
   ui.procs = el("section", "procs", body);
-  buildProcs();
+  buildProcs(ask);
   ui.footer = el("footer", "foot", body);
   buildDialogs();
   showTab("overview");
-}
-
-/** Rechts in der Kopfzeile: Takt in der Übersicht, Prozessanzahl im Reiter „Prozesse“. */
-export function hdrInfo() {
-  const procs = state.tab === "procs" && state.last && state.last.procs;
-  setText(ui.hdrInfo, procs ? fill("strip.count", { n: number(procs.length, state.lang, 0, 0, true) }) : text("strip.tick"));
 }
 
 function showTab(name) {
@@ -66,4 +60,4 @@ export function renderOverview(msg) {
   renderTiles(msg.tiles || []);
 }
 
-Object.assign(calls, { select, hdrInfo }); // für strip.js und app.js, die page.js nicht importieren
+calls.select = select; // spät gebunden: select → renderProcs → select (autoPick); strip.js und app.js wählen darüber

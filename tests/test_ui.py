@@ -16,7 +16,15 @@ import pytest
 CHROME = shutil.which("google-chrome") or shutil.which("chromium") or shutil.which("chromium-browser")
 REPO = Path(__file__).resolve().parent.parent
 JS_DIR = REPO / "orbitop" / "ui" / "js"
-IMPORT = re.compile(r'^import\s+(?:[^;"]*?\s+from\s+)?"(\.\.?/[^"]+)";', re.M)  # relative Importe, auch ohne from
+CHECK_DIR = REPO / "tests" / "ui"
+IMPORT = re.compile(r'^(?:import|export)\s+(?:[^;"]*?\s+from\s+)?"(\.\.?/[^"]+)";', re.M)
+# bis Task 3: beide halten noch den Reiter „Prozesse“; Task 3 teilt sie auf und entfernt die Ausnahme
+TOO_LONG_UNTIL_TASK3 = {"orbitop/ui/js/app.js", "tests/ui/check/procs.js"}
+
+
+def relative_imports(src):
+    """Relative Module, die src importiert oder re-exportiert, auch ohne from und über mehrere Zeilen."""
+    return IMPORT.findall(src)
 
 
 @contextlib.contextmanager
@@ -84,16 +92,30 @@ def test_ui_check_page_reports_module_error(tmp_path):
     assert title.startswith("<title>FAIL Ausnahme: ") and "probe" in title, title
 
 
+@pytest.mark.parametrize("src, want", [
+    ('import { a } from "./a.js";', ["./a.js"]),
+    ('import "./b.js";', ["./b.js"]),
+    ('import {\n  a,\n  b,\n} from "../c.js";', ["../c.js"]),
+    ('export { a } from "./d.js";', ["./d.js"]),
+    ('export * from "./e.js";', ["./e.js"]),
+    ('export function f() {}\nconst g = "./g.js";', []),
+    ('import { h } from "https://example.com/h.js";', []),
+])
+def test_relative_imports(src, want):
+    assert relative_imports(src) == want
+
+
 def test_ui_modules_have_no_import_cycle():
     """Ein Zyklus ließe einen importierten Namen beim Auswerten undefined. Dazu: Jedes importierte Modul gibt es,
-    und jede Datei hat höchstens 300 Zeilen."""
+    und jede Datei der Seite und der Prüfseite hat höchstens 300 Zeilen."""
+    files = [*JS_DIR.rglob("*.js"), CHECK_DIR / "check.js", *(CHECK_DIR / "check").rglob("*.js")]
     graph = {}
-    for p in sorted(JS_DIR.rglob("*.js")):
+    for p in sorted(files):
         src = p.read_text(encoding="utf-8")
-        deps = [(p.parent / m).resolve() for m in IMPORT.findall(src)]
+        deps = [(p.parent / m).resolve() for m in relative_imports(src)]
         assert all(d.is_file() for d in deps), (p.name, [str(d) for d in deps if not d.is_file()])
         graph[p.resolve()] = deps
-        if p.name != "app.js":  # Ausnahme bis Task 3: app.js hält noch den Reiter „Prozesse“, Task 3 teilt ihn auf
+        if p.relative_to(REPO).as_posix() not in TOO_LONG_UNTIL_TASK3:
             assert len(src.splitlines()) <= 300, p.name
     assert graph[(JS_DIR / "main.js").resolve()], "keine Importe in main.js erkannt"
     done = set()
@@ -110,12 +132,18 @@ def test_ui_modules_have_no_import_cycle():
 
 
 def test_terminate_is_posted_only_by_the_confirm_button():
-    """Kein Beenden ohne Rückfrage: genau eine Stelle sendet terminate, und nur der Bestätigungsknopf ruft sie auf."""
-    sources = {p: p.read_text(encoding="utf-8") for p in sorted(JS_DIR.rglob("*.js"))}
-    js = sources[JS_DIR / "dialogs.js"]
-    assert sum(s.count('"terminate"') for s in sources.values()) == js.count('"terminate"') == 1
+    """Kein Beenden ohne Rückfrage: genau eine Stelle sendet terminate (confirmed in dialogs.js), nur der
+    Bestätigungsknopf ruft sie auf, und kein anderes Modul fasst den Knopf an."""
+    sources = {p.relative_to(JS_DIR).as_posix(): p.read_text(encoding="utf-8") for p in sorted(JS_DIR.rglob("*.js"))}
+    terminate = re.compile(r"""["'`]terminate["'`]""")  # gleich in welchen Anführungszeichen
+    assert {name: len(terminate.findall(s)) for name, s in sources.items() if terminate.search(s)} == {"dialogs.js": 1}
+    js = sources["dialogs.js"]
     body = js[js.index("function confirmed() {"):]
     assert body.index('post({ type: "terminate"') < body.index("\n}\n")
     code = [line for s in sources.values() for line in s.splitlines()
             if "confirmed" in line and not line.lstrip().startswith("//")]
     assert code == ['  ui.cYes = button("btn term", cb, confirmed);', "function confirmed() {"]
+    assert [name for name, s in sources.items() if "cYes" in s] == ["dialogs.js"]
+    assert not re.search(r"cYes\s*\.\s*(click|dispatchEvent)\b", js)
+
+

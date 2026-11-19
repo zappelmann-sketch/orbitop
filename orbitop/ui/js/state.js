@@ -16,6 +16,6 @@ export const ui = { labels: [] };
 export const tiles = new Map(); // Kachel-id -> Elemente
 export const procRows = new Map(); // "pid:start" -> Zeilenelemente, nur gezeichnete Zeilen
 export const formats = new Map();
-/** Aufrufe gegen die Importrichtung: Lastzeile und Prozessliste wählen über select und hdrInfo (page.js), die Knöpfe
- * im Detail fragen über ask (dialogs.js) nach. Diese Module tragen sie beim Laden ein; ein Import wäre ein Zyklus. */
+/** Aufruf gegen die Importrichtung: Lastzeile (strip.js) und Prozessliste (app.js) wählen über select aus page.js, und
+ * select ruft renderProcs, das bei autoPick wieder select ruft. page.js trägt select beim Laden ein. */
 export const calls = {};

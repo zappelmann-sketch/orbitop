@@ -5,11 +5,11 @@
 import { drawArea } from "./chart.js";
 import { button, el, fillInto, label, pairs, pathEl, setText, svg } from "./dom.js";
 import { fill, fmt, number, text } from "./format.js";
+import { hdrInfo } from "./header.js";
 import { post } from "./post.js";
 import { calls, procRows, state, ui } from "./state.js";
 import { AREA, plot } from "./tiles.js";
 
-// ---- Prozesse ----
 const PROC_POINTS = 150, PROC_GRID = 15, SPARK_POINTS = 30; // 2 s je Punkt: Detail 5 min, Linie alle 30 s; Zeile 60 s
 const BUFFER_ROWS = 6, GUESS_PITCH = 31; // Zeilen über und unter dem Sichtbereich; Zeilenabstand, bis er gemessen ist
 const KIND = { working: "ok", waiting: "idle", busy_noio: "warn", busy_iounknown: "warn", kernel_hang: "bad",
@@ -96,7 +96,8 @@ function setBadge(b, st, label) {
   setText(b.lastChild, label);
 }
 
-function buildProcs() {
+/** ask: Rückfrage vor dem Beenden aus dialogs.js, von page.build hereingereicht (dialogs.js importiert app.js). */
+function buildProcs(ask) {
   ui.list = el("div", "frame list", ui.procs);
   const list = el("div", "in", ui.list);
   const bar = el("div", "bar2", list);
@@ -212,8 +213,8 @@ function buildProcs() {
   ui.dkv = el("div", "kv", ui.dbody);
   ui.verdict = el("div", "verdict", ui.dbody);
   const btns = el("div", "btns", ui.dbody);
-  ui.term = label(button("btn term", btns, () => calls.ask(false, ui.term)), "btn.terminate");
-  ui.kill = label(button("btn kill", btns, () => calls.ask(true, ui.kill)), "btn.kill");
+  ui.term = label(button("btn term", btns, () => ask(false, ui.term)), "btn.terminate");
+  ui.kill = label(button("btn kill", btns, () => ask(true, ui.kill)), "btn.kill");
   ui.reason = el("p", "s reason", ui.dbody);
   ui.reason.id = "reason";
   for (const b of [ui.term, ui.kill]) b.setAttribute("aria-describedby", "reason");
@@ -697,7 +698,7 @@ function renderProcs(msg) {
     renderButtons(); // auch „läuft …“ gleich nach dem Bestätigen
     return;
   }
-  calls.hdrInfo();
+  hdrInfo();
   const mem = (msg.tiles || []).find((t) => t.id === "mem");
   state.memTotal = mem && mem.aside ? mem.aside.of : null; // für %MEM
   const col = colOf(state.sort.col), dir = state.sort.desc ? -1 : 1, q = state.query;

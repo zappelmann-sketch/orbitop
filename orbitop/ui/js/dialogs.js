@@ -6,7 +6,7 @@ import { KIND, makeBadge, RESULTS, refresh, same, setBadge } from "./app.js";
 import { button, el, fillInto, label, setText } from "./dom.js";
 import { text } from "./format.js";
 import { post } from "./post.js";
-import { calls, state, ui } from "./state.js";
+import { state, ui } from "./state.js";
 
 function makeDialog(cls, titleId) {
   const d = el("dialog", cls, document.body);
@@ -89,7 +89,7 @@ function toggleAutostart() {
 }
 
 /** Rückfrage öffnen; das Ziel (pid, start) wird jetzt festgehalten, nicht erst beim Bestätigen. */
-function ask(force, opener) {
+export function ask(force, opener) {
   const d = ui.shown;
   if (!d || !same(d, state.sel) || opener.getAttribute("aria-disabled") === "true") return;
   state.target = { pid: d.pid, start: d.start, force, name: String(d.name) };
@@ -117,5 +117,3 @@ export function notify(code, t) {
   fillInto(ui.noticeText, t ? text("notice.for") : msg, t ? { name: t.name, pid: t.pid, text: msg } : {});
   ui.notice.hidden = false;
 }
-
-calls.ask = ask; // für die Knöpfe im Detail (app.js), das dialogs.js nicht importiert

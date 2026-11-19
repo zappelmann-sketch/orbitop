@@ -6,7 +6,8 @@ import { notify, renderAutostart } from "./dialogs.js";
 import { setText } from "./dom.js";
 import { fill, text } from "./format.js";
 import { renderFooter } from "./footer.js";
-import { hdrInfo, renderOverview } from "./page.js";
+import { hdrInfo } from "./header.js";
+import { renderOverview } from "./page.js";
 import { state, ui } from "./state.js";
 
 export function receive(msg) {
