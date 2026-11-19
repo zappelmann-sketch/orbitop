@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """scripts/release.sh mit Stellvertretern (tests/release_stub.py): die Vorprüfung vor jedem Bau, der gpg-agent mit
-einer Passphrase je Release und der Trockenlauf ohne gh und Push. Die Veröffentlichung: tests/test_release_publish.py;
-gh-pages, Wiederverwendung und docs/distro-check.md: tests/test_release_pages.py."""
+zwei Passphrase-Abfragen je Lauf und der Trockenlauf ohne gh und Push. Die Veröffentlichung:
+tests/test_release_publish.py; gh-pages, Wiederverwendung und docs/distro-check.md: tests/test_release_pages.py;
+Datum, origin und fester HEAD: tests/test_release_checks.py."""
 import os
 import re
 import shutil
@@ -168,7 +169,8 @@ def test_refuses_committed_key_after_renewal(tmp_path, change):
 
 
 def test_agent_keeps_the_passphrase_for_the_whole_release(tmp_path, keys, repo):
-    """Spec 4: eine Eingabe je Release. Der Agent von GNUPGHOME startet neu mit 2 Stunden und stoppt am Ende."""
+    """Spec 4: Der Agent von GNUPGHOME startet neu mit 2 Stunden und stoppt am Ende; je Lauf fragt er zweimal, für
+    den Rechner und für den extra-socket (Schlussreview I1)."""
     r, calls = run(tmp_path, repo, keys, VERSION, "--dry-run")
     assert r.returncode == 0, r.stderr
     assert calls["gpg-agent"] == [["--homedir", str(keys["home"]), "--daemon", "--disable-scdaemon",

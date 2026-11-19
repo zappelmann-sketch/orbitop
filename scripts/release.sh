@@ -58,7 +58,9 @@ finish() {
 tmp=$(mktemp -d)
 trap finish EXIT
 mkdir -m 700 "$tmp/gnupg"  # an empty keyring for reading key files, never GNUPGHOME
-# One passphrase prompt per release (spec 4): the matrix lies between the first signature (build-site.sh) and the last
+# Two passphrase prompts per run, both naming the archive key: one from the host (build-site.sh, first signature),
+# one "Note: Request from a remote site." for rpmsign through the extra socket, which gpg-agent caches apart; any
+# further prompt is suspicious (docs/release.md, Release). The matrix lies between the first signature and the last
 # (SHA256SUMS.asc), longer than the 10 minutes gpg-agent keeps a passphrase by default. So the agent of GNUPGHOME
 # starts anew for this run and keeps it for 2 hours; no file of GNUPGHOME changes. No scdaemon: no token's key is
 # reachable through the agent's socket (docs/release.md, Site).

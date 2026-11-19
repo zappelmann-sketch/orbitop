@@ -129,4 +129,6 @@ def test_no_personal_data():
     for p in [*header_files(), ROOT / "docs" / "release.md"]:
         text = p.read_text(encoding="utf-8")
         assert not home.findall(text), p
-        assert not [m for m in mail.findall(text) if m != NOREPLY and not m.endswith("@example.com")], p
+        # git@github.com ist der ssh-Benutzer von GitHub in einer Push-Adresse, keine Mail
+        assert not [m for m in mail.findall(text) if m not in (NOREPLY, "git@github.com")
+                    and not m.endswith("@example.com")], p

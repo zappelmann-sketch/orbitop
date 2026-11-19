@@ -79,7 +79,7 @@ Paketquelle und Release-Dateien sind mit einem Schlüssel signiert: Ed25519, Use
 B6F10E7E76A63D9D569DE0674B5D133F71445C01
 ```
 
-Der Fingerabdruck steht hier in der README im Repository, nicht nur auf der Seite der Paketquelle. Die Schritte unten brauchen `curl` und GnuPG (`gpg`, unter Debian und Ubuntu auch `gpgv`). Fehlt eines, installieren Sie es: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2 findutils` oder `sudo pacman -S curl gnupg`. Laden Sie den Schlüssel in einem neuen, privaten Verzeichnis in beiden Formen und lassen Sie ihn sich zeigen; das ändert nichts am Rechner:
+Der Fingerabdruck steht hier in der README und auf der Seite der Paketquelle. README, Release-Dateien und Paketquelle kommen alle vom GitHub-Konto `zappelmann-sketch`, Ihr erstes Vertrauen in den Schlüssel hängt also allein an diesem Konto. Die Schritte unten brauchen `curl` und GnuPG (`gpg`, unter Debian und Ubuntu auch `gpgv`). Fehlt eines, installieren Sie es: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2 findutils` oder `sudo pacman -S curl gnupg`. Laden Sie den Schlüssel in einem neuen, privaten Verzeichnis in beiden Formen und lassen Sie ihn sich zeigen; das installiert nichts:
 
 ```sh
 cd "$(mktemp -d)"
@@ -88,7 +88,7 @@ curl -LO https://zappelmann-sketch.github.io/orbitop/orbitop-archive-keyring.pgp
 gpg --show-keys orbitop-archive-keyring.asc orbitop-archive-keyring.pgp
 ```
 
-Jede Datei muss genau einen Schlüssel enthalten: Die Ausgabe zeigt genau zwei Schlüssel, einen je Datei, und unter jeder Zeile `pub` genau den Fingerabdruck oben. Zeigt sie mehr Schlüssel oder einen anderen Fingerabdruck, brechen Sie ab: Mit einem zweiten Schlüssel in der Datei könnte auch dieser signieren. Die Schritte Ihrer Distribution führen Sie im selben Terminal in diesem Verzeichnis aus.
+Jede Datei muss genau einen Schlüssel enthalten: Die Ausgabe zeigt genau zwei Schlüssel, einen je Datei, und unter jeder Zeile `pub` genau den Fingerabdruck oben. Zeigt sie mehr Schlüssel oder einen anderen Fingerabdruck, brechen Sie ab: Mit einem zweiten Schlüssel in der Datei könnte auch dieser signieren. Die Schritte Ihrer Distribution führen Sie im selben Terminal in diesem Verzeichnis aus. Unter Fedora, openSUSE und Arch kommt der Schlüssel in einen Schlüsselbund des ganzen Rechners (die rpm-Datenbank, den Schlüsselbund von pacman), der ihm dann für jede Paketquelle dort vertraut, nicht nur für diese (apt bindet ihn an diese Quelle); der vollständige Abbau ([Deinstallation](#deinstallation)) entfernt ihn wieder.
 
 ### Ubuntu und Debian
 

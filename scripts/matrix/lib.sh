@@ -1,7 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Helpers of scripts/matrix/inside.sh and the files of the package managers, sourced first. They need no root, so
-# tests/test_check_distros.py sources them too. STATE is the directory for the matrix's own files (default
+# tests/test_matrix_lib.py sources them too. STATE is the directory for the matrix's own files (default
 # /tmp/matrix); NOISE comes from the file of the package manager.
 # shellcheck shell=bash disable=SC2153,SC2154  # NOISE comes from <manager>.sh
 

@@ -205,7 +205,7 @@ Je Distribution gibt es in der README einen Weg:
   - Laufzeit 3 Jahre. Das Release-Skript warnt, wenn weniger als 6 Monate bleiben. Eine Verlängerung kommt als neuer öffentlicher Schlüssel mit einem Paket-Update, solange der alte noch gilt.
   - Dazu ein Widerrufszertifikat.
 - **Aufbewahrung und Schutz:**
-  - Eine Passphrase ist Pflicht. Der gpg-agent fragt per Pinentry, und eine Eingabe reicht für ein ganzes Release.
+  - Eine Passphrase ist Pflicht. Der gpg-agent fragt per Pinentry, je Lauf genau zweimal, beide Male mit dem Archivschlüssel: einmal für den Rechner und einmal mit dem Vermerk „Note: Request from a remote site.“ für `rpmsign` über den extra-socket (der gpg-agent führt für ihn einen eigenen Zwischenspeicher). Jede weitere Abfrage ist verdächtig, der Lauf wird dann abgebrochen. Ein Trockenlauf mit dem echten Schlüssel startet den Agenten neu und fragt deshalb selbst noch zweimal (Schlussreview, I1).
   - Der Schlüssel liegt auf dem Notebook des Users in einem eigenen GnuPG-Ordner mit eigenem gpg-agent, in dem nur er liegt (geändert nach dem Security-Audit von Task 5: der für `rpmsign` eingehängte Agent-Socket könnte sonst mit jedem anderen Schlüssel im Agent signieren und entschlüsseln).
   - Er liegt nie im Repository, in einem Container oder bei GitHub. Für `rpmsign` im Container bekommt dieser höchstens den eingeschränkten Zusatz-Socket des gpg-agent (`extra-socket`), nie die Schlüsseldatei. Der Builder prüft den Weg; eine Alternative ist `rpmsign` auf dem Notebook.
 - **Erzeugung:** Einmalig mit dem User, nach einer Anleitung im Repository (`docs/release.md`, ohne persönliche Daten).

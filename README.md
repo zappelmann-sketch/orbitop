@@ -79,7 +79,7 @@ The package source and the release files are signed with one key: Ed25519, user 
 B6F10E7E76A63D9D569DE0674B5D133F71445C01
 ```
 
-The fingerprint is in this README in the repository, not only on the page of the package source. The steps below use `curl` and GnuPG (`gpg`, on Debian and Ubuntu also `gpgv`). If one is missing, install it: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2 findutils` or `sudo pacman -S curl gnupg`. In a new private directory, download the key in both forms and show it; this changes nothing on the machine:
+The fingerprint is in this README and on the page of the package source. The README, the release files and the package source all come from the GitHub account `zappelmann-sketch`, so your first trust in the key rests on that account alone. The steps below use `curl` and GnuPG (`gpg`, on Debian and Ubuntu also `gpgv`). If one is missing, install it: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2 findutils` or `sudo pacman -S curl gnupg`. In a new private directory, download the key in both forms and show it; this installs nothing:
 
 ```sh
 cd "$(mktemp -d)"
@@ -88,7 +88,7 @@ curl -LO https://zappelmann-sketch.github.io/orbitop/orbitop-archive-keyring.pgp
 gpg --show-keys orbitop-archive-keyring.asc orbitop-archive-keyring.pgp
 ```
 
-Each file must hold exactly one key: the output shows exactly two keys, one per file, and below each line `pub` exactly the fingerprint above. If it shows more keys or another fingerprint, stop: a file with a second key would let that key sign as well. Run the steps for your distribution in the same terminal, in this directory.
+Each file must hold exactly one key: the output shows exactly two keys, one per file, and below each line `pub` exactly the fingerprint above. If it shows more keys or another fingerprint, stop: a file with a second key would let that key sign as well. Run the steps for your distribution in the same terminal, in this directory. On Fedora, openSUSE and Arch the key goes into a keyring of the whole machine (the rpm database, pacman's keyring), which then trusts it for every package source there, not only for this one (apt binds it to this source); the full uninstall ([Uninstall](#uninstall)) removes it again.
 
 ### Ubuntu and Debian
 
