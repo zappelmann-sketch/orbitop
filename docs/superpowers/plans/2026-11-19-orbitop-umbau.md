@@ -288,7 +288,7 @@
 ### Task 10: Kleinigkeiten in der Paketierung
 
 **Files:**
-- Modify: `packaging/container-prologue.sh`, `tests/test_rpm_same.py`, `tests/test_packaging_arch.py`, `tests/test_packaging_debian.py` (K3-Wächter), `tests/test_packaging_rpm.py` (K3-Wächter), `packaging/site/apt-inside.sh` und `packaging/site/check-apt-index.py` (nur wenn Step 4 es erlaubt), `docs/release.md`.
+- Modify: `packaging/container-prologue.sh`, `tests/test_rpm_same.py`, `tests/test_packaging_arch.py`, `tests/test_packaging_debian.py` (K3-Wächter), `tests/test_packaging_rpm.py` (K3-Wächter, pkexec), `packaging/rpm/orbitop.spec` (pkexec), `scripts/matrix/*.sh` (pkexec vorhanden), `README.md`, `README.de.md`, `orbitop/locale/{en,de}.json` und `orbitop/app.py` (nur falls sie Paketnamen der Intel-Werkzeuge nennen), `packaging/site/apt-inside.sh` und `packaging/site/check-apt-index.py` (nur wenn Step 4 es erlaubt), `docs/release.md`.
 
 - [ ] **Step 1: Prolog.** `container-prologue.sh` prüft zuerst, ob es als root in einem Wegwerf-Container läuft, und liest erst dann den Schlüssel von stdin in eine temporäre Datei. Außerhalb eines Containers bleibt keine Datei zurück. Test: Aufruf außerhalb eines Containers (als normaler Benutzer) → Abbruch, kein neues `tmp.*` in `$TMPDIR`. Der Kopfkommentar beschreibt die Reihenfolge richtig.
 - [ ] **Step 2: Tests schärfen.**
@@ -300,7 +300,10 @@
   - Mit `APT::FTPArchive::MD5 "false"` und `APT::FTPArchive::SHA1 "false"` (apt-ftparchive(1)) prüfen, ob apt in allen apt-Images der Matrix die Quelle annimmt.
   - Erst wenn das so ist: umstellen und `check-apt-index.py` auf die beiden Hashes beschränken. Danach Matrix wie in Task 8 Step 3.
   - Sonst bleibt es, wie es ist, mit einer Zeile Begründung in `docs/release.md`.
-- [ ] **Step 5: Commit** `fix: Kleinigkeiten in Paketierung und Tests`.
+- [ ] **Step 5: Zwei Fehler aus 0.2.0, gefunden in der Security-Runde.**
+  - **pkexec auf openSUSE:** Dort ist pkexec ein eigenes Paket. Das openSUSE-RPM bekommt `Requires: /usr/bin/pkexec`, Fedora nur, wenn es dort ebenfalls fehlt (im Container prüfen: `rpm -qf /usr/bin/pkexec` nach Installation von `polkit`). Test in `tests/test_packaging_rpm.py`. Die Matrix prüft, dass `/usr/bin/pkexec` nach der Installation von orbitop da ist.
+  - **Paketnamen der Intel-Werkzeuge:** Die README nennt sie in „Grafik und Leistung“, in beiden Sprachen. Ebenso die Hinweistexte in `orbitop/locale/{en,de}.json` und die Tabelle in `orbitop/app.py`, falls sie Namen nennen. Die richtigen Namen je Image prüft ein Container: `apt-cache policy intel-gpu-tools igt-gpu-tools`, `dnf repoquery`, `zypper search`, `pacman -Si`. Dazu: Welches Paket enthält `/usr/bin/intel_gpu_top`? Das Ergebnis kommt in den Bericht. Laut Security-Runde heißt das Paket auf openSUSE `intel-gpu-tools`, auf Fedora `igt-gpu-tools`. Auf Ubuntu 26.04 enthält `igt-gpu-tools` das Werkzeug, `intel-gpu-tools` ist dort nur noch ein Metapaket.
+- [ ] **Step 6: Commit** `fix: Kleinigkeiten in Paketierung und Tests`.
 
 ### Task 11: Kleinigkeiten in der App
 
