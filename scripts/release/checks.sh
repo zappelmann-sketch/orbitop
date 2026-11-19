@@ -76,8 +76,8 @@ check_key() {
 }
 
 # check_readme: every fingerprint in README.md and README.de.md, in one piece or grouped as gpg prints it, is
-# ORBITOP_KEY. A README without the fingerprint, or with the placeholder <FINGERPRINT> (until Task 9), stops a
-# release; a dry run only warns.
+# ORBITOP_KEY. A README without the fingerprint, or with the placeholder <FINGERPRINT>, stops a release; a dry run
+# only warns.
 check_readme() {
     local readmes=("$repo/README.md" "$repo/README.de.md") found problem=""
     found=$(grep -ohE '\b[0-9A-F]{4}( {0,2}[0-9A-F]{4}){9}\b' -- "${readmes[@]}" | tr -d ' ' | sort -u) || true

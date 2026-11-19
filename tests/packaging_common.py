@@ -10,6 +10,7 @@ APT_SOURCE = PKG / "apt-source"
 APP = "io.github.zappelmann_sketch.orbitop"
 METAINFO = ROOT / "data" / f"{APP}.metainfo.xml"
 NOREPLY = "235797375+zappelmann-sketch@users.noreply.github.com"
+KEY_FILE = PKG / "keys" / "orbitop-archive-keyring.asc"  # der öffentliche Archivschlüssel (Task 9)
 
 
 def load_changelog():  # über den Pfad: "packaging" ist auch der Name einer PyPI-Bibliothek, die pytest lädt

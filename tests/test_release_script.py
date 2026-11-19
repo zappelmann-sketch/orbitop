@@ -3,7 +3,9 @@
 """scripts/release.sh mit Stellvertretern (tests/release_stub.py): die Vorprüfung vor jedem Bau, der gpg-agent mit
 einer Passphrase je Release und der Trockenlauf ohne gh und Push. Die Veröffentlichung: tests/test_release_publish.py;
 gh-pages, Wiederverwendung und docs/distro-check.md: tests/test_release_pages.py."""
+import os
 import re
+import shutil
 import subprocess
 
 import pytest
@@ -167,7 +169,7 @@ def test_agent_stops_even_when_the_cleanup_fails(tmp_path, keys, repo):
 
 
 def test_dry_run_never_calls_gh_or_push(tmp_path, keys):
-    repo = make_repo(tmp_path, keys["fpr"], readme=None)  # bis Task 9: nur eine Warnung im Trockenlauf
+    repo = make_repo(tmp_path, keys["fpr"], readme=None)  # der Platzhalter: nur eine Warnung im Trockenlauf
     commit_key(repo, gpg(keys["home"], "--armor", "--export", keys["fpr"]))  # der passende Schlüssel stört nicht
     r, calls = run(tmp_path, repo, keys, VERSION, "--dry-run")
     assert r.returncode == 0, r.stderr
@@ -193,6 +195,20 @@ def test_build_gets_the_exported_public_key(tmp_path, keys, repo):
     assert (tmp_path / "pubkey.asc").read_bytes() == exported  # nicht die armor-Option der gpg.conf
     assert all(c[c.index("--packages") + 1].endswith(("/pkgs", "/pkgs2")) for c in calls["calls"]
                if c[0] == "build-site")
+
+
+def test_checks_accept_the_repository(tmp_path):
+    """Task 9: Die Prüfungen von release/checks.sh, die den geheimen Schlüssel nicht brauchen, nehmen die READMEs und
+    packaging/keys/orbitop-archive-keyring.asc dieses Repositorys für ein Release an (kein Trockenlauf)."""
+    if not shutil.which("gpg"):
+        pytest.skip("gpg fehlt")
+    fpr = re.search(r"using EDDSA key ([0-9A-F]{40})", (ROOT / "README.md").read_text())[1]
+    (tmp_path / "gnupg").mkdir(mode=0o700)
+    script = ('die() { echo "$*" >&2; exit 1; }; . scripts/release/checks.sh; check_readme; '
+              '[ "$(fingerprint packaging/keys/orbitop-archive-keyring.asc)" = "$fpr" ]')  # wie in check_key
+    r = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=ROOT, capture_output=True, text=True,
+                       env={**os.environ, "repo": str(ROOT), "fpr": fpr, "tmp": str(tmp_path), "dry": ""})
+    assert r.returncode == 0 and not r.stderr, r.stderr
 
 
 def test_shellcheck_clean():

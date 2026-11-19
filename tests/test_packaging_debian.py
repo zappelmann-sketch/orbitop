@@ -6,15 +6,15 @@ import re
 from urllib.parse import urlsplit
 
 from orbitop import app
-from tests.packaging_common import APT_SOURCE, METAINFO, NOREPLY, PKG, ROOT, deb822, load_changelog
+from tests.packaging_common import APT_SOURCE, KEY_FILE, METAINFO, NOREPLY, PKG, ROOT, deb822, load_changelog
 
-# einzeilige Datendateien, die kein Kommentarformat kennen
+# Datendateien ohne Kommentarformat: einzeilige Dateien und der Schlüssel, so wie gpg ihn exportiert
 NO_HEADER = {PKG / "debian" / "source" / "format", APT_SOURCE / "debian" / "source" / "format",
-             PKG / "keyring.version"}
-# Eingaben von orbitop-apt-source außer dem Schlüssel, je packaging/keyring.version. Ändert sich eine, steigt die
-# Version, und hier kommt ein Eintrag dazu; sonst gäbe es zwei verschiedene Pakete mit derselben Version.
+             PKG / "keyring.version", KEY_FILE}
+# Eingaben von orbitop-apt-source samt dem Schlüssel KEY_FILE, je packaging/keyring.version. Ändert sich eine, steigt
+# die Version, und hier kommt ein Eintrag dazu; sonst gäbe es zwei verschiedene Pakete mit derselben Version.
 # Nur vor der ersten Veröffentlichung (Task 10) darf ein Eintrag ersetzt werden.
-APT_SOURCE_INPUTS = {"2026.11.18": "243b6c11a0579276dacb2c21f061be8683894c8d4c37e028ce24141fe24f391b"}
+APT_SOURCE_INPUTS = {"2026.11.18": "20dd42aae4c91c617c5fd516fd679c01e60658637285bfaf81732551fc340e74"}
 KEYRING = "/etc/apt/keyrings/orbitop-archive-keyring.pgp"
 
 
@@ -94,7 +94,7 @@ def test_only_lintian_override_is_the_preferences_file():  # Ruling: genau diese
 def apt_source_inputs():
     version = (PKG / "keyring.version").read_text().strip()
     h = hashlib.sha256(load_changelog().apt_source(version).encode())
-    for p in sorted(p for p in APT_SOURCE.rglob("*") if p.is_file()):
+    for p in [*sorted(p for p in APT_SOURCE.rglob("*") if p.is_file()), KEY_FILE]:
         h.update(b"\0" + str(p.relative_to(PKG)).encode() + b"\0" + p.read_bytes())
     return version, h.hexdigest()
 

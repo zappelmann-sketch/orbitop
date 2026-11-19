@@ -5,6 +5,7 @@ entfernten Repository (lokal, ohne Netz), Stellvertreter für die Bau-Skripte, g
 gpgconf."""
 import hashlib
 import os
+import re
 import shutil
 import subprocess
 
@@ -165,7 +166,7 @@ def stub(directory, name, text):
 def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY):
     """Wegwerf-Repository auf main mit den Release-Skripten und Stellvertretern für die Bau-Skripte, origin ein
     lokales bare-Repository, Identität USER <EMAIL>; die Matrix meldet den Schlüssel FPR, die READMEs nennen README
-    statt <FINGERPRINT>. Gibt die Pfade zurück."""
+    statt des Fingerabdrucks des Archivschlüssels (None: den Platzhalter <FINGERPRINT>). Gibt die Pfade zurück."""
     repo, remote, bin_, rpm_bin = (tmp_path / n for n in ("repo", "remote.git", "bin", "rpm-bin"))
     for name in COPIED:
         (repo / name).parent.mkdir(parents=True, exist_ok=True)
@@ -173,8 +174,8 @@ def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY):
     for name, text in {"build-packages.sh": BUILD_PACKAGES, "build-site.sh": BUILD_SITE,
                        "check-distros.sh": CHECK_DISTROS}.items():
         (repo / "scripts" / name).write_text(text)
-    for name in ("README.md", "README.de.md") if readme else ():
-        (repo / name).write_text((repo / name).read_text().replace("<FINGERPRINT>", readme))
+    for name in ("README.md", "README.de.md"):
+        (repo / name).write_text(re.sub(r"\b[0-9A-F]{40}\b", readme or "<FINGERPRINT>", (repo / name).read_text()))
     (repo / "tests").mkdir()
     for name in ("test_ok.py", "test_readme.py"):  # die strenge Suite und der README-Abgleich nach der Matrix
         (repo / "tests" / name).write_text("def test_ok():\n    pass\n")

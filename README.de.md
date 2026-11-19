@@ -76,7 +76,7 @@ Nicht unterstützt: Debian 12 (Python 3.11) und Ubuntu 22.04 (Python 3.10). orbi
 Paketquelle und Release-Dateien sind mit einem Schlüssel signiert: Ed25519, User-ID `orbitop archive signing key`. Sein Fingerabdruck:
 
 ```text
-<FINGERPRINT>
+B6F10E7E76A63D9D569DE0674B5D133F71445C01
 ```
 
 Der Fingerabdruck steht hier in der README im Repository, nicht nur auf der Seite der Paketquelle. Die Schritte unten brauchen `curl` und GnuPG (`gpg`, unter Debian und Ubuntu auch `gpgv`). Fehlt eines, installieren Sie es: `sudo apt install curl gnupg gpgv`, `sudo dnf install curl gnupg2`, `sudo zypper install curl gpg2 findutils` oder `sudo pacman -S curl gnupg`. Laden Sie den Schlüssel in einem neuen, privaten Verzeichnis in beiden Formen und lassen Sie ihn sich zeigen; das ändert nichts am Rechner:
@@ -102,7 +102,7 @@ gpgv --keyring ./orbitop-archive-keyring.pgp SHA256SUMS.asc SHA256SUMS
 sha256sum --ignore-missing -c SHA256SUMS
 ```
 
-`gpgv` muss `using EDDSA key <FINGERPRINT>` mit genau dem Fingerabdruck oben und `Good signature from "orbitop archive signing key"` melden und `sha256sum` `orbitop-apt-source.deb: OK` ausgeben. Danach:
+`gpgv` muss `using EDDSA key B6F10E7E76A63D9D569DE0674B5D133F71445C01` mit genau dem Fingerabdruck oben und `Good signature from "orbitop archive signing key"` melden und `sha256sum` `orbitop-apt-source.deb: OK` ausgeben. Danach:
 
 ```sh
 sudo apt install ./orbitop-apt-source.deb
@@ -149,7 +149,7 @@ Den oben geprüften Schlüssel hinzufügen und lokal signieren:
 
 ```sh
 sudo pacman-key --add orbitop-archive-keyring.asc
-sudo pacman-key --lsign-key <FINGERPRINT>
+sudo pacman-key --lsign-key B6F10E7E76A63D9D569DE0674B5D133F71445C01
 ```
 
 Dann diesen Abschnitt ganz am Ende von `/etc/pacman.conf` anhängen, etwa mit `sudo nano /etc/pacman.conf`:

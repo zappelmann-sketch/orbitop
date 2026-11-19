@@ -4,9 +4,14 @@
 dieselben Befehle wie die Container-Matrix."""
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
+import pytest
+
 from orbitop import app
+from tests.packaging_common import KEY_FILE
 
 REPO = Path(__file__).resolve().parent.parent
 EN = (REPO / "README.md").read_text(encoding="utf-8")
@@ -146,6 +151,31 @@ def test_key_check_needs_exactly_one_key_and_its_fingerprint():  # Audit Task 7,
         assert f"using EDDSA key {fingerprint(text)}" in text  # gpgv nimmt jeden Schlüssel der Datei an
         first_curl = next(block for block in code_blocks(text) if "curl " in block)
         assert first_curl.startswith('cd "$(mktemp -d)"\n')  # F3: eigener Ordner für die Downloads
+
+
+def key_records(tmp_path):
+    """Die Felder je Zeile von gpg --with-colons --show-keys für KEY_FILE, gelesen in einem leeren Schlüsselbund."""
+    if not shutil.which("gpg"):
+        pytest.skip("gpg fehlt")
+    (tmp_path / "gnupg").mkdir(mode=0o700)
+    out = subprocess.run(["gpg", "--no-options", "--homedir", str(tmp_path / "gnupg"), "--batch", "--with-colons",
+                          "--show-keys", str(KEY_FILE)], check=True, capture_output=True, text=True).stdout
+    return [ln.split(":") for ln in out.splitlines()]
+
+
+def test_key_file_holds_one_public_key(tmp_path):  # Task 9: ohne Unterschlüssel, ohne Geheimes, User-ID ohne Mail
+    records = key_records(tmp_path)
+    assert [r[0] for r in records if r[0] in ("pub", "sub", "sec", "ssb")] == ["pub"]
+    assert [r[9] for r in records if r[0] == "uid"] == ["orbitop archive signing key"]
+    assert b"PRIVATE KEY" not in KEY_FILE.read_bytes()
+
+
+def test_readmes_name_the_fingerprint_of_the_key_file(tmp_path):
+    fpr = next(r[9] for r in key_records(tmp_path) if r[0] == "fpr")
+    for text in (EN, DE):
+        assert "<FINGERPRINT>" not in text and fingerprint(text) == fpr
+        # jeder Fingerabdruck, am Stück oder gruppiert wie gpg ihn zeigt (wie check_readme in scripts/release/checks.sh)
+        assert {m.replace(" ", "") for m in re.findall(r"\b[0-9A-F]{4}(?: {0,2}[0-9A-F]{4}){9}\b", text)} == {fpr}
 
 
 ARCH_KEYS = (  # Fingerabdrücke der Hauptschlüssel mit genau dieser User-ID, geprüft, bevor pacman-key sie sieht;

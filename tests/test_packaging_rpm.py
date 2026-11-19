@@ -7,15 +7,15 @@ import re
 import subprocess
 
 from orbitop import app
-from tests.packaging_common import METAINFO, PKG, ROOT, load_changelog
+from tests.packaging_common import KEY_FILE, METAINFO, PKG, ROOT, load_changelog
 
 RPM = PKG / "rpm"
 KEYRING = PKG / "keyring"
 KEY = "/etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop"
 PAGES = "https://zappelmann-sketch.github.io/orbitop/rpm/"
-# Eingaben von orbitop-release außer dem Schlüssel, je packaging/keyring.version (wie APT_SOURCE_INPUTS in
+# Eingaben von orbitop-release samt dem Schlüssel KEY_FILE, je packaging/keyring.version (wie APT_SOURCE_INPUTS in
 # test_packaging_debian.py): Ändert sich eine, steigt die Version. Ersetzen nur vor der ersten Veröffentlichung.
-RELEASE_INPUTS = {"2026.11.18": "3bf8d9fb7c4d24c36c202dc315974ceafe200dcf36d41a89853c5e70055a1b30"}
+RELEASE_INPUTS = {"2026.11.18": "b0c4071597f6f0fbc31c02e6928386625e27008f07e30c2017082617c170f107"}
 
 
 def tags(spec):
@@ -111,7 +111,7 @@ def test_release_spec_installs_repo_and_key():  # .repo als %config(noreplace), 
 def release_inputs():
     version = (PKG / "keyring.version").read_text().strip()
     h = hashlib.sha256(load_changelog().rpm_release(version).encode())
-    for p in [RPM / "orbitop-release.spec", *sorted(KEYRING.glob("*.repo")), ROOT / "LICENSE"]:
+    for p in [RPM / "orbitop-release.spec", *sorted(KEYRING.glob("*.repo")), KEY_FILE, ROOT / "LICENSE"]:
         h.update(b"\0" + str(p.relative_to(ROOT)).encode() + b"\0" + p.read_bytes())
     return version, h.hexdigest()
 
