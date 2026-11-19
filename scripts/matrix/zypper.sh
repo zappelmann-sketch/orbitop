@@ -12,9 +12,10 @@ ZYPPER=(zypper --non-interactive)
 refresh() { "${ZYPPER[@]}" refresh; }
 
 # Without rpm --import first, zypper refuses the signed local package: "public key is not available". rpm -V before
-# point: the .repo that point keeps is the one of the package.
+# point: the .repo that point keeps is the one of the package. findutils first, as in the README: the image has no
+# xargs, which the full uninstall needs.
 keyring() {
-    rpm_key "$1" && release_package "$1" &&
+    "${ZYPPER[@]}" install findutils && rpm_key "$1" && release_package "$1" &&
         (cd "$STATE" && "${ZYPPER[@]}" install ./orbitop-release-opensuse.rpm) && rpm -V orbitop-release &&
         point "$REPO" "file://$1/"
 }

@@ -88,3 +88,11 @@ def test_changelog_rpm_release_only_from_keyring_version():  # wie orbitop-apt-s
 def test_changelog_of_real_metainfo_matches_version():
     text = load_changelog().debian(METAINFO.read_text(encoding="utf-8"), f"{__version__}-1")
     assert text.startswith(f"orbitop ({__version__}-1) stable; urgency=medium\n")
+
+
+def test_release_notes_of_one_version():  # Tag und GitHub-Release (scripts/release.sh)
+    changelog = load_changelog()
+    assert changelog.notes(META, "0.2.0") == "- Packages for Debian.\n"
+    assert changelog.notes(META, "0.1.0") == "- Release 0.1.0.\n"
+    with pytest.raises(ValueError):
+        changelog.notes(META, "0.3.0")

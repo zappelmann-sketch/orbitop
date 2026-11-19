@@ -29,11 +29,17 @@ release=(/out/orbitop-release-*.noarch.rpm)  # exactly one, build-site.sh checke
 rpm2cpio "${release[0]}" | cpio -i --quiet --to-stdout ./etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop | gpg --dearmor |
     cmp -s - "$key" || die "the key in ${release[0]#/out/} is not the public key of ORBITOP_KEY"
 
-rpmsign --addsign --define "_gpg_name $fpr!" /out/*.rpm ||  # "!": exactly the primary key
-    die "rpmsign failed: the host gpg-agent (extra socket) must hold the secret key of $fpr"
 # The check a client does: the signature verifies with the public key alone.
 gpg --batch --armor --export "$fpr" > /tmp/key.asc
 rpmkeys --import /tmp/key.asc
+# An RPM that verifies already keeps its bytes: orbitop-release of an earlier release, which scripts/release.sh
+# reuses after rpm -K. Every other one gets signed here.
+unsigned=()
+for rpm in /out/*.rpm; do
+    [[ $(rpm -K "$rpm" 2>&1) == *": digests signatures OK" ]] || unsigned+=("$rpm")
+done
+[ ${#unsigned[@]} -eq 0 ] || rpmsign --addsign --define "_gpg_name $fpr!" "${unsigned[@]}" ||  # "!": the primary key
+    die "rpmsign failed: the host gpg-agent (extra socket) must hold the secret key of $fpr"
 for rpm in /out/*.rpm; do
     check=$(rpm -K "$rpm") || die "no valid signature: $check"
     echo "$check"

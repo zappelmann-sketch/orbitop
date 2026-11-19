@@ -1,6 +1,6 @@
 # Release and packaging
 
-How the orbitop packages are built, which rules they follow, and why the remaining lint tags are accepted.
+How the orbitop packages are built, which rules they follow, why the remaining lint tags are accepted, how the archive key is kept and how a release runs.
 
 ## Build
 
@@ -80,7 +80,7 @@ How it signs:
 - Before any container starts: `ORBITOP_KEY` must be the fingerprint of a primary key whose secret key is in `GNUPGHOME`; the gpg-agent of `GNUPGHOME` must list this key in `KEYINFO --list` and no keygrip of another key; it must have its extra socket. The public key is exported from `GNUPGHOME` with `export-minimal` (no certifications by other keys). Every gpg call runs with `--no-options`, so no `comment`, `sig-notation`, `sender` or `armor` from a `gpg.conf` reaches the site. Each container gets only this public key on stdin and compares it byte by byte with the key the packages install (`orbitop-apt-source`, `orbitop-release`, the Arch package). If they differ, the script stops: every client would reject a source signed with another key.
 - Only gpg on the host signs, always with `--local-user <fingerprint>!` (exactly the primary key). Before the script ends, `gpgv` checks every signature against a keyring that holds only the exported public key.
 - apt: `packaging/site/apt-inside.sh` in `debian:trixie` writes `Packages`, `Packages.gz`, their by-hash copies and `Release` with `apt-ftparchive`: `Origin` and `Label` `orbitop`, `Suite` and `Codename` `stable`, `Components: main`, `Architectures: all` (see "Debian specifics"), `Acquire-By-Hash: yes`, no `Valid-Until` (spec 2). `apt-ftparchive` skips a file that is no package and still exits 0, so the script stops unless `Packages` lists exactly `orbitop` and `orbitop-apt-source`. The container's index is then checked on the host by `packaging/site/check-apt-index.py` (`python3 -I`, from `git archive HEAD`) before anything is signed: the apt tree holds only the two input debs, `Release`, `Packages`, `Packages.gz` and their by-hash copies, each byte-equal to the file it is named after; `Packages.gz` decompresses to `Packages`; each of the two stanzas is the deb's own control file plus its true `Filename`, `Size` and hashes (so no `Depends`, `Conflicts` or version can be forged); `Release` lists exactly `Packages` and `Packages.gz` with their true sizes and hashes and no fields but the ones above and `Date`, in the form `apt-ftparchive` writes it (RFC 2822, `+0000`) and at most 10 minutes ahead of the host clock (an allowance for clock skew; apt itself refuses a `Date` more than `Acquire::Max-FutureTime` ahead, 10 seconds by default, apt.conf(5)). Both files are read like apt reads them, as bytes without newline translation: only an empty line ends a stanza, so a line of blanks (which apt reads as a continuation line), a control character or whitespace other than space and tab is refused. Otherwise the script stops, and the host signs nothing. The host writes `InRelease` (`gpg --clearsign`) and `Release.gpg` (`gpg --armor --detach-sign`).
-- RPM: first `docker build` makes a local tool image per family from `packaging/site/rpm-tools.Dockerfile`, `orbitop-site-rpm-fedora:local` from `fedora:latest` and `orbitop-site-rpm-opensuse:local` from `opensuse/tumbleweed`, with that family's `rpmsign`, `createrepo_c` and gpg. The installation runs there, with network and without the socket. `packaging/site/rpm-inside.sh` then runs in these images with `--network none`, so no package is installed, no scriptlet runs and nothing is downloaded while the socket is mounted. `rpmsign --addsign --define "_gpg_name <fingerprint>!"` reaches the host gpg-agent only through its extra socket, bind-mounted with `--mount type=bind` (which fails if the socket is gone) at `/gnupg/S.gpg-agent`. gpg in the container has the public key and `no-autostart`, nothing else. gpg-agent(1) intends this socket for exactly this: signing elsewhere "without exposing the private keys" (below). Without the socket, or if `rpmsign` fails, the script stops; there is no other way, and never a key file in the container. Then `rpm -K` with only the public key must report `digests signatures OK`, and `createrepo_c` writes `repodata/`. The host writes `repomd.xml.asc` (`gpg --armor --detach-sign`) and `repomd.xml.key` (the armored public key). The signed RPMs differ from the unsigned ones in `DIR`, and from build to build, because the signature carries its time.
+- RPM: first `docker build` makes a local tool image per family from `packaging/site/rpm-tools.Dockerfile`, `orbitop-site-rpm-fedora:local` from `fedora:latest` and `orbitop-site-rpm-opensuse:local` from `opensuse/tumbleweed`, with that family's `rpmsign`, `createrepo_c` and gpg. The installation runs there, with network and without the socket. `packaging/site/rpm-inside.sh` then runs in these images with `--network none`, so no package is installed, no scriptlet runs and nothing is downloaded while the socket is mounted. `rpmsign --addsign --define "_gpg_name <fingerprint>!"` reaches the host gpg-agent only through its extra socket, bind-mounted with `--mount type=bind` (which fails if the socket is gone) at `/gnupg/S.gpg-agent`. gpg in the container has the public key and `no-autostart`, nothing else. gpg-agent(1) intends this socket for exactly this: signing elsewhere "without exposing the private keys" (below). Without the socket, or if `rpmsign` fails, the script stops; there is no other way, and never a key file in the container. An RPM that already verifies with the public key keeps its bytes and is not signed again: `orbitop-release` of an earlier release, which `release.sh` reuses (Release, step 2). Then `rpm -K` with only the public key must report `digests signatures OK`, and `createrepo_c` writes `repodata/`. The host writes `repomd.xml.asc` (`gpg --armor --detach-sign`) and `repomd.xml.key` (the armored public key). The signed RPMs differ from the unsigned ones in `DIR`, and from build to build, because the signature carries its time.
 - Arch: `packaging/site/arch-inside.sh` in `archlinux:latest` with `--network none` runs `repo-add` without a key and turns `orbitop.db` and `orbitop.files` into regular files (Pages serves no symlinks). The host writes a binary `.sig` beside the package and both databases. pacman 7.1 fetches the package's `.sig` from the server; `repo-add` embeds package signatures only with `--include-sigs` (below), which is not needed.
 
 GnuPG directory of its own (spec 4, plan "Schlüssel"):
@@ -114,6 +114,132 @@ Probe on 2026-11-18 after the security audit, with a fresh throwaway key (Ed2551
 - Tumbleweed: after `rpm --import` of `orbitop-archive-keyring.asc`, `zypper install` of the signed `orbitop-release` works without `--allow-unsigned-rpm`. `zypper refresh orbitop` works, and `zypper lr` shows `GPG Check: (rp) Yes`. With a changed `repomd.xml`: "Signature verification failed for repomd.xml", exit 4.
 - Arch: after `pacman-key --add` and `--lsign-key`, `pacman -Sy` with `SigLevel = Required DatabaseRequired` works, and so does `pacman -Swdd orbitop` ("checking keyring", "checking package integrity"). A changed `orbitop.db` gives "signature from "Test Signing <test@example.com>" is invalid", exit 1. Before the audit round: a missing package `.sig` stops the download, and the `.sig` of another file gives "invalid or corrupted package (PGP signature)".
 - Refusals, all before anything is signed: an agent with a second key ("must hold ORBITOP_KEY and no other key", no `SITE` created, no container); `GNUPGHOME` with only another key, so the packages carry a different one ("the key in orbitop-apt-source_2026.11.18_all.deb is not the public key of ORBITOP_KEY"); `extra-socket none` in `gpg-agent.conf` (stops before any container); `rpm-inside.sh` in the tool image with an agent that holds no secret key ("rpmsign failed: the host gpg-agent (extra socket) must hold the secret key of …") or without the socket mount ("the host gpg-agent's extra socket is not mounted at /gnupg/S.gpg-agent"); a `--mount` whose socket is gone ("bind source path does not exist", exit 125). Planted symlinks, FIFOs and setuid or setgid files in a container's output, and a symlinked input package, are refused in `tests/test_site_refusals.py` and `tests/test_build_packages.py` (docker stand-in).
+
+## Key
+
+The archive key (spec 4): an Ed25519 primary key that signs directly, without a subkey, user ID `orbitop archive signing key` without a mail address, valid for 3 years, protected by a passphrase. It lives in a GnuPG directory of its own with its own gpg-agent (Site, "GnuPG directory of its own"), on the maintainer's machine and nowhere else: never in the repository, an image, a container or at GitHub. The maintainer made it once like this (Task 9); `$HOME/.local/share/orbitop-release/gnupg` stands for that directory:
+
+```sh
+export GNUPGHOME="$HOME/.local/share/orbitop-release/gnupg"
+mkdir -p -m 700 "$GNUPGHOME"
+echo disable-scdaemon > "$GNUPGHOME/gpg-agent.conf"
+gpg --quick-gen-key "orbitop archive signing key" ed25519 sign 3y
+gpg --list-secret-keys --with-colons | awk -F: '$1 == "fpr" { print $10; exit }'
+```
+
+- `disable-scdaemon`: this agent never starts scdaemon, so no key on a smartcard or token is reachable through its extra socket while `rpmsign` uses it.
+- `--quick-gen-key` with `sign` makes one primary key that signs and certifies and no subkey; pinentry asks for the passphrase. gpg also writes a revocation certificate, `$GNUPGHOME/openpgp-revocs.d/<fingerprint>.rev` (gpg(1), Sources).
+- The last line prints the fingerprint, the `ORBITOP_KEY` of every release. It goes into both READMEs in place of `<FINGERPRINT>`, the public key goes to `packaging/keys/orbitop-archive-keyring.asc` (`gpg --armor --export --export-options export-minimal "$ORBITOP_KEY"`), and the date of the key to `packaging/keyring.version` (Task 9). `release.sh` refuses a key that differs from that file or from the README.
+
+## Backup to KeePassXC
+
+Three exports to `$XDG_RUNTIME_DIR`, which is in memory and readable only by the user: the secret key (armored, still protected by the passphrase), the public key and the revocation certificate.
+
+```sh
+export ORBITOP_KEY=<fingerprint>
+out="$XDG_RUNTIME_DIR/orbitop-key"
+mkdir -m 700 "$out"
+gpg --armor --export-secret-keys "$ORBITOP_KEY" > "$out/orbitop-archive-key.secret.asc"
+gpg --armor --export --export-options export-minimal "$ORBITOP_KEY" > "$out/orbitop-archive-keyring.asc"
+cp "$GNUPGHOME/openpgp-revocs.d/$ORBITOP_KEY.rev" "$out/"
+```
+
+Before the exports go, a restore test in a temporary directory: the import and the signature each ask for the passphrase.
+
+```sh
+check=$(mktemp -d)
+gpg --homedir "$check" --import "$out/orbitop-archive-key.secret.asc"
+echo test | gpg --homedir "$check" --local-user "$ORBITOP_KEY!" --clearsign > /dev/null && echo "restore works"
+gpgconf --homedir "$check" --kill all
+rm -rf "$check"
+```
+
+Then the three files become attachments of one KeePassXC entry whose password is the passphrase, in the window (entry, Advanced, Attachments, Add) or with `keepassxc-cli` (2.7.10: `attachment-import [options] database entry attachment-name import-file`). Only the maintainer opens the database; `keepassxc-cli` asks for its password.
+
+```sh
+db=<database>.kdbx
+entry="orbitop archive signing key"
+for file in orbitop-archive-key.secret.asc orbitop-archive-keyring.asc "$ORBITOP_KEY.rev"; do
+    keepassxc-cli attachment-import "$db" "$entry" "$file" "$out/$file"
+done
+rm -r "$out"
+```
+
+## Restore
+
+A new GnuPG directory of its own, as in "Key", then the secret key from the KeePassXC entry (the import asks for the passphrase); the export is deleted right after.
+
+```sh
+export GNUPGHOME="$HOME/.local/share/orbitop-release/gnupg"
+mkdir -p -m 700 "$GNUPGHOME"
+echo disable-scdaemon > "$GNUPGHOME/gpg-agent.conf"
+out="$XDG_RUNTIME_DIR/orbitop-key"
+mkdir -m 700 "$out"
+keepassxc-cli attachment-export "$db" "$entry" orbitop-archive-key.secret.asc "$out/orbitop-archive-key.secret.asc"
+gpg --import "$out/orbitop-archive-key.secret.asc"
+rm -r "$out"
+gpg --list-secret-keys "$ORBITOP_KEY"
+```
+
+`bash scripts/release.sh <version> --dry-run` then shows whether the key is complete: it refuses a `GNUPGHOME` without the secret key of `ORBITOP_KEY`, and `build-site.sh` signs and verifies every index with it.
+
+## Renewal
+
+`release.sh` warns when the key has less than 180 days left and refuses an expired key. Extend it in time, while it is still valid, so that every system gets the extension with a regular update:
+
+1. `gpg --quick-set-expire "$ORBITOP_KEY" 3y` (pinentry): the same key with the same fingerprint and a new self-signature, valid for 3 years from that day. The README's fingerprint stays.
+2. Export the public key again to `packaging/keys/orbitop-archive-keyring.asc` and set `packaging/keyring.version` to that day. `tests/test_packaging_debian.py` and `tests/test_packaging_rpm.py` pin the inputs of `orbitop-apt-source` and `orbitop-release` per version, so their pinned hashes change with it. A new `keyring.version` is a new version of both small packages; without it the source would offer the old version with a new key.
+3. Back up again ("Backup to KeePassXC"): the secret export carries the new self-signature.
+4. A release delivers it: `orbitop-apt-source` replaces `/etc/apt/keyrings/orbitop-archive-keyring.pgp` (a conffile only the package changes, so dpkg replaces it without asking), `orbitop-release` replaces `RPM-GPG-KEY-orbitop` (not `%config`), and `orbitop.install` runs `pacman-key --populate orbitop`. Before that release, check in containers that dnf and zypper still accept the source after the old expiry date: the rpm database keeps the key as it was first imported, and the matrix does not cover this, because it installs fresh.
+5. The full uninstall of the README selects keys by user ID, not by fingerprint, so it removes every key with the user ID `orbitop archive signing key`, also one that an update brought. A key with another user ID would stay behind on users' systems.
+
+## Revocation
+
+When someone else may have the secret key with its passphrase, or both are lost:
+
+1. Take the revocation certificate `<fingerprint>.rev` from the KeePassXC entry. gpg put a colon before `-----BEGIN PGP PUBLIC KEY BLOCK-----` against accidental use; remove it, then `gpg --import <fingerprint>.rev` into a GnuPG directory with the public key.
+2. Replace `orbitop-archive-keyring.asc` and `orbitop-archive-keyring.pgp` on `gh-pages` with the revoked key (`gpg --armor --export`, `gpg --export`; one commit, `git push origin refs/heads/gh-pages:refs/heads/gh-pages`). Clients that refresh it refuse everything the old key signed.
+3. Make a new key ("Key"), with a new fingerprint in both READMEs, a new `packaging/keyring.version` and a release. Systems with the old source do not trust the new key: users remove the source (README, full uninstall) and install it anew after comparing the new fingerprint. A GitHub issue and the release notes say so.
+
+## Release
+
+`GNUPGHOME=<dir> ORBITOP_KEY=<fingerprint> bash scripts/release.sh <version> [--dry-run]` (spec 5). Before: the branch is on `main`; `orbitop/__init__.py` and the newest `<release>` of the metainfo (version, date, changes in English) carry the version; docker runs; `gh auth status` works for `zappelmann-sketch/orbitop`; no token is plugged in.
+
+```sh
+export GNUPGHOME="$HOME/.local/share/orbitop-release/gnupg"
+export ORBITOP_KEY=<fingerprint>
+bash scripts/release.sh 0.2.0 --dry-run
+git restore docs/distro-check.md
+bash scripts/release.sh 0.2.0
+```
+
+A dry run runs steps 1 to 3 and the release files, and prints the commands of steps 4 to 8 instead of running them; nothing leaves the machine. It writes `docs/distro-check.md` without committing it, so `git restore` (or a commit) makes the tree clean again. The script lives in `scripts/release.sh` with its steps in `scripts/release/`: `checks.sh` (1), `build.sh` (2, 3 and the release files), `publish.sh` (4 to 8), `distro-check.py` (the results in `docs/distro-check.md`). All gpg calls run with `--no-options`.
+
+1. Checks, before anything is built: the branch `main`, `git status --porcelain` empty, `<version>` equal to `orbitop.__version__`, no tag `v<version>` here or on `origin`, and `packaging/changelog.py` writes the Debian and the RPM changelog of `<version>-1` from the metainfo. `ORBITOP_KEY` is a primary key whose secret key is in `GNUPGHOME`; an expired key stops the run, less than 180 days left give a warning. Its public key is exported with `export-minimal` and goes to `build-packages.sh --pubkey`. A committed `packaging/keys/orbitop-archive-keyring.asc` must hold the same key, and every fingerprint in README.md and README.de.md must be `ORBITOP_KEY`; the placeholder `<FINGERPRINT>` stops a release (a dry run only warns). Then the strict test suite, without `GNUPGHOME` and `ORBITOP_KEY` in its environment.
+2. `build-packages.sh` and `build-site.sh` in a work directory from `mktemp -d`, once for `SITE` and once with `--suffix check1` for `SITE2`. The work directory, with the packages, both sites and the `gh-pages` worktree, is removed on every exit, so no half-built tree is left for a later run. If the published `gh-pages` already has `orbitop-apt-source_<keyring.version>_all.deb` or `orbitop-release-<keyring.version>-1.noarch.rpm`, these bytes replace the rebuilt ones before `build-site.sh` (from the second release on): one version keeps its bytes, although the toolchain of the images is not pinned and every RPM signature differs. Only bytes the published source vouches for are taken: the deb if the apt index that `InRelease` signs with `ORBITOP_KEY` lists its sha256, each RPM if `rpm -K` in a disposable container of its family's image (key and RPM on stdin, `--network none`, nothing mounted) reports `digests signatures OK` with only the public key of `ORBITOP_KEY`. Otherwise the run stops. `packaging/site/rpm-inside.sh` keeps an RPM that verifies already and signs the others.
+3. `check-distros.sh --site SITE --site2 SITE2` on all images; every image must pass and the line `KEY` must be `ORBITOP_KEY`. `scripts/release/distro-check.py` writes the run, the key and one line per image (distribution from `VERSION_ID`, digest, versions, test summary, result) between the markers of `docs/distro-check.md`; then `tests/test_readme.py` must still pass, so the README lists only distributions that passed. A release commits the file (`docs: Distributionsprüfung für orbitop <version>`).
+4. The annotated tag `v<version>`, whose message is `orbitop <version>` and the changes of the metainfo (`packaging/changelog.py notes`).
+5. One atomic push of `refs/heads/main` and `refs/tags/v<version>`, then `gh release create v<version> --repo zappelmann-sketch/orbitop --verify-tag --notes-from-tag` with the assets below.
+6. `gh-pages` in a worktree of its own below the work directory: an orphan branch on the first release, otherwise the published one. Its content is replaced by `SITE`, plus the by-hash copies of the previous apt index, so that a client with the previous `InRelease` still finds its index while the cache of Pages turns over. One commit, then `git push origin refs/heads/gh-pages:refs/heads/gh-pages`.
+7. `gh api repos/zappelmann-sketch/orbitop/pages`; on HTTP 404 (the first release) `gh api -X POST … -f 'source[branch]=gh-pages' -f 'source[path]=/'` (GitHub REST, Sources). If Pages serves another branch or path, the run stops.
+8. Up to 10 minutes, every 20 seconds: `https://zappelmann-sketch.github.io/orbitop/` must serve `apt/dists/stable/InRelease`, both `repodata/repomd.xml` with `repomd.xml.asc`, and `arch/x86_64/orbitop.db` with `orbitop.db.sig` byte for byte as in `SITE` (`curl --proto =https`).
+
+Pushes name each ref; nothing is pushed with `--all`, `--mirror`, `--tags` or `--force` (`tests/test_release_script.py`). At the end `release.sh` stops the gpg-agent of `GNUPGHOME`, so the passphrase is no longer cached.
+
+The release assets, as the README downloads them from `releases/latest/download/` (fixed names, plan K3):
+
+- `orbitop-<version>.tar.gz`: `git archive --prefix=orbitop-<version>/` of the tag, so with the results of step 3
+- the four packages: `orbitop_<version>-1_all.deb`, `orbitop-<version>-1.fedora.noarch.rpm`, `orbitop-<version>-1.opensuse.noarch.rpm` (both families build `orbitop-<version>-1.noarch.rpm`, so the assets name the family), `orbitop-<version>-1-any.pkg.tar.zst`
+- `orbitop-apt-source.deb`, `orbitop-release-fedora.rpm`, `orbitop-release-opensuse.rpm`
+- `SHA256SUMS` over these eight and `SHA256SUMS.asc`, a detached armored signature by `ORBITOP_KEY`
+
+Every package is the file `SITE` serves, the RPMs with their signature. Before anything is published, the script checks the assets as the README tells users to: `gpgv --keyring <SITE>/orbitop-archive-keyring.pgp SHA256SUMS.asc SHA256SUMS` must report `VALIDSIG` with `ORBITOP_KEY`, and `sha256sum -c SHA256SUMS` must pass. `rpm -K` checks the same RPM bytes in the matrix (step `keyring`).
+
+The passphrase: pinentry asks at the first signature (`build-site.sh`). gpg-agent keeps it 10 minutes after its last use (`default-cache-ttl` 600) and at most 2 hours (`max-cache-ttl` 7200, gpg-agent(1)); the matrix takes longer than 10 minutes, so pinentry asks once more for `SHA256SUMS.asc`. To type it only once, the GnuPG directory's `gpg-agent.conf` can also hold `default-cache-ttl 7200`; the agent ends with the run anyway.
+
+If a step fails: up to step 4 nothing has left the machine; fix the cause and run again (`git reset --hard origin/main` drops a commit of step 3 that was not pushed, `git tag -d v<version>` a tag of step 4). From step 5 on the tag is public: if the release or `gh-pages` failed, delete both (`gh release delete v<version> --cleanup-tag --yes`, `git tag -d v<version>`) and run again; the commit of step 3 stays on `main`, and the next run adds another. If only step 7 failed, turn Pages on with the `gh api` command printed above; if step 8 ran out of time, check the address again after the cache time.
+
+Probe on 2026-11-19: a dry run of 0.2.0 in a throwaway clone on `main`, with a throwaway key (user ID `orbitop archive signing key`, which the README's uninstall selects by; no passphrase) in a GnuPG directory of its own, and stand-ins for `gh` and for every push. Steps 1 to 3 passed in 26 minutes: the strict suite (1040 passed), both builds, both sites, and all eight images as in `docs/distro-check.md`; the stand-ins logged no push and no `gh` call. The release files then passed the README's checks: `gpg --show-keys` showed one key per file, `gpgv` "Good signature", `sha256sum --ignore-missing -c SHA256SUMS` OK for all eight files, and after `rpm --import` `rpm -K` reported `digests signatures OK` for both RPMs of each family on Fedora 45 and Tumbleweed. Step 2 from the second release on, with that site as the published `gh-pages`: the deb and both `orbitop-release` RPMs kept their bytes through `build-site.sh`, the main RPMs were signed anew, and `rpm -K` in the container refused an unsigned and a changed `orbitop-release` RPM.
 
 ## Sources
 
@@ -189,6 +315,21 @@ Read on 2026-11-18 for the README (Task 7):
   Probe on 2026-11-18 (python-apt 3.1.0ubuntu1.1, a copy of `packaging/apt-source/orbitop.sources` in a scratch directory set as `Dir::Etc`): after `entry.disabled = True` and `save()`, the file is unchanged except for one line `Enabled: no` at the end; deleting that line gives the file of the package byte for byte.
   Result: after a release upgrade the source of `orbitop-apt-source` is off. The README tells users to delete the line `Enabled: no` from `/etc/apt/sources.list.d/orbitop.sources`; the suite `stable` serves every Ubuntu release, so turning it on again is safe. The file is a conffile, and deleting exactly this line restores it, so a later update of `orbitop-apt-source` does not ask about a changed conffile.
 
+Read on 2026-11-19 for the key and the release script (Task 8):
+
+- **gpg(1)**, GnuPG 2.4.8 (local man page): `--quick-generate-key`: "In addition to the key a revocation certificate is created and stored in the ‘openpgp-revocs.d’ directory below the GnuPG home directory." FILES: "~/.gnupg/openpgp-revocs.d/ This is the directory where gpg stores pre-generated revocation certificates. The file name corresponds to the OpenPGP fingerprint of the respective key. It is suggested to backup those certificates". `--quick-set-expire fpr expire`: "With two arguments given, directly set the expiration time of the primary key identified by fpr to expire."
+  Result: "Key", "Backup to KeePassXC" and "Renewal".
+- **gpg-agent(1)**, GnuPG 2.4.8: `--disable-scdaemon`: "Do not make use of the scdaemon tool. This option has the effect of disabling the ability to do smartcard operations." `--default-cache-ttl n`: "Set the time a cache entry is valid to n seconds. The default is 600 seconds. Each time a cache entry is accessed, the entry's timer is reset." `--max-cache-ttl n`: "The default is 2 hours (7200 seconds)."
+  Result: `disable-scdaemon` in the release directory's `gpg-agent.conf`; the passphrase prompt after the matrix (Release).
+- **gpgv(1)**, GnuPG 2.4.8: `--keyring file`: "If the filename does not contain a slash, it is assumed to be in the home-directory" (hence `./orbitop-archive-keyring.pgp` in the README). `--output file`: "This option can be used to get the signed text from a cleartext or binary signature".
+  Result: `release.sh` reads the signed `Release` of the published `InRelease` with `gpgv --output` before it reuses a deb.
+- **keepassxc-cli** 2.7.10 (`attachment-import --help`, `attachment-export --help`): `keepassxc-cli [options] database entry attachment-name import-file` and `… database entry attachment-name export-file`.
+- **gh** 2.104.0, `gh release create --help`: "Use `--verify-tag` to abort the release if the tag doesn't already exist." "To create a release from an annotated git tag, first create one locally with git, push the tag to GitHub, then run this command. Use `--notes-from-tag` to get the release notes from the annotated git tag." `gh api --help`: "To pass nested parameters in the request payload, use `key[subkey]=value` syntax when declaring fields."
+- **GitHub REST API, "REST API endpoints for GitHub Pages"**, <https://docs.github.com/en/rest/pages/pages?apiVersion=2022-11-28>: "Get a GitHub Pages site" is `GET /repos/{owner}/{repo}/pages`, with status 404 "Resource not found". "Create a GitHub Pages site" is `POST /repos/{owner}/{repo}/pages`; `source`: "The source branch and directory used to publish your Pages site."; `source.branch`: "The repository branch used to publish your site's source files."; `source.path`: "Allowed paths are / or /docs."; status 201 "Created".
+  Result: step 7 of `release.sh` (the page does not say that 404 means "not turned on"; the script turns Pages on only on 404, and stops on every other error).
+- **git-worktree(1)**, git 2.53.0: `--orphan`: "With add, make the new worktree and index empty, associating the worktree with a new unborn branch named <new-branch>."
+  Result: the first `gh-pages` (step 6).
+
 ## Lint notes
 
 Lintian (Debian trixie) runs with `--display-info --show-overrides` on both `.deb` files in every build. There is no `E:` tag. One tag is overridden, and each remaining `W:` and `I:` tag of `orbitop` is accepted for the reason below.
@@ -198,7 +339,6 @@ Lintian (Debian trixie) runs with `--display-info --show-overrides` on both `.de
   - DebianRepository/UseThirdParty (above) lets the keyring package "also include […] the /etc/apt/preferences.d/deriv.pref file" and requires that "the preferences file MUST allow automatic upgrades (Pin-Priority: 100)".
   - Without the file, the repository could replace packages of the distribution; the same page says that without it "the user MUST be warned of the security consequences".
 
-- `W: orbitop: initial-upload-closes-no-bugs`: the changelog has one entry with revision 1 and closes no ITP bug. orbitop is not uploaded to Debian (spec, non-goals), so there is no ITP. The tag disappears once the metainfo lists a second release.
 - `W: orbitop: no-manual-page [usr/bin/orbitop]`: Debian Policy 12.1 says a program "should" have a manual page. orbitop is a graphical program with two options (`--version`, `--hidden`), described in the README. A manual page is a possible later addition.
 - `I: orbitop: font-in-non-font-package` and `I: orbitop: font-outside-font-dir` for `Orbitron.ttf` and `Oxanium.ttf`: the fonts belong to the page in the WebView, which loads them as `orbitop://ui/fonts/…`. The scheme handler serves only `orbitop/ui/`, and system-wide fonts would appear in every font menu.
 - `I: orbitop: package-contains-documentation-outside-usr-share-doc` for `ui/index.html`, `ui/fonts/OFL-Orbitron.txt` and `ui/fonts/OFL-Oxanium.txt`: `index.html` is the user interface, not documentation. The OFL texts travel next to their fonts, as the OFL requires, and the app serves them from there; `debian/copyright` carries the license as well.

@@ -4,16 +4,29 @@ The packages of orbitop from the signed package source, installed, tested, updat
 Docker containers with [`scripts/check-distros.sh`](../scripts/check-distros.sh). Only the distributions whose result
 is exactly `pass` are supported; `pass (expected refusal)` means that the package manager refused orbitop as intended.
 
-- Date: 2026-11-18. **Throwaway key:** the source was signed with a key made for this run (Ed25519, user ID
-  `Test Signing <test@example.com>`, no passphrase), not with the archive key. Task 10 repeats the run with the real
-  key before the release. Both trees carry the same key, and the containers trust whatever key that is; the run
-  checks that both carry the same one and prints it as `KEY <fingerprint>`, here
-  `KEY 2CB5DEB1C1DE892B79552BEFA8D28F83E652BA57` (the throwaway key). Task 10 compares it with `ORBITOP_KEY`.
-- Docker: 29.9.3 (x86_64 host)
-- `SITE` came from `build-packages.sh` and `build-site.sh` (orbitop `0.1.0-1`, `orbitop-apt-source` and
-  `orbitop-release` `2026.11.18`), `SITE2` from `build-packages.sh --suffix check1` and `build-site.sh` with the same
-  key (orbitop `0.1.0-1+check1`, RPM `0.1.0-1.check1`, Arch `0.1.0-1.1`; plan K6), both built anew for this run. The
-  version becomes 0.2.0 with Task 8.
+`scripts/release.sh` (docs/release.md, "Release") runs the check on every release and writes the part between the
+two markers below from its output; a release commits it before the tag. Both trees carry the same key, and the
+containers trust whatever key that is; the run checks that both carry the same one and prints it as
+`KEY <fingerprint>`, which `release.sh` compares with `ORBITOP_KEY`.
+
+<!-- matrix:start: scripts/release.sh writes this part from the output of scripts/check-distros.sh -->
+- Run: `scripts/release.sh 0.2.0 --dry-run` on 2026-11-19, `KEY DCD1C327C5586B44B6D5C2FC07E9C7149BB78C03`, the key of `ORBITOP_KEY`; a dry run may sign with a throwaway key instead of the archive key.
+- `SITE`: orbitop `0.2.0-1`, `orbitop-apt-source` and `orbitop-release` `2026.11.18`. `SITE2`: the check build (Debian `0.2.0-1+check1`, RPM `0.2.0-1.check1`, Arch `0.2.0-1.1`; plan K6).
+
+| Distribution | Image | Digest | Packages | Tests | Result |
+|---|---|---|---|---|---|
+| Debian 13 | `debian:trixie` | `debian@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6` | `orbitop 0.2.0-1` → `0.2.0-1+check1`: Python 3.13.5, PyGObject 3.50.0, GTK 4.18.6, WebKitGTK 2.54.0 | 949 passed, 91 skipped | pass |
+| Ubuntu 24.04 | `ubuntu:24.04` | `ubuntu@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8` | `orbitop 0.2.0-1` → `0.2.0-1+check1`: Python 3.12.3, PyGObject 3.48.2, GTK 4.14.5, WebKitGTK 2.52.6 | 949 passed, 91 skipped | pass |
+| Ubuntu 26.04 | `ubuntu:26.04` | `ubuntu@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db` | `orbitop 0.2.0-1` → `0.2.0-1+check1`: Python 3.14.4, PyGObject 3.56.2, GTK 4.22.4, WebKitGTK 2.52.6 | 950 passed, 90 skipped | pass |
+| Fedora 45 | `fedora:latest` | `fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c` | `orbitop 0.2.0-1` → `0.2.0-1.check1`: Python 3.15.2, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | 965 passed, 75 skipped | pass |
+| openSUSE Tumbleweed | `opensuse/tumbleweed` | `opensuse/tumbleweed@sha256:4bec2188b6d98538bb7393051cd4ca490045eb0ca461fb96a30b1f322dd085c7` | `orbitop 0.2.0-1` → `0.2.0-1.check1`: Python 3.13.18, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | 965 passed, 75 skipped | pass |
+| Arch Linux | `archlinux:latest` | `archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899` | `orbitop 0.2.0-1` → `0.2.0-1.1`: Python 3.14.10, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | 965 passed, 75 skipped | pass |
+| Debian 12 | `debian:bookworm` | `debian@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8` | `orbitop 0.2.0-1` refused | – | pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.11.2-1+b1 is to be installed" |
+| Ubuntu 22.04 | `ubuntu:22.04` | `ubuntu@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde` | `orbitop 0.2.0-1` refused | – | pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.10.6-1~22.04.1 is to be installed" |
+<!-- matrix:end -->
+
+How the check runs:
+
 - Each image runs once as
   `docker run --rm -v <copy>:/src:ro -v SITE:/site:ro -v SITE2:/site2:ro <digest> bash /src/scripts/matrix/inside.sh`,
   from the digest that `docker image inspect` reported after the pull (the one in the table), not from the tag:
@@ -34,7 +47,8 @@ is exactly `pass` are supported; `pass (expected refusal)` means that the packag
      `rpm -K` must report exactly `digests signatures OK` for every RPM of the source (for an RPM without a signature
      it reports `digests OK` and still exits 0: review of Task 6, Tumbleweed), then
      `dnf install ./orbitop-release-fedora.rpm` or `zypper install ./orbitop-release-opensuse.rpm`, and
-     `rpm -V orbitop-release` reports nothing. Arch: `pacman-key --init` and `--populate archlinux`,
+     `rpm -V orbitop-release` reports nothing; openSUSE installs `findutils` first, as the README says (the image has
+     no `xargs`, which the full uninstall needs). Arch: `pacman-key --init` and `--populate archlinux`,
      `pacman-key --add orbitop-archive-keyring.asc`,
      `pacman-key --lsign-key <fingerprint>`, the section `[orbitop]` with `SigLevel = Required DatabaseRequired` and
      `Server = …/arch/$arch` at the end of `/etc/pacman.conf`.
@@ -57,9 +71,13 @@ is exactly `pass` are supported; `pass (expected refusal)` means that the packag
       did not change it during refresh, update and removal. apt: `apt purge orbitop orbitop-apt-source` (the source
       still points to `SITE2`; with the Pages address apt would no longer know orbitop). Fedora and openSUSE: the
       `.repo` back to the Pages address, `rpm -V --nomtime orbitop-release` reports nothing, `remove orbitop-release`,
-      `rpmkeys --delete <key>`; on Fedora also `rm -rf /var/cache/libdnf5/orbitop-*` (notes).
-      Arch: the section back to the Pages address and out of `pacman.conf` (byte for byte the file from before),
-      `pacman-key --delete <fingerprint>` (`pacman-key --list-keys` then reports "No public key"), `pacman -Sc`.
+      then the README's line that deletes every key named `orbitop archive signing key` from the rpm database
+      (`rpmkeys --list | grep -F … | xargs -r -n1 rpmkeys --delete`, afterwards `rpmkeys --list` names none); on
+      Fedora also `rm -rf /var/cache/libdnf5/orbitop-*` (notes). Arch: the section back to the Pages address and out
+      of `pacman.conf` (byte for byte the file from before), the README's line that selects the keys with exactly the
+      user ID `orbitop archive signing key` in pacman's keyring and deletes them with `pacman-key --delete`
+      (`pacman-key --list-keys '=orbitop archive signing key'` then reports "No public key"), `pacman -Sc`. These
+      lines select by user ID, so the run needs a key with exactly that user ID, a throwaway one in a dry run.
       Afterwards no path from the file lists of the packages is left, except directories that another package owns;
       `/etc/orbitop` does not exist; the index refresh (`dnf makecache --refresh`, `pacman -Syy`) is clean; and no index
       of the source is left (apt lists, `/var/cache/zypp/*/orbitop`, `/var/lib/pacman/sync/orbitop.*`).
@@ -71,23 +89,12 @@ is exactly `pass` are supported; `pass (expected refusal)` means that the packag
       verification failed for repomd.xml". Arch: `orbitop.db`, pacman "invalid or corrupted database (PGP signature)".
 - `debian:bookworm` and `ubuntu:22.04` pass only as an expected refusal: exactly the step `install` fails, with apt's
   `orbitop : Depends: python3 (>= 3.12)`. The run ends there.
-
-| Distribution | Image | Digest | Date | Packages | Result |
-|---|---|---|---|---|---|
-| Ubuntu 26.04 | `ubuntu:26.04` | `ubuntu@sha256:d66b366dac61b575bee2aef07e9c26e8070096fbe84a3d4d3eb0da069b5d76db` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1+check1`: Python 3.14.4, PyGObject 3.56.2, GTK 4.22.4, WebKitGTK 2.52.6 | pass |
-| Ubuntu 24.04 | `ubuntu:24.04` | `ubuntu@sha256:73b999393d07f2bf65a40373778a44dc9a6d54ad7718d29247d8ff9413c4d6a8` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1+check1`: Python 3.12.3, PyGObject 3.48.2, GTK 4.14.5, WebKitGTK 2.52.6 | pass |
-| Debian 13 | `debian:trixie` | `debian@sha256:9c6e381421d0f48d1b8133e573f33c185ee16cbf505eda9c4a8a4791b25ea8a6` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1+check1`: Python 3.13.5, PyGObject 3.50.0, GTK 4.18.6, WebKitGTK 2.54.0 | pass |
-| Fedora 45 | `fedora:latest` | `fedora@sha256:a7d72ba2745b100a3351087472e5ee7b2450af7cf331e7673007e3817612839c` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1.check1`: Python 3.15.2, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
-| Arch Linux | `archlinux:latest` | `archlinux@sha256:d4594bb2300cba11f41c2f27923eb56f63d9988909c402f9c95517d1e362c899` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1.1`: Python 3.14.10, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
-| openSUSE Tumbleweed | `opensuse/tumbleweed` | `opensuse/tumbleweed@sha256:4bec2188b6d98538bb7393051cd4ca490045eb0ca461fb96a30b1f322dd085c7` | 2026-11-18 | `orbitop 0.1.0-1` → `0.1.0-1.check1`: Python 3.13.18, PyGObject 3.58.1, GTK 4.24.1, WebKitGTK 2.54.2 | pass |
-| Debian 12 | `debian:bookworm` | `debian@sha256:268fb24c39bca92d326dd83ea3abebe4a3f7751c804ffef23bb6d857dd343ff8` | 2026-11-18 | `orbitop 0.1.0-1` refused: `python3` `3.11.2-1+b1` | pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.11.2-1+b1 is to be installed" |
-| Ubuntu 22.04 | `ubuntu:22.04` | `ubuntu@sha256:9abcaffc92a5279fff3a6a41635c0800ea33e528425fb389658806476e7defde` | 2026-11-18 | `orbitop 0.1.0-1` refused: `python3` `3.10.6-1~22.04.1` | pass (expected refusal): step `install`, "orbitop : Depends: python3 (>= 3.12) but 3.10.6-1~22.04.1 is to be installed" |
-
-`Packages` is the version of orbitop that the `install` step installed and the one the `upgrade` step updated it to,
-followed by the versions the `import` step reported. The test suite reported 993 or 994 passed and 56 or 57 skipped
-on Debian and Ubuntu, 1009 passed and 41 skipped on Fedora, openSUSE and Arch.
+- In the table, `Packages` is the version of orbitop that the `install` step installed and the one the `upgrade` step
+  updated it to, followed by the versions the `import` step reported; `Tests` is the summary of the `pytest` step.
 
 ## Notes
+
+From the run of 2026-11-18 (orbitop 0.1.0, throwaway key) unless a note names another date.
 
 - **apt pinning:** a `file://` source has no origin, so the pin of `orbitop-apt-source`
   (`Pin: origin zappelmann-sketch.github.io`) does not apply to it: `apt-cache policy orbitop` shows

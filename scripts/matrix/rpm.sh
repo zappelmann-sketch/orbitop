@@ -11,14 +11,13 @@ files_of() { rpm -ql orbitop orbitop-release; }
 owned() { rpm -qf -- "$1" > /dev/null 2>&1; }
 
 # rpm_key ROOT: the key of the site into the rpm database, as the README does before the first package (no
-# unknown key then for zypper, and dnf asks only for its copy for the metadata). Its name there goes to STATE/rpmkey
-# for rpmkeys --delete. Then every RPM of ROOT must carry a signature that verifies: rpm -K reports "digests OK"
-# with exit 0 for an RPM without one.
+# unknown key then for zypper, and dnf asks only for its copy for the metadata); exactly one key is new there. Then
+# every RPM of ROOT must carry a signature that verifies: rpm -K reports "digests OK" with exit 0 for an RPM without
+# one.
 rpm_key() {
     local before after checked
     before=$(rpmkeys --list) && rpm --import "$1/orbitop-archive-keyring.asc" && after=$(rpmkeys --list) || return 1
-    grep -vxF -- "$before" <<< "$after" | sed 's/[: ].*//' > "$STATE/rpmkey" &&  # Tumbleweed has no awk
-        [ "$(wc -l < "$STATE/rpmkey")" -eq 1 ] && checked=$(rpm -K "$1/rpm/$FAMILY"/*.rpm) || return 1
+    [ "$(grep -cvxF -- "$before" <<< "$after")" -eq 1 ] && checked=$(rpm -K "$1/rpm/$FAMILY"/*.rpm) || return 1
     printf '%s\n' "$checked"
     ! grep -v -- ': digests signatures OK$' <<< "$checked"
 }
@@ -26,11 +25,12 @@ rpm_key() {
 # release_package ROOT: orbitop-release of ROOT under the name of the release asset (plan K3), in STATE.
 release_package() { cp -- "$1/rpm/$FAMILY"/orbitop-release-*.noarch.rpm "$STATE/orbitop-release-$FAMILY.rpm"; }
 
-# drop_key: the last command of the full uninstall in the README; afterwards the rpm database lacks the key.
+# drop_key: the line of the README's full uninstall that deletes every key named like the archive key from the rpm
+# database (without sudo); afterwards it lists none.
 drop_key() {
-    local key keys
-    key=$(cat "$STATE/rpmkey") && [ -n "$key" ] && rpmkeys --delete "$key" && keys=$(rpmkeys --list) &&
-        ! grep -F -- "$key" <<< "$keys"
+    local keys
+    rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | xargs -r -n1 rpmkeys --delete &&
+        keys=$(rpmkeys --list) && ! grep -F 'orbitop archive signing key' <<< "$keys"
 }
 
 # tamper_index ROOT: one digit of <revision> in repomd.xml changed; the XML stays well-formed, so the signature check

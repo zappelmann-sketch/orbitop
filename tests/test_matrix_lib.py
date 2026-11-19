@@ -17,7 +17,7 @@ PAGES = "https://zappelmann-sketch.github.io/orbitop/"
 # rpm --import legt einen Schlüssel in keys ab, rpm -K meldet für jede Datei $RPMK; rpmkeys liest und löscht dort.
 RPM = """#!/bin/sh
 case $1 in
-    --import) echo "e652ba57-6afe03a5: Test Signing <test@example.com> public key" >> "$STATE/keys" ;;
+    --import) [ -n "$KNOWN" ] || echo "e652ba57-6afe03a5: orbitop archive signing key public key" >> "$STATE/keys" ;;
     -K) shift; for f; do echo "$f: $RPMK"; done ;;
 esac
 """
@@ -56,23 +56,26 @@ def rpm_site(tmp_path):
     return root
 
 
-@pytest.mark.parametrize("report,passed", [("digests signatures OK", True), ("digests OK", False),
-                                           ("digests SIGNATURES NOT OK", False)])
-def test_rpm_key_requires_a_signature_on_every_rpm(tmp_path, report, passed):  # rpm -K: "digests OK" ohne Signatur
+@pytest.mark.parametrize("env,passed", [({"RPMK": "digests signatures OK"}, True), ({"RPMK": "digests OK"}, False),
+                                        ({"RPMK": "digests SIGNATURES NOT OK"}, False),
+                                        ({"RPMK": "digests signatures OK", "KNOWN": "1"}, False)])
+def test_rpm_key_requires_a_signature_on_every_rpm(tmp_path, env, passed):  # rpm -K: "digests OK" ohne Signatur
     root = rpm_site(tmp_path)
-    ok, out = call(tmp_path, f"FAMILY=opensuse; rpm_key {root}", "rpm.sh", env={"RPMK": report})
-    assert ok is passed, out
-    assert (tmp_path / "state" / "rpmkey").read_text() == "e652ba57-6afe03a5\n"
+    ok, out = call(tmp_path, f"FAMILY=opensuse; rpm_key {root}", "rpm.sh", env=env)
+    assert ok is passed, out  # KNOWN: rpm --import brachte keinen neuen Schlüssel
 
 
 @pytest.mark.parametrize("env,passed", [({}, True), ({"KEEP": "1"}, False), ({"LIST_FAILS": "1"}, False)])
 def test_drop_key_fails_when_the_key_stays_or_the_listing_fails(tmp_path, env, passed):
-    (tmp_path / "state").mkdir()
-    (tmp_path / "state" / "rpmkey").write_text("e652ba57-6afe03a5\n")
+    """Wie die README: jeder Schlüssel mit dem Namen des Archivschlüssels geht, auch ein erneuerter; andere bleiben."""
     call(tmp_path, "true")  # legt keys an
-    (tmp_path / "state" / "keys").write_text("e652ba57-6afe03a5: Test Signing <test@example.com> public key\n")
+    (tmp_path / "state" / "keys").write_text("e652ba57-6afe03a5: orbitop archive signing key public key\n"
+                                             "e652ba57-6c0a1b2c: orbitop archive signing key public key\n"
+                                             "12345678-6afe03a5: Other Key <other@example.com> public key\n")
     ok, out = call(tmp_path, "drop_key", "rpm.sh", env=env)
     assert ok is passed, out
+    if passed:
+        assert (tmp_path / "state" / "keys").read_text().startswith("12345678-")
 
 
 def test_point_rewrites_from_the_package_and_refuses_a_file_changed_meanwhile(tmp_path):

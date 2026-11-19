@@ -3,7 +3,8 @@
 """Debian- und RPM-Changelog aus den <release>-Einträgen der metainfo, der einzigen Quelle.
 
 Aufruf beim Bauen: python3 -I changelog.py debian|rpm METAINFO VERSION-REVISION
-               oder python3 -I changelog.py apt-source|rpm-release KEYRING-VERSION"""
+               oder python3 -I changelog.py apt-source|rpm-release KEYRING-VERSION
+beim Release:      python3 -I changelog.py notes METAINFO VERSION"""
 import email.utils
 import re
 import sys
@@ -103,10 +104,18 @@ def rpm_release(version: str) -> str:
             f"- Signing key and package source as of {day.date().isoformat()}.\n")
 
 
+def notes(metainfo: str, version: str) -> str:
+    """Release-Notizen für Tag und GitHub-Release (scripts/release.sh): die Änderungen von VERSION als Liste."""
+    for v, _, items in _releases(metainfo):
+        if v == version:
+            return "".join(f"- {t}\n" for t in items)
+    raise ValueError(f"{version}: kein <release> in der metainfo")
+
+
 if __name__ == "__main__":
     kind, arg, *version = sys.argv[1:]
     if kind in ("apt-source", "rpm-release"):
         sys.stdout.write({"apt-source": apt_source, "rpm-release": rpm_release}[kind](arg))
     else:
         with open(arg, encoding="utf-8") as f:
-            sys.stdout.write({"debian": debian, "rpm": rpm}[kind](f.read(), *version))
+            sys.stdout.write({"debian": debian, "rpm": rpm, "notes": notes}[kind](f.read(), *version))

@@ -11,12 +11,12 @@ CONF=/etc/pacman.conf
 refresh() { pacman -Syu --noconfirm; }  # Arch supports only full upgrades
 
 # keyring ROOT: the image has no local master key, so pacman-key --init first (docs/release.md). The fingerprint is
-# that of the key in ROOT; check-distros.sh prints it (KEY), and Task 10 compares it with the archive key.
+# that of the key in ROOT; check-distros.sh prints it (KEY), and release.sh compares it with ORBITOP_KEY.
 keyring() {
     local fpr
     [ -f "$STATE/pacman.conf" ] || cp -- "$CONF" "$STATE/pacman.conf" || return 1  # as it was, for purge
     fpr=$(gpg --with-colons --show-keys "$1/orbitop-archive-keyring.asc" | awk -F: '$1 == "fpr" { print $10; exit }') &&
-        [[ $fpr =~ ^[0-9A-F]{40}$ ]] && echo "$fpr" > "$STATE/fpr" && pacman-key --init &&
+        [[ $fpr =~ ^[0-9A-F]{40}$ ]] && pacman-key --init &&
         pacman-key --populate archlinux && pacman-key --add "$1/orbitop-archive-keyring.asc" &&
         pacman-key --lsign-key "$fpr" &&
         printf '%s\n' '[orbitop]' 'SigLevel = Required DatabaseRequired' "Server = ${PAGES}arch/\$arch" >> "$CONF" &&
@@ -38,13 +38,21 @@ owned() { pacman -Qo -- "$1" > /dev/null 2>&1; }
 # -Syy: pacman -Sy downloads a database only when it changed.
 remove() { files_of > "$STATE/files" && pacman -R orbitop --noconfirm && quiet pacman -Syy; }
 
+# drop_keys: the second line of the README's uninstall, without sudo: every primary key with exactly the user ID of
+# the archive key leaves pacman's keyring (pacman's homedir is 755 on purpose, hence --no-permission-warning).
+drop_keys() {
+    gpg --homedir /etc/pacman.d/gnupg --no-options --no-permission-warning --batch --with-colons --list-keys \
+        '=orbitop archive signing key' | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10 } { p = 0 }' |
+        grep -xE '[0-9A-F]{40}' | xargs -r -n1 pacman-key --delete
+}
+
 # pacman has no purge: the section leaves pacman.conf (back to the Pages address first: point refuses if pacman
-# changed it), the key the keyring, and pacman -Sc drops the database of the source (README).
+# changed it), the keys the keyring, and pacman -Sc drops the database of the source (README).
 purge() {
-    local fpr was now
-    fpr=$(cat "$STATE/fpr") && point "$CONF" "$PAGES" && sed -i '/^\[orbitop\]$/,$d' "$CONF" &&
+    local was now
+    point "$CONF" "$PAGES" && sed -i '/^\[orbitop\]$/,$d' "$CONF" &&
         was=$(sha256sum < "$STATE/pacman.conf") && now=$(sha256sum < "$CONF") && [ "$was" = "$now" ] &&
-        pacman-key --delete "$fpr" && refused 'No public key' pacman-key --list-keys "$fpr" &&
+        drop_keys && refused 'No public key' pacman-key --list-keys '=orbitop archive signing key' &&
         ls /var/lib/pacman/sync && pacman -Sc --noconfirm && leftovers "$STATE/files" && quiet pacman -Syy &&
         absent '/var/lib/pacman/sync/orbitop.*'
 }

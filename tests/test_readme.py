@@ -148,14 +148,20 @@ def test_key_check_needs_exactly_one_key_and_its_fingerprint():  # Audit Task 7,
         assert first_curl.startswith('cd "$(mktemp -d)"\n')  # F3: eigener Ordner für die Downloads
 
 
-ARCH_KEYS = (  # Fingerabdrücke der Hauptschlüssel mit genau dieser User-ID, geprüft, bevor pacman-key sie sieht
-    "sudo gpg --homedir /etc/pacman.d/gnupg --no-options --batch --with-colons --list-keys "
+ARCH_KEYS = (  # Fingerabdrücke der Hauptschlüssel mit genau dieser User-ID, geprüft, bevor pacman-key sie sieht;
+    # pacman-key ruft gpg selbst mit --no-permission-warning auf, denn sein Ordner ist absichtlich 755
+    "sudo gpg --homedir /etc/pacman.d/gnupg --no-options --no-permission-warning --batch --with-colons --list-keys "
     "'=orbitop archive signing key' | awk -F: '$1 == \"pub\" { p = 1; next } p && $1 == \"fpr\" { print $10 } "
     "{ p = 0 }' | grep -xE '[0-9A-F]{40}' | xargs -r -n1 sudo pacman-key --delete")
+RPM_KEYS = "rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | xargs -r -n1 sudo rpmkeys --delete"
+ARCH_CHECK = "pacman-key --list-keys '=orbitop archive signing key'"
 
 
 def test_uninstall_deletes_every_key_of_orbitop():  # Audit Task 7, F2: nach einer Erneuerung gibt es zwei
+    joined = re.sub(r"\|\n\s*", "| ", re.sub(r"\s*\\\n\s*", " ", MATRIX))  # Folgezeilen der Skripte angehängt
     for text in (EN, DE):
-        assert "rpmkeys --list | grep -F 'orbitop archive signing key' | " in text
+        assert RPM_KEYS in text and ARCH_CHECK in text
         assert ARCH_KEYS in text  # nicht orbitop-trusted: nach einer Erneuerung fehlt dort der alte Schlüssel
         assert "orbitop-trusted" not in text
+    for line in (RPM_KEYS, ARCH_KEYS, ARCH_CHECK):  # README = Matrix; die Matrix läuft als root, ohne sudo
+        assert line.replace("sudo ", "") in joined, line

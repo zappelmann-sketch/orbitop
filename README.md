@@ -67,7 +67,7 @@ orbitop is installed for the whole machine from its own package source on GitHub
 | openSUSE Tumbleweed | |
 <!-- supported:end -->
 
-Checked on 2026-11-18 with `scripts/check-distros.sh` in disposable Docker containers: the first installation as below, the test suite, `orbitop --version`, the update to a newer version, uninstall and purge without leftovers, and a changed package index, which the package manager must refuse. The containers have no display, so the window itself and the helper through `pkexec` were not part of the check. Details are in [`docs/distro-check.md`](docs/distro-check.md).
+Checked on every release with `scripts/check-distros.sh` in disposable Docker containers: the first installation as below, the test suite, `orbitop --version`, the update to a newer version, uninstall and purge without leftovers, and a changed package index, which the package manager must refuse. The containers have no display, so the window itself and the helper through `pkexec` were not part of the check. Details are in [`docs/distro-check.md`](docs/distro-check.md).
 
 Not supported: Debian 12 (Python 3.11) and Ubuntu 22.04 (Python 3.10). orbitop needs Python 3.12 or newer, so apt refuses to install it there. Derived distributions use the steps of their base. On other distributions, orbitop can run from source (see [Run from source](#run-from-source)); it is not tested there.
 
@@ -333,10 +333,10 @@ rpmkeys --list | grep -F 'orbitop archive signing key' | sed 's/[: ].*//' | xarg
 
 ```sh
 sudo pacman -R orbitop
-sudo gpg --homedir /etc/pacman.d/gnupg --no-options --batch --with-colons --list-keys '=orbitop archive signing key' | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10 } { p = 0 }' | grep -xE '[0-9A-F]{40}' | xargs -r -n1 sudo pacman-key --delete
+sudo gpg --homedir /etc/pacman.d/gnupg --no-options --no-permission-warning --batch --with-colons --list-keys '=orbitop archive signing key' | awk -F: '$1 == "pub" { p = 1; next } p && $1 == "fpr" { print $10 } { p = 0 }' | grep -xE '[0-9A-F]{40}' | xargs -r -n1 sudo pacman-key --delete
 ```
 
-The second line removes every key of orbitop from pacman's keyring: each key whose user ID is exactly `orbitop archive signing key`, so the key you added at installation and a renewed one that an update brought. It passes on only the fingerprints of these primary keys; if there is none, nothing runs. Afterwards `pacman-key --list-keys 'orbitop archive signing key'` reports "No public key". Then delete the section `[orbitop]` (its three lines) from `/etc/pacman.conf` and remove the database of the source, which pacman keeps until `pacman -Sc`. After a prompt, `pacman -Sc` also clears the cached packages that are no longer installed, not only those of orbitop.
+The second line removes every key of orbitop from pacman's keyring: each key whose user ID is exactly `orbitop archive signing key`, so the key you added at installation and a renewed one that an update brought. It passes on only the fingerprints of these primary keys; if there is none, nothing runs. Afterwards `pacman-key --list-keys '=orbitop archive signing key'` reports "No public key": none is left. Then delete the section `[orbitop]` (its three lines) from `/etc/pacman.conf` and remove the database of the source, which pacman keeps until `pacman -Sc`. After a prompt, `pacman -Sc` also clears the cached packages that are no longer installed, not only those of orbitop.
 
 ```sh
 sudo pacman -Sc
