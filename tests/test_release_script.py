@@ -162,7 +162,8 @@ def test_agent_stops_even_when_the_cleanup_fails(tmp_path, keys, repo):
     r, calls = run(tmp_path, repo, keys, VERSION, "--dry-run", env={"RM_FAILS": "1"})
     assert calls["gpgconf"].count(["--kill", "gpg-agent"]) == 2, calls["gpgconf"]  # beim Start und am Ende
     assert calls["gpgconf"][-1] == ["--kill", "gpg-agent"]
-    assert git(repo["repo"], "worktree", "list").count("\n") == 1  # auch prune lief
+    assert "warning: could not remove all of" in r.stderr and r.returncode == 0, r.stderr  # gemeldet, nicht fatal
+    assert calls["git"][-1] == ["-C", str(repo["repo"]), "worktree", "prune"]  # auch der Schritt danach lief
 
 
 def test_dry_run_never_calls_gh_or_push(tmp_path, keys):

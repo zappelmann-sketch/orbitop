@@ -3,7 +3,8 @@
 # Steps 4 to 8 of scripts/release.sh: tag, GitHub release as a draft, gh-pages, GitHub Pages, the wait for the new
 # source, then the release published. Each push names its refs; nothing is pushed with --all, --mirror, --force or
 # following tags. A dry run prints the commands (run) instead of running them. Sourced by release.sh after checks.sh
-# and build.sh. Provides tag_release, release_github, pages_tree, pages_on, wait_pages and publish_release.
+# and build.sh. Provides tag_release, release_github, pages_worktree, pages_tree, pages_on, wait_pages and
+# publish_release.
 # shellcheck shell=bash disable=SC2154  # repo, version, dry, tmp, pages_rev, assets, APP and GH_REPO: the others
 
 PAGES=https://zappelmann-sketch.github.io/orbitop/
@@ -51,8 +52,24 @@ previous_by_hash() {
     done
 }
 
-# pages_tree: gh-pages, an orphan branch, in a worktree of its own below $tmp, never checked out: its tree becomes the
-# new source plus the verified by-hash files of the previous one, in one commit, and a push of this ref alone.
+# pages_worktree (a release only): gh-pages, an orphan branch, in a worktree of its own at $tmp/pages, never checked
+# out: the published branch, or a new one on the first release. It is made before anything is published, so that
+# check_ident sees the identity git gives this worktree before step 4.
+pages_worktree() {
+    [ -z "$dry" ] || return 0
+    if [ -n "$pages_rev" ]; then
+        git -C "$repo" worktree add -q --no-checkout -B gh-pages "$tmp/pages" "$pages_rev"
+    else
+        if git -C "$repo" rev-parse -q --verify refs/heads/gh-pages > /dev/null; then
+            git -C "$repo" branch -q -D gh-pages  # left by a failed first release; origin has none
+        fi
+        git -C "$repo" worktree add -q --orphan -b gh-pages "$tmp/pages"
+    fi
+    check_ident "$tmp/pages"
+}
+
+# pages_tree: the tree of the gh-pages worktree becomes the new source plus the verified by-hash files of the previous
+# one, in one commit with IDENT (checked again right before it), and a push of this ref alone.
 pages_tree() {
     local tree=$tmp/pages
     if [ -n "$dry" ]; then
@@ -61,18 +78,11 @@ pages_tree() {
         run git -C "$repo" push --no-follow-tags origin refs/heads/gh-pages:refs/heads/gh-pages
         return
     fi
-    if [ -n "$pages_rev" ]; then
-        previous_by_hash "$tmp/keep"
-        git -C "$repo" worktree add -q --no-checkout -B gh-pages "$tree" "$pages_rev"
-    else
-        if git -C "$repo" rev-parse -q --verify refs/heads/gh-pages > /dev/null; then
-            git -C "$repo" branch -q -D gh-pages  # left by a failed first release; origin has none
-        fi
-        git -C "$repo" worktree add -q --orphan -b gh-pages "$tree"
-    fi
+    [ -z "$pages_rev" ] || previous_by_hash "$tmp/keep"
     cp -a -- "$tmp/site/." "$tree/"
     [ ! -d "$tmp/keep" ] || cp -r -- "$tmp/keep/." "$tree/"  # the names are hashes: an equal name is an equal file
     git -C "$tree" add --all --force -- .  # the worktree holds the source alone; no excludes (*.deb) drop a file
+    check_ident "$tree"
     git -C "$tree" commit -q --no-gpg-sign -m "chore: Paketquelle für orbitop $version"
     git -C "$repo" push --no-follow-tags origin refs/heads/gh-pages:refs/heads/gh-pages
 }

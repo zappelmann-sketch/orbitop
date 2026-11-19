@@ -8,7 +8,8 @@
 #        prints the commands of steps 4 to 8.
 # Steps: 1 checks (release/checks.sh); 2 packages and signed source, twice (the second with --suffix check1), in a
 #        work directory that is removed on exit; 3 container matrix and docs/distro-check.md; the release files from
-#        HEAD (release/build.sh); 4 annotated tag of HEAD; 5 push of main and tag, GitHub release as a draft;
+#        HEAD (release/build.sh) and the gh-pages worktree with its identity checked (a release only);
+#        4 annotated tag of HEAD; 5 push of main and tag, GitHub release as a draft;
 #        6 gh-pages; 7 GitHub Pages on the first release; 8 wait until Pages serves the new source, then publish
 #        the release (release/publish.sh).
 set -euo pipefail
@@ -49,7 +50,8 @@ run() {
 # may stop the others, not even an rm that root-owned leftovers of a container make fail.
 finish() {
     gpgconf --kill gpg-agent 2> /dev/null || true
-    rm -rf -- "$tmp" || true
+    rm -rf -- "$tmp" || echo "warning: could not remove all of $tmp (root-owned files of a container?);" \
+        "remove it by hand" >&2
     git -C "$repo" worktree prune || true
 }
 tmp=$(mktemp -d)
@@ -75,8 +77,9 @@ build "$tmp/pkgs" "$tmp/site"
 build "$tmp/pkgs2" "$tmp/site2" check1
 echo "== 3 container matrix"
 matrix
-echo "== release files"
+echo "== release files and the gh-pages worktree"
 make_assets
+pages_worktree
 echo "== 4 tag"
 tag_release
 echo "== 5 GitHub release, a draft"

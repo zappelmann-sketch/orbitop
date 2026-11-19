@@ -8,7 +8,7 @@ import tarfile
 
 import pytest
 
-from tests.release_stub import KV, VERSION, git, make_repo, run, sha256
+from tests.release_stub import KV, NAME, NOREPLY, VERSION, git, make_repo, run, sha256
 from tests.site_stub import kill_agent, make_keys, needs_git
 
 pytestmark = needs_git
@@ -113,6 +113,24 @@ def test_pages_commit_ignores_the_excludes_of_git(tmp_path, keys, repo):
     assert f"apt/pool/main/o/orbitop/orbitop_{VERSION}-1_all.deb" in names
     assert f"rpm/fedora/orbitop-release-{KV}-1.noarch.rpm" in names
     assert f"arch/x86_64/orbitop-{VERSION}-1-any.pkg.tar.zst" in names
+
+
+def test_refuses_an_identity_that_only_the_gh_pages_worktree_gets(tmp_path, keys, repo):
+    """Re-Review: includeIf onbranch:main gibt nur main die Identität des Projekts, der Worktree auf gh-pages bekäme
+    die globale (etwa eine private). Der Lauf hält an, bevor etwas veröffentlicht ist."""
+    project = tmp_path / "project.gitconfig"
+    project.write_text(f"[user]\n\tname = {NAME}\n\temail = {NOREPLY}\n")
+    config = tmp_path / "global.gitconfig"
+    config.write_text(f'[user]\n\tname = Alice\n\temail = alice@example.com\n[includeIf "onbranch:main"]\n'
+                      f"\tpath = {project}\n")
+    for key in ("user.name", "user.email"):
+        git(repo["repo"], "config", "--unset", key)
+    r, calls = run(tmp_path, repo, keys, VERSION, env={"GIT_CONFIG_GLOBAL": str(config)})
+    assert r.returncode == 1 and "GIT_AUTHOR_IDENT must be exactly zappelmann-sketch <" in r.stderr, r.stderr
+    assert "/pages (git config" in r.stderr  # im Worktree, nicht im Repository
+    assert not [c for c in calls["git"] if "push" in c or "tag" in c]
+    assert not [c for c in calls["gh"] if c[0] == "release"]
+    assert "gh-pages" not in git(repo["remote"], "branch")
 
 
 def test_first_release_replaces_a_leftover_local_gh_pages(tmp_path, keys, repo):

@@ -20,15 +20,23 @@ fingerprint() {
             END { if (n != 1 || f !~ /^[0-9A-F]{40}$/) exit 1; print f }'
 }
 
-# check_tree: a clean main at VERSION, without the tag; the Debian and the RPM changelog of this version come from the
-# one source, the <release> entries of the metainfo (packaging/changelog.py). The commits and the tag of the release
-# carry the account's name and noreply address and nothing else (git var prints IDENT, then time and zone).
-check_tree() {
-    local branch status have kind ident who
+# check_ident DIR: git in DIR writes commits and tags as the account's name and noreply address and nothing else (git
+# var prints IDENT, then time and zone). DIR is the repository or the gh-pages worktree: an includeIf of the git
+# configuration (onbranch, gitdir) can give a worktree another identity than the repository.
+check_ident() {
+    local ident who
     for ident in GIT_AUTHOR_IDENT GIT_COMMITTER_IDENT; do
-        who=$(git -C "$repo" var "$ident") || die "git var $ident failed"
-        [ "${who% * *}" = "$IDENT" ] || die "$ident must be exactly $IDENT (git config user.name, user.email)"
+        who=$(git -C "$1" var "$ident") || die "git var $ident failed in $1"
+        [ "${who% * *}" = "$IDENT" ] ||
+            die "$ident must be exactly $IDENT in $1 (git config user.name, user.email, also under includeIf)"
     done
+}
+
+# check_tree: a clean main at VERSION, without the tag, whose commits and tag carry IDENT; the Debian and the RPM
+# changelog of this version come from the one source, the <release> entries of the metainfo (packaging/changelog.py).
+check_tree() {
+    local branch status have kind
+    check_ident "$repo"
     branch=$(git -C "$repo" symbolic-ref --short -q HEAD) || true
     [ "$branch" = main ] || die "release only from the branch main, not ${branch:-a detached HEAD}"
     status=$(git -C "$repo" status --porcelain) || die "git status failed"
