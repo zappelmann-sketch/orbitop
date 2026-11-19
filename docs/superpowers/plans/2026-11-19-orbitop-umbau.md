@@ -118,7 +118,7 @@
 
 **Interfaces:**
 - Consumes: Task 1 (`main.js`, Fixture `ui_server`).
-- Produces: die genannten Module mit benannten Exporten. `bridge.js` exportiert `post(message)` und `receive(message)` und setzt `window.orbitop`. `dialogs.js` enthält die einzige `terminate`-Stelle (`confirmed`). Die Namen der Funktionen bleiben, wie sie sind.
+- Produces: die genannten Module mit benannten Exporten. `bridge.js` exportiert `receive(message)` und setzt `window.orbitop`; `post(message)` liegt im Blatt-Modul `post.js`, `hdrInfo` im Blatt-Modul `header.js` (Rulings nach dem Review von Task 2, gegen Importzyklen). `dialogs.js` enthält die einzige `terminate`-Stelle (`confirmed`) und exportiert `ask`, das `page.build()` an `buildProcs(ask)` übergibt. In `state.js` bleibt nur `calls.select` als spät gebundener Haken (echte gegenseitige Rekursion). Die Namen der Funktionen bleiben, wie sie sind.
 
 - [ ] **Step 1: Screenshots vorher** wie in Task 1 Step 1, Ablage `$SCRATCH/task2/`.
 - [ ] **Step 2: Failing Test** `test_ui_modules_have_no_import_cycle` in `tests/test_ui.py`. Er liest alle `orbitop/ui/js/*.js` (später auch Unterordner). Pro Datei sammelt er die relativen Importe `import … from "./…"`. Er prüft dreierlei:
@@ -147,7 +147,7 @@
   - `rows.js`: `pickRow` bis `makePad`.
   - `detail.js`: `ioText`, `renderDetail`, `renderButtons`.
 - Delete: `orbitop/ui/js/app.js`.
-- Modify: `main.js`, `bridge.js` (Verteilung an die Prozess-Module), `tests/ui/check/*.js`.
+- Modify: `main.js`, `bridge.js` (Verteilung an die Prozess-Module), `tests/ui/check/*.js` (`check/procs.js`, 634 Zeilen, entlang `procs/*.js` aufteilen), `tests/test_ui.py` (die Ausnahme `TOO_LONG_UNTIL_TASK3` entfällt), `README.md` und `README.de.md` (Zeile ≈474 nennt noch `orbitop/ui/app.js` und `chart.js`; dort die neuen Pfade `orbitop/ui/js/…` nennen, in beiden Sprachen).
 - Test: `tests/test_ui.py`. Die Ausnahme für `app.js` im Größentest entfällt, der Test prüft auch `js/procs/`.
 
 **Interfaces:**
@@ -156,7 +156,7 @@
 
 - [ ] **Step 1: Screenshots vorher** (Prozesse, Prozesse schmal, dazu ein Bild mit offenem Spaltenmenü über `check.html#…`, falls die Prüfseite das schon zeigt), Ablage `$SCRATCH/task3/`.
 - [ ] **Step 2: Rot.** Größentest ohne Ausnahme für `app.js`, erwartet FAIL.
-- [ ] **Step 3: Aufteilen** wie Task 2 Step 4. Es gibt keine Datei über 300 Zeilen. Ist `buildProcs` allein zu groß, wird es in benannte Teilfunktionen in derselben Datei zerlegt, ohne Verhalten zu ändern.
+- [ ] **Step 3: Aufteilen** wie Task 2 Step 4. Es gibt keine Datei über 300 Zeilen. Ist `buildProcs` allein zu groß, wird es in benannte Teilfunktionen in derselben Datei zerlegt, ohne Verhalten zu ändern. Aufrufe innerhalb des Prozess-Reiters werden über die Platzierung zyklenfrei, etwa `keyOf`, `same` und `refresh` in ein Blatt-Modul unter `procs/`. In `calls` kommt kein neuer Eintrag (Ruling nach Task 2). Optional: `plot` und `AREA` aus `tiles.js` dorthin legen, wo beide Reiter sie ohne Kopplung an die Übersicht nutzen (etwa neben `chart.js`).
 - [ ] **Step 4: Grün,** beide pytest-Läufe.
 - [ ] **Step 5: Live-Lauf mit `ORBITOP_TAB=procs` und Screenshots nachher.** Erwartet: pixelgleich.
 - [ ] **Step 6: Commit** `refactor: Prozess-Reiter als eigene Module`.
