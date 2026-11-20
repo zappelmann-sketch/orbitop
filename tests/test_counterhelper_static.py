@@ -27,41 +27,61 @@ def test_shebang():  # B2.1: unter -S lädt Python keine .pth-Datei aus site-pac
     assert HELPER.read_bytes().split(b"\n", 1)[0] == b"#!/usr/bin/python3 -IS"
 
 
-# Jedes Attribut, das der Helfer an einem Modul benutzt, dazu os.O_*: Systemaufrufe aus Python, kein exec, keine
-# Umgebung (B2.1). Eine Positivliste: was hier fehlt, fällt auf, auch execlp, getenvb oder posix_spawnp.
+# Jede Attributkette, die der Helfer an einem Modul benutzt, dazu os.O_*: Systemaufrufe aus Python, kein exec, keine
+# Umgebung (B2.1). Eine Positivliste: was hier fehlt, fällt auf, auch execlp, getenvb oder posix_spawnp. os.path
+# steht nur als Teil von os.path.dirname und os.path.split darin, nie allein.
 USES = {
-    "os": {"close", "fchmod", "fstat", "fsync", "geteuid", "lstat", "open", "path", "removexattr", "setxattr", "stat",
-           "umask", "unlink"},
+    "os": {"close", "fchmod", "fstat", "fsync", "geteuid", "lstat", "open", "removexattr", "setxattr", "stat", "umask",
+           "unlink"},
     "os.path": {"dirname", "split"},
     "errno": {"ENODATA"}, "fcntl": {"LOCK_EX", "LOCK_NB", "flock"}, "glob": {"glob"},
     "stat": {"S_IMODE", "S_ISDIR", "S_ISREG"}, "struct": {"pack"}, "sys": {"argv", "exit", "stderr"},
     "time": {"monotonic", "sleep"},
 }
-BANNED = {"getattr", "setattr", "delattr", "__import__", "importlib", "__builtins__", "eval", "exec", "compile",
-          "globals", "locals", "vars", "breakpoint"}
+CHAINS = {f"{m}.{a}" for m, attrs in USES.items() for a in attrs}
+BANNED = {"getattr", "setattr", "delattr", "importlib", "eval", "exec", "compile", "globals", "locals", "vars",
+          "breakpoint"}
+# Attribute, über die man ein Modul oder einen Prozess erreicht, an welchem Wert auch immer (etwa p.os.system)
+REACH = {"os", "sys", "subprocess", "builtins", "importlib", "modules", "system", "environ", "environb", "popen"}
+
+
+def chain(node):
+    """"a.b.c" für eine Kette aus Attributen über einem Namen, sonst None (etwa über einem Aufruf)."""
+    parts = []
+    while isinstance(node, ast.Attribute):
+        parts.append(node.attr)
+        node = node.value
+    return ".".join([node.id, *reversed(parts)]) if isinstance(node, ast.Name) else None
 
 
 def problems(source):
-    """Was gegen die Regeln des Helfers verstößt: ein Import außer `import x` aus ALLOWED (kein from, kein as), ein
-    Modul anders als in `modul.attr`, ein Attribut außerhalb von USES, ein Name aus BANNED."""
+    """Was gegen die Regeln des Helfers verstößt:
+    - ein Import außer `import x` aus ALLOWED (kein from, kein as);
+    - ein Modul anders als am Anfang einer Kette aus CHAINS (also auch nie an einen Namen gebunden, wie p = os.path);
+    - ein Attribut aus REACH, ein Dunder-Attribut oder ein Dunder-Name außer __name__, ein Name aus BANNED."""
     nodes = list(ast.walk(ast.parse(source)))
-    found, prefixes = [], set()
+    found = []
+    inner = {id(n.value) for n in nodes if isinstance(n, ast.Attribute)}
     for n in nodes:
         if isinstance(n, ast.ImportFrom):
-            found.append(f"from {n.module} import")
+            found.append(f"from {'.' * n.level}{n.module or ''} import")
         elif isinstance(n, ast.Import):
-            found += [f"import {a.name} as {a.asname}" for a in n.names if a.name not in ALLOWED or a.asname]
-        elif isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ALLOWED:
-            prefixes.add(id(n.value))
-            if n.attr not in USES[n.value.id] and not (n.value.id == "os" and n.attr.startswith("O_")):
-                found.append(f"{n.value.id}.{n.attr}")
-        elif isinstance(n, ast.Attribute) and ast.unparse(n.value) == "os.path" and n.attr not in USES["os.path"]:
-            found.append(f"os.path.{n.attr}")
+            found += [f"import {a.name}" + (f" as {a.asname}" if a.asname else "") for a in n.names
+                      if a.name not in ALLOWED or a.asname]
+        elif isinstance(n, ast.Attribute):
+            if n.attr.startswith("__") or n.attr in REACH:
+                found.append(f".{n.attr}")
+            dotted = chain(n)
+            root = dotted and dotted.split(".", 1)[0]
+            if root in ALLOWED and id(n) not in inner:  # die ganze Kette, vom Modul bis zum letzten Attribut
+                if dotted not in CHAINS and not (dotted.startswith("os.O_") and dotted.count(".") == 1):
+                    found.append(dotted)
+    module_names = {n for n in nodes if isinstance(n, ast.Name) and n.id in ALLOWED}
+    prefixes = {id(n.value) for n in nodes if isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name)}
     for n in nodes:
-        if isinstance(n, ast.Name) and n.id in BANNED:
+        if isinstance(n, ast.Name) and (n.id in BANNED or n.id.startswith("__") and n.id != "__name__"):
             found.append(n.id)
-        elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id in ALLOWED and id(n) not in prefixes:
-            found.append(f"{n.id} as a value")
+    found += [f"{n.id} as a value" for n in module_names if isinstance(n.ctx, ast.Load) and id(n) not in prefixes]
     return found
 
 
@@ -78,7 +98,10 @@ def test_only_listed_calls_no_programs_no_environment():
     "from os import system as s", "from os import environ", "import os as z", "import subprocess", "import importlib",
     "os.execlp('x', 'x')", "os.execv('x', [])", "os.system('x')", "os.environ['A']", "os.getenvb(b'A')",
     "os.posix_spawnp('x', [], {})", "os.fork()", "os.path.expanduser('~')", "sys.modules", "time.time()",
-    "getattr(os, 'system')", "__import__('os')", "eval('1')", "x = os", "f(os)"])
+    "getattr(os, 'system')", "__import__('os')", "eval('1')", "x = os", "f(os)",
+    "p = os.path\np.expanduser('~')", "p = os.path", "f(os.path)", "p.os.system('x')", "os.path.os.system('x')",
+    "os.open.__self__.system('x')", "os.path.dirname.__globals__['os']", "__loader__.load_module('subprocess')",
+    "__spec__", "__builtins__['eval']", "sys.stderr.buffer", "os.O_RDONLY.real", "stat.S_ISREG.x"])
 def test_the_check_finds_forbidden_forms(snippet):  # Gegenprobe: die Positivliste lässt keine dieser Formen durch
     assert problems(snippet)
 
