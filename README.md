@@ -136,6 +136,8 @@ sudo zypper install orbitop
 
 `rpm -K` must print `orbitop-release-opensuse.rpm: digests signatures OK`. Without `rpm --import` first, zypper refuses the package because its key is not available. `orbitop-release` installs the source `/etc/zypp/repos.d/orbitop.repo` and its key. zypper then checks the package index and every package of the source: `zypper lr orbitop` shows `GPG Check` as `(rp) Yes`.
 
+If `run0-wrappers` is installed, it replaces `pkexec` with a wrapper around `run0`, and orbitop cannot terminate other users' processes. Install the package `pkexec` instead with `sudo zypper install pkexec`; zypper offers to replace `run0-wrappers`.
+
 ### Arch Linux
 
 Arch has no package for the source; you add it once by hand. On a regular Arch installation, pacman's keyring is set up already. Only if it never was (for example in a fresh container, where `pacman-key --lsign-key` fails), run these two commands first:
@@ -441,7 +443,7 @@ The packages of orbitop depend on the same runtime packages and on polkit.
 - The page talks to Python only through `parse_message` in `orbitop/app.py`. It accepts the messages `ready`, `view`, `layout`, `terminate`, `autostart` and `quit`, checks every value for type and range, drops unknown keys and limits the size to 4096 characters. Anything else is ignored.
 - Process names, command lines and users reach the page only as text (`textContent`), never as HTML.
 - orbitop opens no port and makes no network connections. Updates come only through the package manager.
-- Terminating a process of another user runs `pkexec /usr/lib/orbitop/killhelper <pid> <start time> <signal>`. The polkit action `io.github.zappelmann-sketch.orbitop.terminate` applies only to this program (`org.freedesktop.policykit.exec.path`) and asks for the admin password every time (`auth_admin`); the dialog shows PID, start time and signal. Before that, orbitop checks with `lstat` that the helper is a regular file and not a symlink, and that it and every directory up to `/` belong to root and are not writable by group or others. If not, it shows a hint and asks for no password.
+- Terminating a process of another user runs `pkexec /usr/lib/orbitop/killhelper <pid> <start time> <signal>`. The polkit action `io.github.zappelmann-sketch.orbitop.terminate` applies only to this program (`org.freedesktop.policykit.exec.path`) and asks for the admin password every time (`auth_admin`); the dialog shows PID, start time and signal. Before that, orbitop checks with `lstat` that the helper is a regular file and not a symlink, and that it and every directory up to `/` belong to root and are not writable by group or others. If not, it shows a hint and asks for no password. It also starts the helper only through the setuid `pkexec` of polkit: `/usr/bin/pkexec` must be a regular, root-owned ELF program with the setuid bit, in the same kind of directory chain. Otherwise, for example with `run0-wrappers` on openSUSE, terminating other users' processes is not available and orbitop says so.
 - The helper opens a pidfd before it checks PID and start time, so the signal reaches exactly the checked process. It refuses PID 1 and kernel threads.
 - The switch "Start at login" writes or removes only its own entry in the user's autostart directory, atomically; the page sends only on or off, never a path.
 - `intel_gpu_top` and `nvidia-smi` are started with argument lists, never through a shell, and only from the fixed path `/usr/local/bin:/usr/bin:/bin`.

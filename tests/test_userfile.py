@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Gemeinsame Dateihelfer für layout.py und autostart.py: XDG-Basis, sicheres Lesen, atomares Schreiben."""
+import errno
 import os
 import threading
 
@@ -68,8 +69,33 @@ def test_write_atomic_creates_private_dir_and_replaces_symlink_itself(tmp_path):
 
 def test_write_atomic_creates_all_levels_0700(tmp_path):
     p = tmp_path / "a" / "b" / "c" / "f"
-    assert write_atomic(str(p), "x", "layout")
+    old = os.umask(0o002)  # durchlässige umask wie unter Ubuntu: os.makedirs gäbe den oberen Ebenen dann 0775
+    try:
+        assert write_atomic(str(p), "x", "layout")
+    finally:
+        os.umask(old)
     assert [(tmp_path / d).stat().st_mode & 0o777 for d in ("a", "a/b", "a/b/c")] == [0o700] * 3
+
+
+class BrokenStream:
+    def __init__(self, exc):
+        self.exc = exc
+
+    def write(self, _text):
+        raise self.exc
+
+    flush = write
+
+
+@pytest.mark.parametrize("exc", [BrokenPipeError(errno.EPIPE, "x"), OSError(errno.ENOSPC, "x"),
+                                 ValueError("I/O operation on closed file.")], ids=["EPIPE", "ENOSPC", "closed"])
+def test_write_error_report_survives_a_broken_stderr(tmp_path, monkeypatch, exc):
+    """Sonst würfe LayoutFile.save, und der Autostart-Schalter bekäme nie seinen autostart_state."""
+    monkeypatch.setattr(userfile, "_reported", set())
+    monkeypatch.setattr(userfile.sys, "stderr", BrokenStream(exc))
+    (tmp_path / "f").mkdir()  # os.replace auf einen Ordner scheitert
+    assert write_atomic(str(tmp_path / "f"), "x", "layout") is False
+    assert userfile.report_write_error("autostart", OSError(errno.EPERM, "x")) is None  # Weg von os.unlink
 
 
 @pytest.mark.parametrize("how", ["replace-fails", "target-is-directory",

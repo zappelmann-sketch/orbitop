@@ -27,7 +27,8 @@ def report_write_error(name: str, err: OSError) -> None:
     kind = errno.errorcode.get(err.errno) or type(err).__name__
     if (name, kind) not in _reported:
         _reported.add((name, kind))
-        print(f"orbitop: could not save {name} ({kind})", file=sys.stderr)
+        with contextlib.suppress(OSError, ValueError):  # kaputtes stderr (EPIPE, ENOSPC, geschlossen): nur nicht melden
+            print(f"orbitop: could not save {name} ({kind})", file=sys.stderr)
 
 
 def read_regular(path: str, limit: int) -> bytes | None:

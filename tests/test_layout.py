@@ -120,7 +120,7 @@ def test_save_atomic_only_when_changed(tmp_path, monkeypatch):
 
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root ignores directory permissions")
-def test_save_failure_is_silent(tmp_path):  # Review Focus 1
+def test_save_failure_returns_false_and_keeps_current(tmp_path):  # Review Focus 1
     d = tmp_path / "ro"
     d.mkdir()
     d.chmod(0o500)
