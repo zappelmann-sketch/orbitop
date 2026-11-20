@@ -39,20 +39,28 @@ def values(spec, tag, branch):
     return [v for b, t, v in tags(spec) if t == tag and b in ("", branch)]
 
 
-# auch Requires(pre) usw. und Recommends, die dnf und zypper von sich aus mitinstallieren
-DEPENDS = re.compile(r"(?:Requires(?:\([\w,]+\))?|Recommends):\s+(.*)")
+# Tags, über die dnf oder zypper ein Paket mitinstallieren: Requires (auch Requires(pre, post)) und Recommends,
+# rückwärts Supplements und Enhances. rpm liest die Tags ohne Rücksicht auf Groß- und Kleinschreibung.
+DEPENDS = re.compile(r"(requires|recommends|supplements|enhances)(?:\([\w,\s]+\))?\s*:\s*(.*)", re.I)
+ALL = ("requires", "recommends", "supplements", "enhances")
 
 
-def pulled_orbitop(spec):
-    """Die Abhängigkeiten in SPEC (jeder Zweig des %if), mit denen dnf oder zypper orbitop* mitinstallierte."""
-    return [m[1] for m in map(DEPENDS.fullmatch, spec.splitlines()) if m and pulls_orbitop(m[1])]
+def pulled_orbitop(spec, kinds=ALL):
+    """Die Abhängigkeiten der Arten KINDS in SPEC (jeder Zweig des %if), die ein Paket orbitop* nennen."""
+    return [m[2] for m in map(DEPENDS.fullmatch, spec.splitlines())
+            if m and m[1].lower() in kinds and pulls_orbitop(m[2])]
 
 
 @pytest.mark.parametrize("line, pulled", [
     ("Requires:       orbitop-release", True), ("Requires:       orbitop-release >= 2026.11.18", True),
     ("Requires:       (polkit or orbitop-release)", True), ("Requires(post): orbitop-release", True),
     ("Recommends:     (orbitop-release if dnf)", True), ("Requires:       python3 >= 3.12", False),
-    ("Requires:       /usr/bin/pkexec", False), ("Suggests:       orbitop-release", False)])
+    ("Requires:       /usr/bin/pkexec", False), ("Suggests:       orbitop-release", False),
+    ("requires:       orbitop-release", True), ("RECOMMENDS: orbitop-release", True),
+    ("Requires(pre, post): orbitop-release", True), ("Requires:       %{name}-release", True),
+    ("Recommends:     %name-release", True), ("Supplements:    orbitop", True),
+    ("Enhances:       (orbitop if dnf)", True),
+    ("Provides:       orbitop-release", False), ("Requires:       %{?name_suffix}", False)])
 def test_k3_guard_sees_alternatives_and_versions(line, pulled):
     assert bool(pulled_orbitop(f"Name: orbitop\n{line}\n")) is pulled
 
@@ -65,6 +73,8 @@ def test_rpm_requires_match_app_packages():  # beide Zweige des %if, Namen wie i
         assert values("orbitop.spec", "Suggests", branch) == ["igt-gpu-tools"]
         assert values("orbitop.spec", "BuildArch", branch) == ["noarch"]
     assert not pulled_orbitop((RPM / "orbitop.spec").read_text(encoding="utf-8"))  # K3, in jedem Zweig
+    # Supplements: orbitop in orbitop-release ließe dnf die Quelle mit orbitop nachziehen
+    assert not pulled_orbitop((RPM / "orbitop-release.spec").read_text(encoding="utf-8"), ("supplements", "enhances"))
 
 
 def test_rpm_version_only_from_build():  # die Upstream-Version steht nur in orbitop/__init__.py

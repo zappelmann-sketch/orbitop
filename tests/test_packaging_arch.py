@@ -125,6 +125,12 @@ def built(tmp_path_factory):
     return files, key
 
 
+def test_build_script_writes_owner_trust_3():  # ohne bwrap, also auch in den Matrix-Containern (Audit M3)
+    script = (ARCH / "build-inside.sh").read_text(encoding="utf-8")
+    assert """printf '%s:3:\\n' "$fpr" > "$work/orbitop-trusted"\n""" in script
+    assert script.count("orbitop-trusted") == 1
+
+
 def test_trusted_file_never_trusts_the_key_as_introducer(built):  # Owner-Trust 3: "never", nie 4 (marginal) oder höher
     files, key = built
     assert files["usr/share/pacman/keyrings/orbitop-trusted"] == f"{key['fpr']}:3:\n".encode()

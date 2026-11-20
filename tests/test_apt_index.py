@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """packaging/site/check-apt-index.py: der Rechner signiert den apt-Index nur, wenn er genau die debs beschreibt."""
+import hashlib
 import re
 import subprocess
 import sys
@@ -79,6 +80,12 @@ def forge(apt, case):
         release.write_text(re.sub(r"(?m)^Date: .*$", f"Date: {date}", release.read_text()))
     elif case == "packages-md5":  # was apt-ftparchive ohne APT::FTPArchive::MD5=false schriebe
         write_index(apt, "stable", "main", "\n".join(f"{stanza(apt, d)}MD5sum: {'0' * 32}\n" for d in DEBS))
+    elif case == "release-no-sha512":
+        release.write_text(release.read_text().split("SHA512:\n", 1)[0])
+    elif case == "release-only-md5":  # die wahren Summen, aber nur als MD5Sum
+        index = {n: (apt / INDEX / n).read_bytes() for n in ("Packages", "Packages.gz")}
+        md5 = "".join(f" {hashlib.md5(d).hexdigest()} {len(d):>16} main/binary-all/{n}\n" for n, d in index.items())
+        release.write_text(release.read_text().split("SHA256:\n", 1)[0] + "MD5Sum:\n" + md5)
     elif case == "release-sha1":
         release.write_text(release.read_text() + f"SHA1:\n {'0' * 40} 1 main/binary-all/Packages\n")
     elif case in ("release-cr", "release-crlf"):  # apt liest \r als Teil des Werts, read_text() machte \n daraus
@@ -96,7 +103,8 @@ def forge(apt, case):
     ("tab-line", "whitespace-only line"), ("control-char", "control character"),
     ("future-date", "is in the future"), ("bad-date", "does not match format"),
     ("release-cr", "control character"), ("release-crlf", "control character"),
-    ("packages-md5", "differs from its deb in ['MD5sum']"), ("release-sha1", "Release fields")])
+    ("packages-md5", "differs from its deb in ['MD5sum']"), ("release-sha1", "Release fields"),
+    ("release-no-sha512", "Release SHA512 lists []"), ("release-only-md5", "Release SHA256 lists []")])
 def test_refuses_a_forged_index(apt, case, reason):
     forge(apt, case)
     r = check(apt)

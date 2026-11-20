@@ -16,7 +16,9 @@ KEY_FILE = PKG / "keys" / "orbitop-archive-keyring.asc"  # der öffentliche Arch
 
 def pulls_orbitop(relations):
     """K3: ob ein Feld mit Abhängigkeiten (deb oder RPM) ein Paket orbitop* nennt, auch als Alternative
-    (a | b, (a or b)), in einer Bedingung, mit Version oder Architektur."""
+    (a | b, (a or b)), in einer Bedingung, mit Version oder Architektur; %{name} und %name einer Spec zählen als
+    orbitop (beide Specs heißen orbitop*)."""
+    relations = re.sub(r"%\{name\}|%name\b", "orbitop", relations)
     return any(word.startswith("orbitop") for word in re.findall(r"[\w.+-]+", relations))
 
 

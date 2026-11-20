@@ -192,7 +192,8 @@ def test_gh_stub_refuses_notes_from_tag_with_repo(tmp_path, args):
 def test_source_archive_ignores_replace_refs_and_attribute_files(tmp_path, keys, repo):
     """Audit M3 (Plan 2026-11-19, Task 9): Das Quellarchiv des Release (make_assets) enthält README.md, wie der
     Commit sie hat, auch mit einem Ersatz für ihren Blob (refs/replace) und export-ignore in core.attributesFile;
-    gzip packt es, auch wenn tar.tar.gz.command der git-Konfiguration einen anderen Befehl nennt."""
+    gzip packt es, auch wenn tar.tar.gz.command der git-Konfiguration einen anderen Befehl nennt, und tar.umask 0
+    macht keinen Eintrag für alle schreibbar (Audit M2): nur 0644 und 0755."""
     readme = (repo["repo"] / "README.md").read_bytes()
     planted = subprocess.run(["git", "-C", str(repo["repo"]), "hash-object", "-w", "--stdin"], input=b"planted\n",
                              capture_output=True, check=True).stdout.decode().strip()
@@ -200,7 +201,10 @@ def test_source_archive_ignores_replace_refs_and_attribute_files(tmp_path, keys,
     (tmp_path / "attributes").write_text("README.md export-ignore\n")
     git(repo["repo"], "config", "core.attributesFile", str(tmp_path / "attributes"))
     git(repo["repo"], "config", "tar.tar.gz.command", "cat > /dev/null; echo planted")
+    git(repo["repo"], "config", "tar.umask", "0")
     r, _ = run(tmp_path, repo, keys, VERSION)
     assert r.returncode == 0, r.stderr
     with tarfile.open(tmp_path / "assets" / f"orbitop-{VERSION}.tar.gz", "r:gz") as tar:
         assert tar.extractfile(f"orbitop-{VERSION}/README.md").read() == readme
+        modes = {m.name: oct(m.mode) for m in tar.getmembers() if not m.issym()}  # Linux ignoriert die eines Symlinks
+    assert modes and set(modes.values()) <= {"0o644", "0o755"}, modes

@@ -61,8 +61,10 @@ PM = ('pm() { echo >> "$STATE/calls"; local n; n=$(wc -l < "$STATE/calls"); cat 
       ' cat "$STATE/installs.$n" >> "$STATE/packages" 2> /dev/null;'
       ' return "$(cat "$STATE/rc.$n" 2> /dev/null || echo 0)"; }; packages() { cat "$STATE/packages"; };'
       ' sleep() { echo "$1" >> "$STATE/slept"; };')
-# Die Quelldefinitionen liegen in STATE statt unter /etc; serve und kill in apts update_from tun nichts.
-SOURCES = ('SOURCE=$STATE/orbitop.sources REPO=$STATE/orbitop.repo CONF=$STATE/pacman.conf;'
+# Die Quelldefinitionen und orbitop-trusted liegen in STATE statt unter /etc und /usr; serve und kill in apts
+# update_from tun nichts.
+SOURCES = ('SOURCE=$STATE/orbitop.sources REPO=$STATE/orbitop.repo CONF=$STATE/pacman.conf'
+           ' TRUSTED=$STATE/orbitop-trusted;'
            ' serve() { :; }; kill() { :; };')
 POLICY = " 100 http://zappelmann-sketch.github.io/orbitop/apt stable/main all Packages"  # wie über serve
 AS_PM = {"apt.sh": f'apt() {{ pm "$@"; }}; apt-get() {{ pm "$@"; }}; apt-cache() {{ echo "{POLICY}"; }};',
@@ -76,7 +78,8 @@ def runs(tmp_path, command, *outputs, files=("dnf.sh",)):
     state.mkdir(parents=True, exist_ok=True)
     for name, line in {"packages": "bash 5.3", "orbitop.sources": f"URIs: {PAGES}apt",
                        "orbitop.repo": f"baseurl={PAGES}rpm/fedora", "pacman.conf": f"Server = {PAGES}arch/$arch",
-                       "http.log": "GET /orbitop/apt/dists/stable/main/binary-all/by-hash/SHA512/0 HTTP/1.1"}.items():
+                       "http.log": "GET /orbitop/apt/dists/stable/main/binary-all/by-hash/SHA512/0 HTTP/1.1",
+                       "orbitop-trusted": "0" * 40 + ":3:"}.items():
         (state / name).write_text(line + "\n")
     for n, (text, rc, *installed) in enumerate(outputs, 1):
         (state / f"out.{n}").write_text(text + "\n")

@@ -34,6 +34,25 @@ def test_drop_key_fails_when_the_key_stays_or_the_listing_fails(tmp_path, env, p
         assert (tmp_path / "state" / "keys").read_text().startswith("12345678-")
 
 
+FPR = "57B9C66DCA7AE595D49760EE49D4A78C4130D679"
+
+
+@pytest.mark.parametrize("content,passed", [
+    (f"{FPR}:3:\n", True), (f"{FPR}:4:\n", False), (f"{FPR}:2:\n", False), (f"{FPR}:3:", False),
+    (f"{FPR}:3:\n{FPR}:3:\n", False), (f"{FPR}:3:\n\n", False), (f"{FPR.lower()}:3:\n", False),
+    (f"{FPR[:-1]}:3:\n", False), (f" {FPR}:3:\n", False), ("", False), (None, False)],
+    ids=["never", "marginal", "unknown", "no-newline", "two-lines", "empty-line", "lower", "short", "blank", "empty",
+         "missing"])
+def test_pacman_trust_of_the_installed_key_is_never(tmp_path, content, passed):
+    """Audit M3: orbitop-trusted des installierten Pakets ist genau eine Zeile <Fingerabdruck>:3: (Owner-Trust
+    "never"), geprüft im Schritt install der Matrix auf Arch."""
+    trusted = tmp_path / "orbitop-trusted"
+    if content is not None:
+        trusted.write_text(content)
+    ok, out = call(tmp_path, f"TRUSTED={trusted}; never_introducer", "pacman.sh")
+    assert ok is passed, out
+
+
 def test_point_rewrites_from_the_package_and_refuses_a_file_changed_meanwhile(tmp_path):
     repo = tmp_path / "orbitop.repo"
     packaged = f"[orbitop]\nbaseurl={PAGES}rpm/opensuse\ngpgkey=file:///etc/pki/rpm-gpg/RPM-GPG-KEY-orbitop\n"

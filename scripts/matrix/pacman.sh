@@ -7,6 +7,7 @@
 
 NOISE='^(warning|error):'
 CONF=/etc/pacman.conf
+TRUSTED=/usr/share/pacman/keyrings/orbitop-trusted
 
 refresh() { net pacman -Syu --noconfirm; }  # Arch supports only full upgrades
 
@@ -23,7 +24,15 @@ keyring() {
         point "$CONF" "file://$1/"
 }
 
-install_pkg() { net pacman -Syu orbitop --noconfirm; }
+# never_introducer: orbitop-trusted of the installed package is exactly the line "<fingerprint>:3:", owner trust 3
+# ("never"): the key never helps to validate another key in pacman's keyring (docs/release.md, Arch).
+never_introducer() {
+    local line
+    line=$(cat -- "$TRUSTED") && echo "TRUSTED $line" && [[ $line =~ ^[0-9A-F]{40}:3:$ ]] &&
+        [ "$(wc -l < "$TRUSTED")" -eq 1 ]
+}
+
+install_pkg() { net pacman -Syu orbitop --noconfirm && never_introducer; }
 
 tools() { net pacman -S --needed --noconfirm python-pytest shellcheck desktop-file-utils appstream; }
 

@@ -11,8 +11,8 @@ import sys
 import tarfile
 from pathlib import Path
 
-# Feld in Packages, Feld in Release, Name in hashlib; ohne MD5 und SHA1 wie packaging/site/apt-inside.sh
-HASHES = (("SHA256", "SHA256", "sha256"), ("SHA512", "SHA512", "sha512"))
+# Feld in Packages und Release, Name in hashlib; ohne MD5 und SHA1 wie packaging/site/apt-inside.sh, je mit by-hash
+HASHES = (("SHA256", "sha256"), ("SHA512", "sha512"))
 
 
 def _ar_member(name, data):
@@ -47,7 +47,7 @@ def stanza(apt, path):
     member = data[pos + 60:pos + 60 + int(data[pos + 48:pos + 58])]
     with tarfile.open(fileobj=io.BytesIO(member), mode="r:xz") as tar:
         text = tar.extractfile("./control").read().decode()
-    fields = "".join(f"{field}: {hashlib.new(algo, data).hexdigest()}\n" for field, _, algo in HASHES)
+    fields = "".join(f"{field}: {hashlib.new(algo, data).hexdigest()}\n" for field, algo in HASHES)
     return text + f"Filename: {path}\nSize: {len(data)}\n" + fields
 
 
@@ -60,15 +60,14 @@ def write_index(apt, suite, component, packages=None):
     index.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(index / "by-hash", ignore_errors=True)  # nur die Kopien des neuen Index
     blobs = {"Packages": packages.encode(), "Packages.gz": gzip.compress(packages.encode(), mtime=0)}
-    lines = {field: "" for _, field, _ in HASHES}
+    lines = {field: "" for field, _ in HASHES}
     for name, data in blobs.items():
         (index / name).write_bytes(data)
-        for _, field, algo in HASHES:
+        for field, algo in HASHES:
             h = hashlib.new(algo, data).hexdigest()
             lines[field] += f"\n {h} {len(data):>16} {component}/binary-all/{name}"
-            if field in ("SHA256", "SHA512"):
-                (index / "by-hash" / field).mkdir(parents=True, exist_ok=True)
-                (index / "by-hash" / field / h).write_bytes(data)
+            (index / "by-hash" / field).mkdir(parents=True, exist_ok=True)
+            (index / "by-hash" / field / h).write_bytes(data)
     head = (f"Acquire-By-Hash: yes\nArchitectures: all\nCodename: {suite}\nComponents: {component}\n"
             f"Date: Thu, 01 Jan 2026 00:00:00 +0000\nLabel: orbitop\nOrigin: orbitop\nSuite: {suite}\n")
     (apt / "dists" / suite / "Release").write_text(head + "".join(f"{f}:{v}\n" for f, v in lines.items()))
