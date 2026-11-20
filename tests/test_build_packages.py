@@ -149,3 +149,23 @@ def test_build_refuses_odd_container_output(tmp_path, keys, plant):  # build-sit
     assert r.returncode == 1 and "refusing" in r.stderr, r.stderr
     assert calls.count("run") == 1  # Abbruch gleich nach dem ersten Container
     assert (tmp_path / "victim.txt").read_text() == "unchanged\n"
+
+
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")
+@pytest.mark.parametrize("args,versions", [
+    (["--revision", "2"], [f"{__version__}-2", __version__, "2", __version__, "2", __version__, "2"]),
+    (["--revision", "2", "--suffix", "check1"],
+     [f"{__version__}-2+check1", __version__, "2.check1", __version__, "2.check1", __version__, "2.1"])],
+    ids=["revision", "with-suffix"])
+def test_build_takes_a_revision(tmp_path, keys, args, versions):  # orbitop N+1 der Matrix: derselbe Stand, Revision 2
+    r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), *args)
+    assert r.returncode == 0, r.stderr
+    starts = [i for i, a in enumerate(calls) if a == "run"]
+    runs = [calls[i + 1:j] for i, j in zip(starts, [*starts[1:], len(calls)])]
+    assert [v for args in runs for v in args[args.index("bash") + 2:]] == versions
+
+
+@pytest.mark.parametrize("revision", ["0", "02", "a", "2.1", "-1", ""])
+def test_build_refuses_a_bad_revision(tmp_path, keys, revision):
+    r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), "--revision", revision)
+    assert r.returncode != 0 and calls == [], r.stderr

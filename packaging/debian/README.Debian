@@ -1,0 +1,35 @@
+SPDX-License-Identifier: GPL-3.0-or-later
+Copyright © 2026 zappelmann-sketch
+
+orbitop for Debian: the counter release
+=======================================
+
+The switch "Release counters" in orbitop's About dialog lets every account on this
+computer read the GPU and energy counters, after the admin password. The setting
+for the whole machine is the empty marker file /etc/orbitop/counters-released.
+Only "/usr/lib/orbitop/counterhelper on" creates it; no package script ever does.
+
+Deviation from Debian Policy 10.7.3
+-----------------------------------
+
+Debian Policy 10.7.3 says that "configuration files must be preserved when the
+package is removed, and only deleted when the package is purged". The marker is
+deleted on "remove" already: prerm runs "counterhelper off", which deletes it and
+then takes the capability and the read bits back, and postrm deletes it once more.
+A marker kept after "apt remove orbitop" would release the counters again on the
+next "apt install orbitop", for every account and without asking the admin.
+"apt purge orbitop" also removes the empty directory /etc/orbitop.
+
+Triggers
+--------
+
+A new copy of /usr/bin/intel_gpu_top (installed, reinstalled or updated) has no
+file capability. postinst therefore runs "counterhelper sync" on "configure" and
+when dpkg triggers it for that path (orbitop.triggers); "sync" changes nothing
+without the marker. That orbitop sets a capability on a file of another package
+is the deliberate exception to the dpkg guideline that a file trigger "should not
+generally modify that file again".
+
+If the helper cannot run on removal, the marker still goes, but the capability
+stays on /usr/bin/intel_gpu_top, and the energy counters stay readable until the
+next restart. Then run "sudo setcap -r /usr/bin/intel_gpu_top" and restart.

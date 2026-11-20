@@ -27,8 +27,13 @@ containers trust whatever key that is; the run checks that both carry the same o
 
 How the check runs:
 
+- Before the images, `check-distros.sh` builds the packages that the step `counters` updates from and to, with
+  `scripts/build-packages.sh` and the key of the sites, their logs on stderr: the commit `ORBITOP_REV` once more as
+  revision 2 (`--revision 2`, orbitop N+1), and 0.2.0 from the files of the tag `v0.2.0` (`ORBITOP_REV` set to its
+  commit, so the containers run the tag's own build scripts), never from the published source: the run depends neither
+  on the state of Pages nor on the archive key.
 - Each image runs once as
-  `docker run --rm -v <copy>:/src:ro -v SITE:/site:ro -v SITE2:/site2:ro <digest> bash /src/scripts/matrix/inside.sh`,
+  `docker run --rm -v <copy>:/src:ro -v SITE:/site:ro -v SITE2:/site2:ro -v <rev2>:/rev2:ro -v <v020>:/v020:ro <digest> bash /src/scripts/matrix/inside.sh`,
   from the digest that `docker image inspect` reported after the pull (the one in the table), not from the tag:
   no `--privileged`, no added capabilities, nothing writable from the host. `<copy>` is `git archive` of the commit
   `ORBITOP_REV` (HEAD without it), removed afterwards. The containers reach the distribution mirrors over the network.
@@ -90,7 +95,49 @@ How the check runs:
       Afterwards no path from the file lists of the packages is left, except directories that another package owns;
       `/etc/orbitop` does not exist; the index refresh (`dnf makecache --refresh`, `pacman -Syy`) is clean; and no index
       of the source is left (apt lists, `/var/cache/zypp/*/orbitop`, `/var/lib/pacman/sync/orbitop.*`).
-  11. `tamper`: a copy of `SITE` with one changed byte, set up again like in step 2; the index refresh must fail with
+  11. `counters`: the cases of the counter release (security document 0.3.0, the container matrix of B2.1, B2.2,
+      B2.3, B2.4, B2.8 and B2.9), from the state the purge left: no source of orbitop and its dependencies installed,
+      so orbitop comes only from files, of `SITE` (revision 1), `/rev2` and `/v020`. One line `COUNTERS <case> ok|FAIL`
+      per case; one `FAIL` fails the step, and with it the image. The cases are the same for every format
+      (`scripts/matrix/counters.sh`, `tests/test_matrix_counters.py`); the file of the package manager gives their
+      list, the owner of `/usr/bin/intel_gpu_top` and the commands; until the RPM scriptlets and the pacman hook come,
+      Fedora, openSUSE and Arch have none and print `COUNTERS none`. They run as root without polkit and check the
+      capability (`security.capability` must be the 20 bytes of `cap_perfmon=ep`,
+      `0100000200000000000000004000000000000000`), the marker `/etc/orbitop/counters-released` (empty, root 0644) and
+      the exit codes of `counterhelper`. Docker masks the RAPL zones (`/sys/devices/virtual/powercap`), so the helper
+      finds none and exits 0 for that part; the read bits are left to the unit tests and the hardware test. apt, in this
+      order (the owner is `intel-gpu-tools`, on Ubuntu 26.04 `igt-gpu-tools`, and `dpkg -S` must name it; orbitop goes
+      in with `dpkg -i`, which also takes the same or a lower version, where apt keeps what is installed):
+      - `orbitop_install_manual_cap` (B2.4, 5): the Intel tools from the mirrors, a capability set by hand, then the
+        first installation of orbitop: no marker, and the capability stays.
+      - `file_list` (B2.2, B2.3): `dpkg -L orbitop` names `/etc/orbitop` and no file in it, the udev rule only as
+        `/usr/lib/udev/rules.d/70-orbitop-counters.rules` and nothing below `/etc/udev`; `/etc/orbitop` is empty, root
+        0711, and `nobody` cannot open it.
+      - `reinstall_owner_off` (B2.4, 1): `apt-get install --reinstall` of the owner runs orbitop's trigger
+        ("Processing triggers for orbitop") and releases nothing.
+      - `on_off` (B2.1, B2.2): `counterhelper on` exits 0 and sets the capability and the marker; `nobody` cannot open
+        `/etc/orbitop` (`EACCES`); `off` exits 0 and takes both back.
+      - `reinstall_owner_on` (B2.4, 2): after `on`, the reinstalled `intel_gpu_top` (a new inode) has the capability.
+      - `owner_remove` (B2.4, 3): removing the owner runs the trigger, no package script reports a failed helper, and
+        `counterhelper sync` exits 0.
+      - `owner_first_install_on` (B2.4, 4): after `on`, the first installation of the owner brings the capability.
+      - `rev2_upgrade_on` (B2.8, 4): with `on`, the update to revision 2 keeps the marker and the capability.
+      - `remove_on` (B2.8, 1 and 2): with `on`, `apt-get remove orbitop` takes the marker and the capability back;
+        orbitop and the owner installed again release nothing.
+      - `remove_broken_helper` (B2.8, 6; M-3): with `on` and `chmod -x` on the helper, the removal succeeds (prerm
+        prints "orbitop: counter release not revoked") and the marker goes. The capability stays, as the case expects,
+        and the log says so ("M-3: the capability stays …"); after the purge there is no `/etc/orbitop`.
+      - `purge` (B2.8, 7): with `on`, `apt-get purge orbitop` leaves no `/etc/orbitop`, no marker and no capability.
+      - `manual_rule_untouched` (B2.9): the rule of the README of 0.2.0, `/etc/udev/rules.d/70-orbitop-rapl.rules`,
+        stays byte for byte through install, `on`, `off`, removal and purge.
+      - `upgrade_from_020` (B2.8, 3): 0.2.0, then the update to revision 1: no marker, no capability, and the installed
+        orbitop accepts `pkexec` (`real_pkexec` as in step 3, only after the update: 0.2.0 has no
+        `actions.real_pkexec`); a capability set by hand before 0.2.0 stays.
+      - `joint_upgrade` (B2.4, 6; B2.8, 5; I-1): with `on`, orbitop from revision 1 to 2 and the owner to a new version
+        in one transaction: `apt-get install` of both files, then `dpkg -i` in both orders. The new version of the owner
+        is a package built in the container with the owner's name and `<version>+fake<N>`, whose `intel_gpu_top` is a
+        copy of the installed program. Afterwards the new file (a new inode) has the capability.
+  12. `tamper`: a copy of `SITE` with one changed byte, set up again like in step 2; the index refresh must fail with
       its reason. apt, twice: `Packages.gz` (also at its by-hash paths) gives "Hash Sum mismatch", which tests the
       hashes in `InRelease`; the last digit of the seconds in the signed `Date:` of `InRelease` (the format stays
       valid) gives "is not signed", which tests the signature itself. Fedora and openSUSE: a digit of `<revision>` in
@@ -118,7 +165,8 @@ How the check runs:
   parentheses, zypper without), zypper's `Timeout exceeded when accessing`, the texts of libcurl after pacman's
   `failed retrieving file` (`Could not resolve host`, `Could not connect to server`, before libcurl 8
   `Couldn't connect to server`, `Operation timed out`, `Operation too slow`, `Empty reply from server`,
-  `Connection timed out after`, `Resolving timed out after`, `Connection timeout after`), apt's
+  `Connection timed out after`, `Resolving timed out after`, `Connection timeout after`,
+  `Failed to resolve '…' with timeout after`, from libcurl 8.18 `Failed to resolve host '…' with timeout after`), apt's
   `Temporary failure resolving`, `Could not resolve '…'`, `Could not connect to` and `Connection timed out`, and the
   system's `Connection reset by peer` and `Temporary failure in name resolution`. Not a hiccup: `Curl error 60` (a
   certificate) and `Failed to connect to`, which systemd prints in the scripts of packages. Cause: on 2026-11-19
@@ -188,6 +236,13 @@ From the run of 2026-11-18 (orbitop 0.1.0, throwaway key) unless a note names an
   older than 3.12 (Debian 12: `3.11.2-1+b1`, Ubuntu 22.04: `3.10.6-1~22.04.1`), with the message in the table and
   "E: Unable to correct problems, you have held broken packages."
   `orbitop-apt-source` itself installs there.
+- **Counter release** (step `counters`), probe on 2026-11-20 in `debian:trixie` with repacked packages: without the
+  trigger and the maintainer scripts of 0.3.0, 8 of the 14 cases fail (`reinstall_owner_off` and `owner_remove`: no
+  trigger runs; `reinstall_owner_on`, `owner_first_install_on`, `remove_on`, `remove_broken_helper`, `purge`,
+  `joint_upgrade`); with `sync` only on `triggered`, only `joint_upgrade` fails, already with
+  `apt-get install` of both files: dpkg calls orbitop's postinst only with `configure` there (I-1); with `off` also on
+  `upgrade`, `rev2_upgrade_on` and `joint_upgrade` fail. Not covered in the containers: the RAPL read bits and the
+  udev rule at boot (Docker masks the zones and runs no udev); they belong to the hardware test.
 - **Not covered:** the window itself (no display in the containers), the kill helper through `pkexec`, the upgrade
   of a distribution release (Ubuntu disables third-party sources then), and the package source over HTTPS from Pages
   itself (plan 2026-11-18, Task 10).

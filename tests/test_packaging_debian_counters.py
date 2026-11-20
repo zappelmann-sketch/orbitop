@@ -1,0 +1,154 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+"""Die Paket-Skripte der Freigabe unter Debian (Security-Dokument 0.3.0, B2.4, B2.8, E1, E4): wörtlich die Zeilen des
+Dokuments, kein Paket-Skript ruft je "on", und keins scheitert wegen des Helfers. Die Skripte laufen hier mit sh auf
+Kopien, in denen der Helfer ein Stellvertreter und /etc/orbitop ein Ordner in tmp_path ist."""
+import re
+import shutil
+import subprocess
+
+import pytest
+
+from orbitop import counterhelper
+from tests.packaging_common import PKG
+
+DEBIAN = PKG / "debian"
+HELPER = "/usr/lib/orbitop/counterhelper"
+SCRIPTS = ("postinst", "prerm", "postrm")
+# B2.4 und B2.8, wörtlich; "…" der Tabelle in B2.8 ist hier der Text für off.
+POSTINST = ('    configure|triggered) /usr/lib/orbitop/counterhelper sync || echo "orbitop: counter release not applied"'
+            ' >&2 ;;')
+PRERM = '    remove) /usr/lib/orbitop/counterhelper off || echo "orbitop: counter release not revoked" >&2 ;;'
+POSTRM = ["    remove) rm -f /etc/orbitop/counters-released ;;",
+          "    purge) rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || true ;;"]
+# Ein Aufruf des Helfers mit seinem Wort, in jeder Datei unter packaging/ (Task 4 ergänzt RPM und Arch).
+CALL = re.compile(r"counterhelper[ \t]+(\S+)")
+
+
+def script(name):
+    return (DEBIAN / f"orbitop.{name}").read_text(encoding="utf-8")
+
+
+def calls():
+    """{Datei: [Wort, …]} für jeden Aufruf des Helfers mit einem Wort unter packaging/, ohne Kommentarzeilen und ohne
+    die Doku README.*."""
+    found = {}
+    for p in sorted(PKG.rglob("*")):
+        if p.is_file() and "__pycache__" not in p.parts and not p.name.startswith("README"):
+            code = [ln for ln in p.read_text(encoding="utf-8", errors="replace").splitlines()
+                    if not ln.lstrip().startswith("#")]
+            words = CALL.findall("\n".join(code))
+            if words:
+                found[str(p.relative_to(PKG))] = words
+    return found
+
+
+def test_package_scripts_call_only_sync_and_off():
+    """B2.4: sync nur in postinst, off nur in prerm, on nirgends (auch nicht über eine andere Schreibweise)."""
+    assert calls() == {"debian/orbitop.postinst": ["sync"], "debian/orbitop.prerm": ["off"]}
+    for p in (DEBIAN / f"orbitop.{n}" for n in SCRIPTS):
+        assert not re.search(r"\bon\b", p.read_text().split("set -e", 1)[1].replace("#DEBHELPER#", "")), p
+
+
+def test_postinst_syncs_only_on_configure_and_triggered():
+    lines = script("postinst").splitlines()
+    assert [ln for ln in lines if HELPER in ln] == [POSTINST]
+
+
+def test_prerm_locks_only_on_remove():  # nie bei upgrade: ein Update behält die Freigabe (B2.8, Fall 4)
+    lines = script("prerm").splitlines()
+    assert [ln for ln in lines if HELPER in ln] == [PRERM]
+
+
+def test_postrm_deletes_the_marker_on_remove_and_the_directory_on_purge():
+    lines = script("postrm").splitlines()
+    assert [ln for ln in lines if "/etc/orbitop" in ln and not ln.startswith("#")] == POSTRM
+    assert counterhelper.MARKER == "/etc/orbitop/counters-released"
+
+
+@pytest.mark.parametrize("name", SCRIPTS)
+def test_scripts_keep_debhelper_and_set_e(name):  # dh_python3 setzt bei #DEBHELPER# das Byte-Kompilieren ein
+    lines = script(name).splitlines()
+    assert lines[0] == "#!/bin/sh" and "set -e" in lines and lines.count("#DEBHELPER#") == 1
+    assert lines[-1] == "exit 0"
+
+
+def test_trigger_is_the_path_of_the_tool():
+    lines = [ln.split("#", 1)[0].strip() for ln in (DEBIAN / "orbitop.triggers").read_text().splitlines()]
+    assert [ln for ln in lines if ln] == [f"interest-noawait {counterhelper.TOOL}"]  # deb-triggers(5): # bis Zeilenende
+
+
+def test_readme_debian_names_the_policy_deviation():  # E1
+    text = " ".join((DEBIAN / "README.Debian").read_text(encoding="utf-8").split())
+    assert "Debian Policy 10.7.3" in text and counterhelper.MARKER in text
+    assert "setcap -r /usr/bin/intel_gpu_top" in text  # M-3: der Weg, wenn der Helfer beim Entfernen nicht lief
+
+
+def run(tmp_path, name, arg, rc=0, helper=True):
+    """orbitop.NAME ARG mit sh; der Helfer schreibt seine Wörter nach calls und endet mit RC (ohne HELPER fehlt er)."""
+    etc, stub = tmp_path / "etc" / "orbitop", tmp_path / "counterhelper"
+    etc.mkdir(parents=True, exist_ok=True)
+    if helper:
+        stub.write_text(f'#!/bin/sh\necho "$*" >> {tmp_path}/calls\nexit {rc}\n')
+        stub.chmod(0o755)
+    text = script(name).replace(HELPER, str(stub)).replace("/etc/orbitop", str(etc))
+    (tmp_path / name).write_text(text)
+    r = subprocess.run(["sh", str(tmp_path / name), arg], capture_output=True, text=True, timeout=30)
+    words = (tmp_path / "calls").read_text().split() if (tmp_path / "calls").exists() else []
+    return r, words, etc
+
+
+@pytest.mark.parametrize("arg,words", [("configure", ["sync"]), ("triggered", ["sync"]), ("abort-upgrade", []),
+                                       ("abort-remove", []), ("abort-deconfigure", [])])
+def test_postinst_runs_sync(tmp_path, arg, words):
+    r, called, _ = run(tmp_path, "postinst", arg)
+    assert (r.returncode, called, r.stderr) == (0, words, "")
+
+
+@pytest.mark.parametrize("arg,words", [("remove", ["off"]), ("upgrade", []), ("deconfigure", []),
+                                       ("failed-upgrade", [])])
+def test_prerm_runs_off(tmp_path, arg, words):
+    r, called, _ = run(tmp_path, "prerm", arg)
+    assert (r.returncode, called, r.stderr) == (0, words, "")
+
+
+@pytest.mark.parametrize("name,arg,text", [("postinst", "configure", "orbitop: counter release not applied"),
+                                           ("postinst", "triggered", "orbitop: counter release not applied"),
+                                           ("prerm", "remove", "orbitop: counter release not revoked")])
+@pytest.mark.parametrize("rc,helper", [(1, True), (3, True), (4, True), (126, True), (0, False)],
+                         ids=["busy", "unsafe", "partial", "not-executable", "missing"])
+def test_a_failing_helper_never_fails_the_script(tmp_path, name, arg, text, rc, helper):
+    r, _, _ = run(tmp_path, name, arg, rc=rc, helper=helper)
+    assert r.returncode == 0 and text in r.stderr, r.stderr
+
+
+@pytest.mark.parametrize("arg,marker,directory", [("remove", False, True), ("purge", False, False),
+                                                  ("upgrade", True, True), ("abort-install", True, True),
+                                                  ("disappear", True, True)])
+def test_postrm_marker_and_directory(tmp_path, arg, marker, directory):
+    _, _, etc = run(tmp_path, "postrm", "remove")  # legt etc an
+    (etc / "counters-released").touch()
+    r, called, _ = run(tmp_path, "postrm", arg)
+    assert (r.returncode, called) == (0, [])
+    assert ((etc / "counters-released").exists(), etc.exists()) == (marker, directory)
+
+
+def test_purge_keeps_a_directory_that_is_not_empty_and_one_that_is_gone(tmp_path):
+    _, _, etc = run(tmp_path, "postrm", "remove")
+    (etc / "other").touch()  # nicht von orbitop: rmdir lässt den Ordner stehen, und purge gelingt
+    assert run(tmp_path, "postrm", "purge")[0].returncode == 0 and (etc / "other").exists()
+    shutil.rmtree(etc)
+    r = subprocess.run(["sh", str(tmp_path / "postrm"), "purge"], capture_output=True, text=True, timeout=30)
+    assert r.returncode == 0 and not etc.exists(), r.stderr
+
+
+@pytest.mark.skipif(not shutil.which("shellcheck"), reason="shellcheck fehlt")
+def test_scripts_pass_shellcheck():
+    paths = [str(DEBIAN / f"orbitop.{n}") for n in SCRIPTS]
+    assert subprocess.run(["shellcheck", "-s", "sh", *paths]).returncode == 0
+
+
+def test_scripts_are_not_conffiles_and_never_touch_udev():  # B2.9: fremde Regeln unter /etc/udev bleiben
+    for name in SCRIPTS:
+        assert "udev" not in script(name).split("set -e", 1)[1], name
+    assert not (DEBIAN / "orbitop.conffiles").exists()  # die Merkdatei ist kein Conffile (B2.2)

@@ -39,7 +39,7 @@ HICCUP='Curl error \(?(6|7|28|35|52|56)\b|Timeout exceeded when accessing'  # dn
 HICCUP+="|Could not resolve host|Could(n't| not) connect to|Operation timed out|Operation too slow"  # libcurl
 HICCUP+="|Empty reply from server|Connection timed out|Temporary failure resolving|Could not resolve '"  # and apt
 HICCUP+='|Resolving timed out after|Connection timeout after'  # libcurl ("%s timed out after", "Resolving")
-HICCUP+="|Failed to resolve '[^']*' with timeout after"  # libcurl 8 of Arch, Fedora and Tumbleweed
+HICCUP+="|Failed to resolve ([a-z]+ )?'[^']*' with timeout after"  # libcurl 8; from 8.18 with "host" or "proxy"
 HICCUP+='|Connection reset by peer|Temporary failure in name resolution'  # libc
 
 # real_pkexec SHARE: the orbitop installed in SHARE (/usr/share/orbitop) accepts /usr/bin/pkexec with its own check,

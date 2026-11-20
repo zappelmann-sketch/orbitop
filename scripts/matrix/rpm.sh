@@ -3,7 +3,8 @@
 # The rpm part of scripts/matrix/dnf.sh and zypper.sh, sourced by scripts/matrix/inside.sh after lib.sh and before
 # either of them; they set FAMILY (fedora, opensuse), the directory of their packages below rpm/ in the site, and
 # TAMPERED, the reason their index refresh names for a changed repomd.xml.
-# shellcheck shell=bash disable=SC2154  # FAMILY and TAMPERED come from dnf.sh or zypper.sh, STATE from lib.sh
+# shellcheck shell=bash disable=SC2034,SC2154  # COUNTER_CASES is read by counters.sh; FAMILY and TAMPERED come from
+# dnf.sh or zypper.sh, STATE from lib.sh
 
 installed() { rpm -q --qf '%{VERSION}-%{RELEASE}' orbitop; }
 offered() { rpm -qp --qf '%{VERSION}-%{RELEASE}' "$1/rpm/$FAMILY"/orbitop-[0-9]*.noarch.rpm; }
@@ -42,3 +43,5 @@ tamper_index() {
 }
 
 tamper() { tampered repomd "$TAMPERED" tamper_index; }
+
+COUNTER_CASES=()  # the cases of the counter release (counters.sh) come with the RPM scriptlets

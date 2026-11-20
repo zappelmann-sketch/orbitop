@@ -3,13 +3,13 @@
 # Copyright © 2026 zappelmann-sketch
 # The container matrix of scripts/check-distros.sh (docs/distro-check.md), as root in a disposable container: the files
 # of the commit the packages are built from at /src, the package source at /site and the one with the check version
-# (plan K6) at /site2, all read-only.
+# (plan K6) at /site2, the packages of the same tree as revision 2 at /rev2 and those of 0.2.0 at /v020, all read-only.
 # It installs, tests, updates and removes orbitop with the commands of the README. Only the installed copies of the
 # source definitions under /etc point to file:// here (point); the packages keep the Pages address.
 # Prints "STEP <name> ok|fail". The helpers are in scripts/matrix/lib.sh, the commands of each package manager in
 # scripts/matrix/<manager>.sh; it provides NOISE and refresh, keyring ROOT, install_pkg, tools, installed, offered ROOT,
 # update_from ROOT, files_of, owned PATH (prints the owner), packages (for net in lib.sh), remove, purge, tamper and
-# refresh_index.
+# refresh_index, and what the cases of the counter release in scripts/matrix/counters.sh need (named there).
 # shellcheck source-path=SCRIPTDIR disable=SC2317,SC2329  # step calls the functions
 set -euo pipefail
 
@@ -20,6 +20,8 @@ fi
 export DEBIAN_FRONTEND=noninteractive  # tzdata would otherwise ask for a time zone
 SITE=/site
 SITE2=/site2
+# shellcheck disable=SC2034  # orbitop_file in the file of the package manager reads them
+REV2=/rev2 V020=/v020
 # shellcheck source=lib.sh
 . /src/scripts/matrix/lib.sh
 mkdir -p "$STATE"
@@ -98,6 +100,8 @@ case $manager in
 esac
 # shellcheck source=/dev/null  # one of apt.sh, dnf.sh, pacman.sh, zypper.sh
 . "/src/scripts/matrix/$manager.sh"
+# shellcheck source=counters.sh
+. /src/scripts/matrix/counters.sh
 useradd -m tester
 
 step refresh refresh
@@ -111,5 +115,6 @@ step version version
 step upgrade upgrade
 step remove remove
 step purge purge
+step counters counters  # orbitop from files, no source of it configured: the cases of the counter release
 step tamper tamper
 exit "$failed"

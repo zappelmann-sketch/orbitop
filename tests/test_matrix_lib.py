@@ -74,10 +74,12 @@ def test_real_pkexec_asks_the_installed_orbitop(tmp_path, body, passed):
 
 
 def test_real_pkexec_takes_orbitop_only_from_share(tmp_path):
-    """Aus / mit python3 -I: weder der Arbeitsordner (der Checkout) noch PYTHONPATH bringt ein anderes orbitop."""
+    """Aus / mit python3 -I: weder der Arbeitsordner noch PYTHONPATH bringt ein anderes orbitop. Der Köder dort nimmt
+    jedes pkexec an; SHARE hat kein orbitop, also muss die Prüfung scheitern (Plan 1, Audit Task 8)."""
+    decoy = share(tmp_path / "decoy", "return True")
     (tmp_path / "share").mkdir()
-    ok, out = call(tmp_path, f"real_pkexec {tmp_path / 'share'}", env={"PYTHONPATH": str(ROOT)})
-    assert not ok, out
+    ok, out = call(tmp_path, f"cd {decoy} && real_pkexec {tmp_path / 'share'}", env={"PYTHONPATH": str(decoy)})
+    assert not ok and "PKEXEC refused" in out, out
 
 
 def test_real_pkexec_needs_no_arguments():  # real_pkexec in lib.sh ruft actions.real_pkexec() ohne Argumente

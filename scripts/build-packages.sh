@@ -3,22 +3,23 @@
 # Copyright © 2026 zappelmann-sketch
 # Builds the packages from `git archive` of the commit ORBITOP_REV (default HEAD) in disposable containers and lints
 # them (docs/release.md).
-# Usage: bash build-packages.sh --out DIR --pubkey FILE [--suffix SUFFIX]
+# Usage: bash build-packages.sh --out DIR --pubkey FILE [--suffix SUFFIX] [--revision N]
 #        DIR is empty or missing and receives deb/, rpm-fedora/, rpm-opensuse/, arch/ and lint/; FILE is the armored
 #        public key of the package source. --suffix marks a check build that is never published (K6): Debian revision
-#        1+SUFFIX, RPM release 1.SUFFIX, Arch pkgrel 1.1 (pacman allows only digits there).
+#        1+SUFFIX, RPM release 1.SUFFIX, Arch pkgrel 1.1 (pacman allows only digits there). --revision N (default 1)
+#        is the package revision, for the next one of the same tree in the container matrix (check-distros.sh).
 # The builds run in packaging/{debian,rpm,arch}/build-inside.sh; this script only checks, prepares and starts them.
 set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=container-common.sh
 . "$(dirname -- "$0")/container-common.sh"  # images, die, usage, options, fresh_out, workdir, container
 
-REVISION=1
-USAGE="$0 --out DIR --pubkey FILE [--suffix SUFFIX]"
+USAGE="$0 --out DIR --pubkey FILE [--suffix SUFFIX] [--revision N]"
 
-out="" pubkey="" suffix=""
-options out pubkey suffix -- "$@"
+out="" pubkey="" suffix="" revision=1
+options out pubkey suffix revision -- "$@"
 [ -n "$out" ] && [ -n "$pubkey" ] || usage
 [[ -z $suffix || $suffix =~ ^[a-z0-9]+$ ]] || die "--suffix: only a-z and 0-9"
+[[ $revision =~ ^[1-9][0-9]*$ ]] || die "--revision: a number from 1"
 fresh_out "$out" "so that no old package is mistaken for a new one"
 
 workdir
@@ -63,8 +64,8 @@ build() {
     mkdir -p -- "$out/$format" "$out/lint"
     for file in "${files[@]}"; do mv -- "$work/$file" "$out/$file"; done
 }
-build deb "$DEB_IMAGE" /src/packaging/debian/build-inside.sh "$version-$REVISION${suffix:++$suffix}"
-build rpm-fedora "$FEDORA_IMAGE" /src/packaging/rpm/build-inside.sh "$version" "$REVISION${suffix:+.$suffix}"
-build rpm-opensuse "$SUSE_IMAGE" /src/packaging/rpm/build-inside.sh "$version" "$REVISION${suffix:+.$suffix}"
-build arch "$ARCH_IMAGE" /src/packaging/arch/build-inside.sh "$version" "$REVISION${suffix:+.1}"
+build deb "$DEB_IMAGE" /src/packaging/debian/build-inside.sh "$version-$revision${suffix:++$suffix}"
+build rpm-fedora "$FEDORA_IMAGE" /src/packaging/rpm/build-inside.sh "$version" "$revision${suffix:+.$suffix}"
+build rpm-opensuse "$SUSE_IMAGE" /src/packaging/rpm/build-inside.sh "$version" "$revision${suffix:+.$suffix}"
+build arch "$ARCH_IMAGE" /src/packaging/arch/build-inside.sh "$version" "$revision${suffix:+.1}"
 ls -lR -- "$out"

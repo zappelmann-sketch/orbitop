@@ -1,0 +1,6 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# postinst "triggered" whenever a package installs, reinstalls or removes this file, which loses its file capability
+# then (security document 0.3.0, B2.4). noawait: the Intel tools never wait for orbitop. deb-triggers(5): a "#" starts
+# a comment up to the end of the line.
+interest-noawait /usr/bin/intel_gpu_top

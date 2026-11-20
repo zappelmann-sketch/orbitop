@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# The marker goes on "remove" already, so that a new installation never releases the counters again (security document
+# 0.3.0, B2.8 and E1; a deviation from Debian Policy 10.7.3, README.Debian). "purge" also removes the directory, should
+# it be left empty.
+set -e
+
+case "$1" in
+    remove) rm -f /etc/orbitop/counters-released ;;
+    purge) rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || true ;;
+esac
+
+#DEBHELPER#
+
+exit 0

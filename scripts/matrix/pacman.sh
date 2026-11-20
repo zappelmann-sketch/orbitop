@@ -73,3 +73,5 @@ tamper_index() { flip "$1/arch/x86_64/orbitop.db"; }
 tamper() { tampered db 'invalid or corrupted database (PGP signature)' tamper_index; }
 
 refresh_index() { pacman -Sy; }
+
+COUNTER_CASES=()  # the cases of the counter release (counters.sh) come with the pacman hook

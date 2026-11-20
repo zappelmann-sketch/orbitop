@@ -1,0 +1,15 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Takes the counter release back when orbitop is removed, never on an upgrade (security document 0.3.0, B2.8): "off"
+# deletes the marker first, then the capability and the read bits. If the helper cannot run, postrm still deletes the
+# marker; the capability then stays (README.Debian).
+set -e
+
+case "$1" in
+    remove) /usr/lib/orbitop/counterhelper off || echo "orbitop: counter release not revoked" >&2 ;;
+esac
+
+#DEBHELPER#
+
+exit 0

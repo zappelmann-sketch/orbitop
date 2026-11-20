@@ -41,9 +41,10 @@ def test_debian_depends_match_app_packages():
 
 
 def pulled_orbitop(paragraph):
-    """Die Beziehungen in Depends, Pre-Depends und Recommends, mit denen apt ein Paket orbitop* mitinstallierte."""
-    return [r for f in ("Depends", "Pre-Depends", "Recommends") for r in relations(paragraph.get(f, ""))
-            if pulls_orbitop(r)]
+    """Die Beziehungen in Depends, Pre-Depends und Recommends, mit denen apt ein Paket orbitop* mitinstallierte; die
+    Feldnamen in jeder Schreibweise (Debian Policy 5.1)."""
+    return [r for f, value in paragraph.items() if f.lower() in ("depends", "pre-depends", "recommends")
+            for r in relations(value) if pulls_orbitop(r)]
 
 
 @pytest.mark.parametrize("field, value, pulled", [
@@ -53,6 +54,11 @@ def pulled_orbitop(paragraph):
     ("Depends", "python3 (>= 3.12), pkexec, ${misc:Depends}", False), ("Recommends", "foo | liborbitop1", False)])
 def test_k3_guard_sees_alternatives_and_versions(field, value, pulled):
     assert bool(pulled_orbitop({field: value})) is pulled
+
+
+@pytest.mark.parametrize("field", ["depends", "DEPENDS", "Pre-depends", "pre-DEPENDS", "recommends", "ReCommends"])
+def test_k3_guard_reads_field_names_in_any_case(field):  # Debian Policy 5.1: Feldnamen ohne Groß-/Kleinschreibung
+    assert pulled_orbitop({field: "python3, orbitop-apt-source"})
 
 
 def test_main_package_never_pulls_the_apt_source():  # K3: die Quelle kommt nur auf ausdrücklichen Wunsch

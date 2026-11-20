@@ -1,0 +1,16 @@
+#!/bin/sh
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Applies the counter release again after each installation, upgrade and trigger (orbitop.triggers), also when orbitop
+# and the Intel tools come in one run, where dpkg calls only "configure" (security document 0.3.0, B2.4 and E4). Without
+# the marker /etc/orbitop/counters-released "sync" changes nothing; only "counterhelper on" creates it, never a package
+# script. A failing helper never fails the package.
+set -e
+
+case "$1" in
+    configure|triggered) /usr/lib/orbitop/counterhelper sync || echo "orbitop: counter release not applied" >&2 ;;
+esac
+
+#DEBHELPER#
+
+exit 0
