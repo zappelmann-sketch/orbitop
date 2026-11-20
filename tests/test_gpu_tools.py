@@ -12,19 +12,9 @@ import pytest
 from orbitop import gpu_tools
 from orbitop.gpu import GpuInfo, discover_gpus
 from orbitop.gpu_tools import GpuTools, ToolReader, parse_intel
-
-OBJ = '{\n\t"engines": {"Render/3D": {"busy": 7.5}}\n},'
-LOOP = f"import time\nprint('[', flush=True)\nwhile True:\n print({OBJ!r}, flush=True); time.sleep(0.1)"
-ONCE = f"print({OBJ!r}, flush=True)"
-
-
-def wait_until(cond, timeout=3.0):
-    end = time.monotonic() + timeout
-    while time.monotonic() < end:
-        if cond():
-            return True
-        time.sleep(0.02)
-    raise AssertionError("Bedingung nicht erreicht")
+from tests.gpu_tools_helpers import LOOP, OBJ, ONCE, wait_until
+from tests.gpu_tools_helpers import gpus as _gpus
+from tests.gpu_tools_helpers import no_popen as _no_popen
 
 
 def test_tool_reader_marks_failed_on_bad_command():
@@ -62,17 +52,6 @@ def test_tool_reader_restarts_at_most_every_30s(monkeypatch):
     first.stdout.close()  # der ersetzte Lauf; stop() schließt nur den aktuellen
 
 
-def _gpus(*vendors):
-    return [GpuInfo(f"card{i}", "nvidia" if v == "nvidia" else "i915", v, "n", "0000:01:00.0")
-            for i, v in enumerate(vendors)]
-
-
-def _no_popen(monkeypatch):
-    def boom(*a, **k):
-        raise AssertionError("Prozess gestartet")
-    monkeypatch.setattr(gpu_tools.subprocess, "Popen", boom)
-
-
 def test_hints_missing_tools(monkeypatch):
     _no_popen(monkeypatch)
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: None)
@@ -83,15 +62,15 @@ def test_hints_missing_tools(monkeypatch):
 
 
 def test_hint_noperm_does_not_start(monkeypatch):
+    """Ohne root entscheidet der strenge Parser (B2.5): eine fremde Fähigkeit genügt nicht mehr."""
     _no_popen(monkeypatch)
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: "/usr/bin/" + n)
     monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 1000)
-
-    def nocap(*a):
-        raise OSError
-    monkeypatch.setattr(gpu_tools.os, "getxattr", nocap)
+    seen = []
+    monkeypatch.setattr(gpu_tools.counters, "perfmon_cap", lambda p: seen.append(p) or False)
     t = GpuTools(_gpus("intel"))
     assert t.hints() == ["hint.igt_noperm"] and t.intel("card0") is None
+    assert seen == ["/usr/bin/intel_gpu_top"]
 
 
 def test_hint_failed_and_device_argument(monkeypatch):

@@ -11,10 +11,13 @@ import threading
 import time
 from collections.abc import Callable, Iterable, Iterator
 
+from orbitop import counters
+
 MAX_BUF = 1024 * 1024  # größtes Objekt/Zeile, das gepuffert wird
 RESTART_S = 30.0
 STALE_S = 3.0  # älteren Werten wird nicht mehr getraut
-TOOL_PATH = "/usr/local/bin:/usr/bin:/bin"  # fest: kein ~/.local/bin, kein leerer PATH-Eintrag
+# fest, ohne ~/.local/bin und leeren Eintrag; /usr/bin vor /usr/local/bin, dort setzt der Helfer die Fähigkeit (B2.5)
+TOOL_PATH = "/usr/bin:/bin:/usr/local/bin"
 _CARD = re.compile(r"card[0-9]+")
 _NV_FIELDS = ("busy", "vram_used", "vram_total", "temp_c", "power_w", "freq_mhz", "freq_max_mhz")
 _NV_QUERY = ("pci.bus_id,name,utilization.gpu,memory.used,memory.total,temperature.gpu,"
@@ -179,53 +182,67 @@ def _nvidia_cmd(path: str) -> list[str]:
     return [path, f"--query-gpu={_NV_QUERY}", "--format=csv,noheader,nounits", "-lms", "1000"]
 
 
-def _has_capability(path: str) -> bool:
-    if os.geteuid() == 0:
-        return True
-    try:
-        os.getxattr(path, "security.capability")
-        return True
-    except OSError:
-        return False
-
-
 class GpuTools:
+    """Leser für intel_gpu_top und nvidia-smi. recheck() läuft im Hauptthread, intel() und hints() im Sampler."""
+
     def __init__(self, gpus):
-        self._hints: list[str] = []
-        self._intel: dict[str, ToolReader] = {}
+        self._lock = threading.Lock()
+        self._stopped = False
+        self._cards = [g.card for g in gpus if g.vendor == "intel" and _CARD.fullmatch(g.card)]
+        self._igt_hints, self._intel = self._detect_intel()
+        self._nv_hints: list[str] = []
         self._nvidia: ToolReader | None = None
-        cards = [g.card for g in gpus if g.vendor == "intel" and _CARD.fullmatch(g.card)]
-        if cards:
-            path = shutil.which("intel_gpu_top", path=TOOL_PATH)
-            if not path:
-                self._hints.append("hint.igt_missing")
-            elif not _has_capability(path):
-                self._hints.append("hint.igt_noperm")
-            else:
-                for c in cards:
-                    r = ToolReader(_intel_cmd(path, c if len(cards) > 1 else None), parse_intel)
-                    r.start()
-                    self._intel[c] = r
         if any(g.driver == "nvidia" for g in gpus):
             path = shutil.which("nvidia-smi", path=TOOL_PATH)
             if not path:
-                self._hints.append("hint.nvsmi_missing")
+                self._nv_hints.append("hint.nvsmi_missing")
             else:
                 self._nvidia = ToolReader(_nvidia_cmd(path), parse_nvidia_line, split_lines, "pci")
                 self._nvidia.start()
 
+    def _detect_intel(self) -> tuple[list[str], dict[str, ToolReader]]:
+        """(Hinweise, laufende Leser je Karte), wie beim Start."""
+        if not self._cards:
+            return [], {}
+        path = shutil.which("intel_gpu_top", path=TOOL_PATH)
+        if not path:
+            return ["hint.igt_missing"], {}
+        if os.geteuid() != 0 and not counters.perfmon_cap(path):  # root liest die Zähler auch ohne Fähigkeit
+            return ["hint.igt_noperm"], {}
+        readers = {}
+        for c in self._cards:
+            readers[c] = ToolReader(_intel_cmd(path, c if len(self._cards) > 1 else None), parse_intel)
+            readers[c].start()
+        return [], readers
+
+    def recheck(self) -> None:
+        """Nach Installieren oder Freigabe ohne Neustart (Q3): laufende Intel-Leser beenden, dann neu erkennen."""
+        with self._lock:
+            old, self._intel = self._intel, {}
+        for r in old.values():
+            r.stop()
+        with self._lock:
+            if not self._stopped:  # nach stop() startet kein Leser mehr
+                self._igt_hints, self._intel = self._detect_intel()
+
     def intel(self, card: str) -> dict | None:
-        r = self._intel.get(card)
+        with self._lock:
+            r = self._intel.get(card)
         return r.latest() if r else None
 
     def nvidia(self, pci: str) -> dict | None:
         return self._nvidia.latest(pci) if self._nvidia else None
 
     def hints(self) -> list[str]:
-        failed = ["hint.igt_failed"] if any(r.failed for r in self._intel.values()) else []
-        return self._hints + failed
+        with self._lock:
+            hints, readers = self._igt_hints, list(self._intel.values())
+        failed = ["hint.igt_failed"] if any(r.failed for r in readers) else []
+        return hints + self._nv_hints + failed
 
     def stop(self) -> None:
-        for r in [*self._intel.values(), self._nvidia]:
+        with self._lock:
+            self._stopped = True
+            readers = [*self._intel.values(), self._nvidia]
+        for r in readers:
             if r:
                 r.stop()

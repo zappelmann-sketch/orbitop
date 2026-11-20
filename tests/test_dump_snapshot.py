@@ -88,7 +88,7 @@ def test_dump_fixture_root_spawns_no_tool(monkeypatch):
     started = []
     monkeypatch.setattr(gpu_tools.ToolReader, "start", lambda self: started.append(self._cmd))
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda name, path=None: "/usr/bin/" + name)
-    monkeypatch.setattr(gpu_tools, "_has_capability", lambda p: True)
+    monkeypatch.setattr(gpu_tools.counters, "perfmon_cap", lambda p: True)
     mod.main(["--root", INTEL, "--ticks", "1"])
     assert started == []
 
