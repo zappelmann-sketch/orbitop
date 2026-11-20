@@ -99,7 +99,8 @@ How the check runs:
   manager in `remove` and `purge`) also count a line that matches `NOISE` as a failed run; without `NOISE` they fail.
   Each run first removes the copy of the previous run's output in `STATE` (if it cannot, the run fails without
   starting), then writes its output live into the log and into a new copy, which `net` and `quiet` search as text,
-  also when it holds a NUL byte; if the new copy cannot be written or read, the run fails and is not repeated. Any
+  with each NUL byte read as a line break; if the new copy cannot be written or read, the run fails and is not
+  repeated. Any
   other failure counts at once: the expected refusal on `debian:bookworm` and
   `ubuntu:22.04` stays one run, and the `tamper` step runs its refresh once. A `NOISE` line of an earlier run stays in
   the log, but the verdict comes from the last run: the sources are read-only, so a signature check gives the same

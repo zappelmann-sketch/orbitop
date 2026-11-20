@@ -50,6 +50,16 @@ logged() {
     return "${status[0]}"
 }
 
+# matching PATTERN FILE: the lines of FILE that match PATTERN, as text, with each NUL byte read as a line break, so
+# that none hides the start of a line from an anchored pattern. Returns 0 on a match, 1 on none, 2 if FILE, tr or grep
+# fails: a read error is never "no match".
+matching() {
+    local status=()
+    { tr '\0' '\n' < "$2" | grep -aE -- "$1"; status=("${PIPESTATUS[@]}"); } || true
+    [ "${status[0]}" -eq 0 ] || return 2
+    return "${status[1]}"
+}
+
 # held: a fingerprint of the installed packages (packages, from the file of the package manager), never of an empty
 # list; without stderr, where pacman warns about sync databases that the first refresh has not fetched yet.
 held() {
@@ -69,8 +79,8 @@ net() {
         rc=0
         logged "$STATE/net.out" "$@" || rc=$?
         [ "$rc" -ne 0 ] || return 0
-        # -a: text even with a NUL byte. grep fails with 2 if it cannot read the file: no hiccup either, so no retry.
-        if [ "$run" -eq 3 ] || ! grep -aqE -- "$HICCUP" "$STATE/net.out"; then return "$rc"; fi
+        # matching fails with 2 if it cannot read the file: no hiccup either, so no retry.
+        if [ "$run" -eq 3 ] || ! matching "$HICCUP" "$STATE/net.out" > /dev/null; then return "$rc"; fi
         after=$(held) || after=""
         if [ -z "$before" ] || [ "$before" != "$after" ]; then
             echo "NO RETRY: the installed packages changed or are unknown"
@@ -84,11 +94,11 @@ net() {
 # clean COMMAND…: COMMAND succeeds and prints no line that matches NOISE (warnings, notices, errors).
 clean() {
     local rc=0 noise found=0
-    [ -n "${NOISE:-}" ] || { echo "NOISE is not set: nothing can judge the output" && return 1; }
+    [ -n "${NOISE:-}" ] || { echo "NOISE is not set: nothing can judge the output"; return 1; }
     rm -f -- "$STATE/clean.out" || return 1  # no copy of an earlier run may decide
     logged "$STATE/clean.out" "$@" || rc=$?
-    noise=$(grep -aE -- "$NOISE" "$STATE/clean.out") || found=$?  # -a: text even with a NUL byte
-    [ "$found" -le 1 ] || { echo "NOISE unknown: cannot read $STATE/clean.out" && return 1; }  # 1: no match
+    noise=$(matching "$NOISE" "$STATE/clean.out") || found=$?
+    [ "$found" -le 1 ] || { echo "NOISE unknown: cannot read $STATE/clean.out"; return 1; }  # 1: no match
     [ -z "$noise" ] || printf 'NOISE %s\n' "$noise"
     [ "$rc" -eq 0 ] && [ -z "$noise" ]
 }
