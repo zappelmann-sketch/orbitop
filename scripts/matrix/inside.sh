@@ -67,7 +67,7 @@ run_tests() {
 # The installed starter names the version of /src: the packages are built from the same commit.
 version() {
     local want got
-    want="orbitop $(sed -n 's/^__version__ = "\(.*\)"$/\1/p' /src/orbitop/__init__.py)"
+    want="orbitop $(src_version)"
     got=$(cd / && as_tester /usr/bin/orbitop --version) && echo "$got" && [ "$got" = "$want" ]
 }
 

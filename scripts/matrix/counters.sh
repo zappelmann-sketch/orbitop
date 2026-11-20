@@ -180,14 +180,21 @@ case_manual_rule_untouched() {
         [ "$(sha256sum < "$MANUAL_RULE")" = "$before" ] && rm -- "$MANUAL_RULE"
 }
 
+# from_020: 0.2.0, then the update to revision 1 of /src, which must change the installed version from 0.2.0-1 to
+# <version of /src>-1: while /src was 0.2.0, the case only reinstalled the same version (review of Tasks 3 and 4).
+from_020() {
+    local before after
+    scripted install_file "$(orbitop_file v020)" && before=$(installed) && [ ! -e "$HELPER" ] &&
+        scripted install_file "$(orbitop_file rev1)" && after=$(installed) || return 1
+    echo "FROM_020 $before to $after"
+    [ "$before" = 0.2.0-1 ] && [ "$after" = "$(src_version)-1" ] && [ "$after" != "$before" ] && [ -x "$HELPER" ]
+}
+
 # B2.8, 3 and review focus 1: the update from 0.2.0 releases nothing, and a capability set by hand stays. pkexec is
 # checked only after the update: 0.2.0 has no actions.real_pkexec (plan 1, audit of Task 1, M2).
 case_upgrade_from_020() {
-    scripted install_file "$(orbitop_file v020)" && [ ! -e "$HELPER" ] &&
-        scripted install_file "$(orbitop_file rev1)" && [ -x "$HELPER" ] && marker_off && no_cap &&
-        real_pkexec /usr/share/orbitop && scripted purge_pkg orbitop && set_cap "$CAP" &&
-        scripted install_file "$(orbitop_file v020)" && scripted install_file "$(orbitop_file rev1)" && marker_off &&
-        has_cap && set_cap none
+    from_020 && marker_off && no_cap && real_pkexec /usr/share/orbitop && scripted purge_pkg orbitop &&
+        set_cap "$CAP" && from_020 && marker_off && has_cap && set_cap none
 }
 
 # B2.4, 6, B2.8, 5 (I-1): with on, orbitop (from revision 1) and the Intel tools updated in one transaction, in each

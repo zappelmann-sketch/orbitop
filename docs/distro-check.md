@@ -137,7 +137,9 @@ How the check runs:
         stays byte for byte through install, `on`, `off`, removal and purge.
       - `upgrade_from_020` (B2.8, 3): 0.2.0, then the update to revision 1: no marker, no capability, and the installed
         orbitop accepts `pkexec` (`real_pkexec` as in step 3, only after the update: 0.2.0 has no
-        `actions.real_pkexec`); a capability set by hand before 0.2.0 stays.
+        `actions.real_pkexec`); a capability set by hand before 0.2.0 stays. Both times the installed version must go
+        from `0.2.0-1` to `<version of the tree>-1` (line `FROM_020`), so a tree that is still 0.2.0 fails the case
+        instead of reinstalling the same version.
       - `joint_upgrade` (B2.4, 6; B2.8, 5; I-1): with `on`, orbitop from revision 1 to 2 and the owner to a new version
         in one transaction: `apt-get install` of both files, then `dpkg -i` in both orders. The new version of the owner
         is a package built in the container with the owner's name and `<version>+fake<N>`, whose `intel_gpu_top` is a

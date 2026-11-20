@@ -245,3 +245,19 @@ def test_reinstall_owner_on_needs_the_file_touched(tmp_path, changed, passed):
     stubs = ("helper() { :; }; has_cap() { :; }; marker_on() { :; }; triggered() { :; }; reinstall_owner() { :; };"
              f" stamp() {{ echo x >> {tmp_path}/n; echo \"1 $(({int(changed)} * $(wc -l < {tmp_path}/n)))\"; }};")
     assert call(tmp_path, f"{stubs} case_reinstall_owner_on", "apt.sh", "counters.sh")[0] is passed
+
+
+@pytest.mark.parametrize("src,v020,passed", [("0.3.0", "0.2.0-1", True), ("0.2.0", "0.2.0-1", False),
+                                             ("0.3.0", "0.3.0-1", False)], ids=["update", "reinstall", "not-0.2.0"])
+def test_upgrade_from_020_needs_the_version_to_change(tmp_path, src, v020, passed):
+    """Review Tasks 3 und 4: Solange /src 0.2.0 war, installierte der Fall dieselbe Version neu und bestand doch. Jetzt
+    geht die Version in beiden Runden von 0.2.0-1 auf die von /src, Revision 1."""
+    v, helper = tmp_path / "installed", tmp_path / "counterhelper"
+    stubs = (f"src_version() {{ echo {src}; }}; orbitop_file() {{ echo \"$1\"; }}; installed() {{ cat {v}; }};"
+             f" HELPER={helper}; install_file() {{ case $1 in v020) rm -f {helper}; echo {v020} > {v} ;;"
+             f" rev1) touch {helper}; chmod +x {helper}; echo {src}-1 > {v} ;; esac; }};"
+             " marker_off() { :; }; no_cap() { :; }; has_cap() { :; }; set_cap() { :; }; real_pkexec() { :; };"
+             " purge_pkg() { :; };")
+    ok, out = call(tmp_path, f"{stubs} case_upgrade_from_020", "apt.sh", "counters.sh")
+    assert ok is passed, out
+    assert f"FROM_020 {v020} to {src}-1" in out

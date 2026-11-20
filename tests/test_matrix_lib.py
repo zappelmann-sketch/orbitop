@@ -10,7 +10,7 @@ import re
 
 import pytest
 
-from orbitop import actions
+from orbitop import __version__, actions
 from tests.matrix_helpers import PAGES, call, rpm_site
 from tests.packaging_common import ROOT
 
@@ -173,3 +173,8 @@ def test_rpm_tamper_changes_one_digit_of_the_revision(tmp_path):
     after = (repodata / "repomd.xml").read_bytes()
     assert changed(repomd, after) == [repomd.index(b"<revision>") + 10]
     assert re.search(rb"<revision>\d{10}</revision>", after)
+
+
+def test_src_version_reads_the_tree(tmp_path):  # inside.sh (Schritt version) und counters.sh (upgrade_from_020)
+    ok, out = call(tmp_path, f'[ "$(src_version {ROOT})" = {__version__} ] && [ -z "$(src_version {tmp_path} 2> /dev/null)" ]')
+    assert ok, out
