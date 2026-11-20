@@ -5,6 +5,7 @@
 FakeBus hat die Teile von Gio.DBusConnection, die orbitop/packagekit.py nutzt. Wie bei Gio kommen die Signale über
 den MainContext, der beim Abonnieren der Standard des Threads war; ein Signal aus einem anderen Thread weckt ihn."""
 import threading
+import weakref
 
 import pytest
 from gi.repository import Gio, GLib
@@ -44,6 +45,7 @@ class FakeBus:
         self.calls: list[tuple] = []  # (Pfad, Methode, Argumente) in der Reihenfolge der Aufrufe
         self.hints: dict[str, list[str]] = {}  # SetHints je Transaktion
         self.started = threading.Event()  # die echte Installation hat begonnen
+        self.callbacks: list[weakref.ref] = []  # je Abonnement der Rückruf, schwach gehalten
         self._subs: dict[int, tuple] = {}
         self._lock = threading.Lock()
 
@@ -78,11 +80,18 @@ class FakeBus:
         with self._lock:
             sub = len(self._subs) + 1
             self._subs[sub] = (path, GLib.MainContext.ref_thread_default(), callback)
+            self.callbacks.append(weakref.ref(callback))
         return sub
 
     def signal_unsubscribe(self, sub):
         with self._lock:
-            del self._subs[sub]
+            _, ctx, callback = self._subs.pop(sub)
+        # wie GDBus: den Rückruf gibt erst ein idle im Kontext des Abonnenten frei, und dessen Daten halten den Kontext;
+        # läuft der Kontext nie wieder, bleiben beide für immer
+        held = [callback, ctx]
+        src = GLib.idle_source_new()
+        src.set_callback(lambda *_: held.clear() or False)
+        src.attach(ctx)
 
     # ---- Ablauf ----
     def methods(self):

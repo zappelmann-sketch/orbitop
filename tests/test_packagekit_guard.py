@@ -12,7 +12,7 @@ from gi.repository import Gio
 from orbitop import gate, jobs, packagekit
 from orbitop.messages import parse_message
 from orbitop.sampler import Sampler
-from tests.packagekit_helpers import GI_ASYNCIO, FakeBus, Step, short_wait  # noqa: F401
+from tests.packagekit_helpers import GI_ASYNCIO, FakeBus, Step, bus_error, short_wait  # noqa: F401
 from tests.roots import VM
 from tests.sampler_helpers import NoTools
 
@@ -82,7 +82,20 @@ def test_installed_rechecks_in_the_thread_then_refreshes(irig):  # Q3 ohne Neust
 def test_second_install_after_success_makes_no_call(irig):  # B2.6, B2.7: einmal je Sitzung
     assert ask(irig) == ["installed"]
     calls = len(irig.bus.calls)
-    assert ask(irig) == ["unavailable"] and len(irig.bus.calls) == calls and irig.tools.rechecks == 1
+    assert ask(irig) == ["locked"] and len(irig.bus.calls) == calls and irig.tools.rechecks == 1
+
+
+@pytest.mark.parametrize("bus,want", [(FakeBus(), "installed"), (FakeBus(install=Step(exit=2)), "failed"),
+                                      (FakeBus(simulate=(13,)), "failed"), (FakeBus(resolve=()), "unavailable"),
+                                      (FakeBus(version=bus_error()), "unavailable")],
+                         ids=["installed", "failed-install", "failed-simulation", "unavailable", "no-packagekit"])
+def test_session_ends_after_a_terminal_result(irig, bus, want):  # Fix 1/2: keine Schleife über das root-packagekitd
+    irig.bus = bus
+    assert ask(irig) == [want]
+    calls = len(bus.calls)
+    irig.now = 1e9  # keine Wartezeit mehr: nur das Ende der Sitzung hält auf
+    assert [ask(irig)[0] for _ in range(5)] == ["locked"] * 5
+    assert len(bus.calls) == calls and irig.threads == [] and irig.refreshes == [1]
 
 
 @pytest.mark.parametrize("attr,value", [("intel", False), ("missing", False), ("usable", "nohelper")],
@@ -131,30 +144,37 @@ def test_cancelled_counts_as_refusal(irig):
 
 def test_failure_after_the_interactive_step_counts_as_refusal(irig):  # fail closed: es kann ein Dialog gewesen sein
     irig.bus = FakeBus(install=Step(exit=2))
-    assert ask(irig) == ["failed"] and ask(irig) == ["busy"]
-    irig.now = 10.0
     assert ask(irig) == ["failed"]
-    irig.now = 69.9
-    assert ask(irig) == ["busy"]
+    g = irig.j._gate
+    assert g.begin("counters") == "busy"  # die Wartezeit nach einer Ablehnung
+    irig.now = 10.0
+    assert g.begin("counters") is None
 
 
 @pytest.mark.parametrize("bus,want", [(FakeBus(resolve=()), "unavailable"), (FakeBus(simulate=(13,)), "failed"),
                                       (FakeBus(version=2), "unavailable")], ids=["resolve", "simulate", "version"])
 def test_fallback_before_the_interactive_step_does_not_count(irig, bus, want):  # dort fragt PackageKit nie
     irig.bus = bus
-    assert ask(irig) == [want] and ask(irig) == [want] and interactive(irig) == []
+    assert ask(irig) == [want] and interactive(irig) == []
+    assert irig.j._gate.begin("counters") is None
 
 
-def test_success_resets_the_count(irig):
-    irig.bus = FakeBus(install=Step(errors=[packagekit.ERROR_NOT_AUTHORIZED], exit=2))
-    assert ask(irig) == ["denied"]
-    irig.now, irig.bus = 10.0, FakeBus()
-    assert ask(irig) == ["installed"]
-    g = irig.j._gate
-    assert g.begin("counters") is None
-    g.end("counters", "refused")
-    irig.now = 20.0
-    assert g.begin("counters") is None  # wieder nur 10 s: die Ablehnung vor dem Erfolg zählt nicht mehr
+def test_silent_install_does_not_reset_the_count(irig):  # Fix 1/1: sonst fünf statt drei Dialoge für counters (R9)
+    g, dialogs = irig.j._gate, 0
+
+    def refuse_counters():
+        nonlocal dialogs
+        assert g.begin("counters") is None
+        dialogs += 1
+        g.end("counters", "refused")
+    refuse_counters()
+    irig.now = 10.0
+    refuse_counters()
+    irig.now = 70.0
+    assert ask(irig) == ["installed"]  # Fedora: ohne Dialog (I-2)
+    refuse_counters()
+    irig.now = 1e9
+    assert g.begin("counters") == "locked" and dialogs == 3
 
 
 def test_busy_while_another_job_runs(irig):
@@ -167,12 +187,12 @@ def test_busy_while_another_job_runs(irig):
 @pytest.mark.parametrize("where", ["install", "recheck"])
 def test_exception_gives_an_answer_and_frees_the_gate(irig, monkeypatch, where):
     if where == "install":
-        monkeypatch.setattr(jobs.packagekit, "Install", lambda: 1 / 0)
-        want = ["failed", "failed"]
+        monkeypatch.setattr(irig.bus, "call_sync", lambda *a: 1 / 0)  # keine GLib.Error: run() selbst wirft
+        want = ["failed", "locked"]
     else:
         irig.tools.fail = True
-        want = ["installed", "unavailable"]
-    assert [ask(irig)[0], ask(irig)[0]] == want
+        want = ["installed", "locked"]
+    assert [ask(irig)[0], ask(irig)[0]] == want and irig.j._gate.begin("counters") is None
 
 
 def test_stop_cancels_a_running_install(irig):  # beim Beenden: kein Dialog und keine Installation ohne orbitop
@@ -189,6 +209,13 @@ def test_stop_cancels_a_running_install(irig):  # beim Beenden: kein Dialog und 
     assert json.loads(irig.sent[-1])["result"] == "denied" and irig.j._install is None
     irig.j.stop()  # ohne laufenden Auftrag: nichts
     assert irig.bus.methods()[-1] == ("Cancel", None) and len(irig.bus.calls) == 11
+
+
+def test_quit_right_after_install_tool_cancels_the_job(irig):  # Fix 1/3: stop() vor dem Start des Threads
+    irig.j.install_tool(irig.tools, lambda: None)
+    irig.j.stop()  # quit gleich danach, der Thread lief noch nicht
+    run_jobs(irig)
+    assert [m for m, _ in irig.bus.methods() if m != "Get"] == [] and irig.j._install is None
 
 
 @pytest.mark.parametrize("intel,usable,want", [(True, "yes", True), (True, "nopkexec", True),

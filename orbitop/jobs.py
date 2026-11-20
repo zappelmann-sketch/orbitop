@@ -30,11 +30,12 @@ def install_payload(intel: bool) -> dict:
 
 
 def _install_outcome(result: str, job) -> str:
-    """Für das Tor; job: das gestartete packagekit.Install oder None. Als Ablehnung zählt jeder letzte Schritt ohne
-    Erfolg, denn er kann einen Dialog gezeigt haben (fail closed wie bei pkexec); Resolve und Simulation fragen nie."""
+    """Für das Tor. Als Ablehnung zählt jeder letzte Schritt ohne Erfolg, denn er kann einen Dialog gezeigt haben (fail
+    closed wie bei pkexec); Resolve und Simulation fragen nie. Nie ok: Eine Installation ohne Dialog (Fedora, I-2)
+    setzte sonst die gemeinsame Sperre zurück, und counters bekäme fünf statt drei Dialoge (R9)."""
     if result == "installed":
-        return "ok"
-    return "refused" if result == "denied" or job is not None and job.interactive else "other"
+        return "other"
+    return "refused" if result == "denied" or job.interactive else "other"
 
 
 def _outcome(result: str, codes: list[int | None]) -> str:
@@ -51,8 +52,10 @@ class Jobs:
         self._send, self._glib = send, glib
         self._gate = Gate()  # nie ein Stapel Passwortdialoge, und eine wachsende Sperre nach Ablehnungen (B2.7)
         self._pkexec: subprocess.Popen | None = None  # laufendes pkexec, gesetzt von _run im Auftrags-Thread
-        self._install: packagekit.Install | None = None  # laufende Installation, gesetzt im Auftrags-Thread
-        self._installed = False  # schon einmal installiert: in dieser Sitzung kein zweiter Auftrag (B2.7)
+        self._install: packagekit.Install | None = None  # laufende Installation, nur im Hauptthread gesetzt
+        # Ein Lauf über PackageKit endete in installed, failed oder unavailable: in dieser Sitzung keiner mehr (B2.7),
+        # wie der Knopf der Seite; sonst ließe eine Seite das root-packagekitd ohne Ende auflösen und simulieren
+        self._closed = False
 
     def terminate(self, pid: int, start: int, force: bool) -> None:
         # busy: still verwerfen wie in 0.2.0, die Seite zeigt erst das Ergebnis des laufenden Auftrags
@@ -66,9 +69,15 @@ class Jobs:
 
     def install_tool(self, tools, refresh: Callable[[], None]) -> None:
         """tools (der Sampler): intel, igt_missing() und recheck_tools(); refresh schickt danach den frischen Stand."""
-        refused = self._start("install_tool", self._install_thread, tools, refresh)
+        if self._closed:  # ohne Thread und ohne Bus
+            self._send(encode({"type": "install_state", "result": "locked"}))
+            return
+        job = packagekit.Install()  # hier im Hauptthread: stop() erreicht ihn auch, bevor der Thread läuft
+        refused = self._start("install_tool", self._install_thread, tools, refresh, job)
         if refused:
             self._send(encode({"type": "install_state", "result": refused}))
+        else:
+            self._install = job
 
     def stop(self) -> None:
         """Beim Herunterfahren: ein offenes pkexec beenden, eine laufende Installation abbrechen."""
@@ -118,21 +127,22 @@ class Jobs:
                 tools.recheck_tools()
         self._glib.idle_add(self._counters_done, result, _outcome(result, codes), tools)
 
-    def _install_thread(self, tools, refresh) -> None:
-        job = None
+    def _install_thread(self, tools, refresh, job) -> None:
+        ran = False
         try:
-            # harte Vorbedingung (B2.7): Intel-Grafik mit Paket, hint.igt_missing gilt, noch kein Erfolg in der Sitzung
-            if self._installed or not tools.igt_missing() or not install_payload(tools.intel)["usable"]:
+            # harte Vorbedingung (B2.7): Intel-Grafik mit Paket und hint.igt_missing gilt; die Sitzung prüft
+            # install_tool, das Tor lässt bis hier nur einen Auftrag zu
+            if not tools.igt_missing() or not install_payload(tools.intel)["usable"]:
                 result = "unavailable"
             else:
-                job = self._install = packagekit.Install()
+                ran = True
                 result = job.run()
                 # auch ohne installed: kam das Werkzeug von außen (apt, dnf), verschwindet so der veraltete Hinweis
                 with contextlib.suppress(Exception):  # dann erkennt erst der Neustart neu; das Tor muss frei werden
                     tools.recheck_tools()  # nur bei Änderung, kann Sekunden dauern, daher hier im Thread (Q3)
         except Exception:  # sonst bliebe das Tor für immer zu
             result = "failed"
-        self._glib.idle_add(self._install_done, result, _install_outcome(result, job), job is not None, refresh)
+        self._glib.idle_add(self._install_done, result, _install_outcome(result, job), ran, refresh)
 
     def _run(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess:
         """subprocess.run für pkexec, nur dass stop() das Kind erreicht und beenden kann."""
@@ -158,7 +168,7 @@ class Jobs:
 
     def _install_done(self, result: str, outcome: str, ran: bool, refresh) -> None:
         self._install = None
-        self._installed = self._installed or result == "installed"
+        self._closed = self._closed or ran and result in ("installed", "failed", "unavailable")
         self._gate.end("install_tool", outcome)
         self._send(encode({"type": "install_state", "result": result}))
         if ran:

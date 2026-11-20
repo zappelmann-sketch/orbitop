@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 """Ablauf über PackageKit (Security-Dokument 0.3.0, B2.6, Pflicht-Tests „Unit (Fake-Bus)“): Resolve, Simulation mit
 der Positivliste, dann die echte Installation mit ONLY_TRUSTED. Nur der Fake-Bus, nie der System-Bus des Rechners."""
+import gc
 import threading
 
 import pytest
@@ -215,12 +216,18 @@ def test_cancel_during_the_calls_reaches_the_transaction_after_them(during):  # 
     assert len({p for p, _, _ in bus.calls[-3:]}) == 1
 
 
-def test_cancel_before_a_step_starts_no_new_transaction():
+def test_cancel_before_a_step_starts_no_new_transaction():  # Fix 1/5: nicht einmal CreateTransaction
     bus = FakeBus()
     job = packagekit.Install(bus_factory=lambda: bus, distro="apt-get")
     job.cancel()
-    assert job.run() != "installed" and installs(bus) == []
-    assert "Cancel" not in [m for m, _ in bus.methods()]
+    assert job.run() != "installed" and [m for m, _ in bus.methods()] == ["Get"]
+
+
+def test_each_transaction_releases_its_callback():  # Fix 1/4: sonst hielte jeder Kontext Rückruf und Listen
+    bus = FakeBus()
+    assert install(bus) == "installed"
+    gc.collect()
+    assert len(bus.callbacks) == 3 and [r() for r in bus.callbacks] == [None] * 3
 
 
 def test_cancel_without_a_job_does_nothing():

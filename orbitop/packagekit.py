@@ -109,11 +109,16 @@ class Install:
                      ) -> tuple[list, list, int | None]:
         """Eine neue Transaktion bis Finished: (Package-Signale, ErrorCode-Werte, Exit; None nach WAIT_S). names: die
         Namen für Resolve, sonst die Paket-IDs."""
+        with self._lock:
+            if self._cancelled:  # orbitop endet: keine neue Transaktion, auch kein CreateTransaction
+                return [], [ERROR_CANCELLED], EXIT_CANCELLED
         ctx = GLib.MainContext.new()
         ctx.push_thread_default()  # Gio liefert die Signale dieses Abonnements nur an diesen Kontext
         try:
             return self._run_transaction(bus, ctx, interactive, method, flags, names)
         finally:
+            while ctx.pending():  # GDBus gibt den Rückruf erst über ein idle hier frei; sonst hielten sich beide
+                ctx.iteration(False)
             ctx.pop_thread_default()
 
     def _run_transaction(self, bus, ctx, interactive, method, flags, names):
@@ -133,9 +138,6 @@ class Install:
         timeout.set_callback(lambda *_: end.append(None) or False)
         timeout.attach(ctx)
         try:
-            with self._lock:
-                if self._cancelled:  # orbitop endet: keine neue Transaktion
-                    return packages, [ERROR_CANCELLED], EXIT_CANCELLED
             _call(bus, path, TX, "SetHints", GLib.Variant("(as)", ([f"interactive={str(interactive).lower()}"],)))
             _call(bus, path, TX, method, GLib.Variant("(tas)", (flags, names)))
             with self._lock:  # erst jetzt läuft sie: ein Cancel davor lehnt PackageKit ab (NoRole, Probe 26.04)
