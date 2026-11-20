@@ -5,7 +5,6 @@
 Die Dateien unter tests/fixtures/snapshots/ sind snapshot(Kopie des Baums) vom Stand vor dem Umbau der Kacheln.
 Neu geschrieben werden sie nur bei einer gewollten Änderung des Vertrags, mit genau dieser Funktion.
 """
-import itertools
 import re
 from pathlib import Path
 from types import SimpleNamespace
@@ -14,7 +13,7 @@ import pytest
 
 from orbitop.sampler import Sampler
 from tests.roots import ROOTS
-from tests.sampler_helpers import OVERVIEW, NoTools
+from tests.sampler_helpers import OVERVIEW, NoTools, fake_clock
 
 TREES = ("intel-laptop", "amd-desktop", "arm-board", "vm")
 SNAPSHOTS = Path(__file__).parent / "fixtures" / "snapshots"
@@ -49,8 +48,7 @@ def grow(root: str, n: int) -> None:
 
 def snapshot(root: str) -> str:
     """Feste Tick-Folge auf einem beschreibbaren Baum, ohne Werkzeuge, Wanduhr oder echte Dateisysteme."""
-    clock = itertools.count(1000.0)
-    s = Sampler(root, tools=NoTools(), statvfs=statvfs, clock=lambda: float(next(clock)), uid=1000)
+    s = Sampler(root, tools=NoTools(), statvfs=statvfs, clock=fake_clock(), uid=1000)
     for n in range(TICKS):
         grow(root, n)
         s.tick_system()

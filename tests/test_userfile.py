@@ -84,8 +84,6 @@ class BrokenStream:
     def write(self, _text):
         raise self.exc
 
-    flush = write
-
 
 @pytest.mark.parametrize("exc", [BrokenPipeError(errno.EPIPE, "x"), OSError(errno.ENOSPC, "x"),
                                  ValueError("I/O operation on closed file.")], ids=["EPIPE", "ENOSPC", "closed"])

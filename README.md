@@ -432,7 +432,7 @@ The packages of orbitop depend on the same runtime packages and on polkit.
 ### Threads and timing
 
 - `orbitop-worker`: reads the system values every 1 s and builds the snapshot.
-- `orbitop-procs`: reads the process list every 2 s, also while the window is hidden. Reading `/proc/<pid>/cmdline` can block (for example on a hung FUSE or NFS mount); then only the process list waits, the tiles keep running.
+- `orbitop-procs`: reads the process list every 2 s, every 4 s while the window is hidden (each value then fills two points of the per-process histories). Reading `/proc/<pid>/cmdline` can block (for example on a hung FUSE or NFS mount); then only the process list waits, the tiles keep running.
 - Tools: `intel_gpu_top` and `nvidia-smi` run as long-lived child processes, each read by its own thread. `intel_gpu_top` reports every 2 s, `nvidia-smi` every 1 s.
 - Slow hwmon chips (`dell_smm`, where every read is a BIOS call) are read at most every 5 s.
 - `/proc/<pid>/status` (owner, context switches) is read every 10 s per process. The selected process and processes at 90 % of one core or more are read on every process tick.
@@ -469,7 +469,7 @@ sysfs.py  system.py  sensors.py  gpu.py  gpu_tools.py  procs.py  classify.py
    |
    v
 sampler.py tiles.py rates, histories, tiles, JSON snapshot
-   |  app.py Worker: threads orbitop-worker (1 s), orbitop-procs (2 s)
+   |  app.py Worker: threads orbitop-worker (1 s), orbitop-procs (2 s, hidden 4 s)
    v
 shell.py            GTK 4 window, WebKitGTK 6.0 view, orbitop://ui/
    |  window.orbitop.receive(msg)
