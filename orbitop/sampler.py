@@ -57,8 +57,6 @@ class Sampler:
         self._own_tools = tools is None
         self._tools = GpuTools(gpus) if tools is None else tools
         self._gpus = [GpuReader(root, g, self._tools, scanner) for g in gpus]
-        zones = sysfs.glob(root, "/sys/class/powercap/intel-rapl:*")
-        self._rapl_noperm = bool(zones) and all(sysfs.read_int(z + "/energy_uj") is None for z in zones)
         self._crit = _crit(root)
         self._held: dict = {}  # langsame hwmon-Chips für read_sensors
         self._table = ProcTable(uid=uid, root=root)
@@ -280,7 +278,7 @@ class Sampler:
         kinds = {t["kind"] for t in built}
         hints = list(_safe(self._tools.hints, default=None) or [])
         # erst nach ein paar Takten: intel_gpu_top liefert pkg_w nicht sofort
-        if self._rapl_noperm and self._n > 3 and self._s["pkg"] is None:
+        if self._rapl.noperm and self._n > 3 and self._s["pkg"] is None:
             hints.append("hint.rapl_noperm")
         procs_rows = _PROCS if tab == "procs" else None  # setzt snapshot oder snapshot_json ein
         detail = _safe(self._table.detail, pid, start, self._now_procs) if valid else None

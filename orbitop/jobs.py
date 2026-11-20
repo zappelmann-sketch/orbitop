@@ -22,12 +22,13 @@ def counters_payload(intel: bool) -> dict:
     return {**counters.state(intel=intel), "usable": actions.counters_usable()}
 
 
-def _outcome(result: str, ran: bool) -> str:
-    """Für das Tor. Nur ein Erfolg nach einem pkexec setzt die Sperre zurück: sonst öffnete eine Seite, die
-    abwechselnd ein „schon so“ schickt, alle 10 s einen neuen Dialog."""
-    if result in ("cancelled", "denied"):
+def _outcome(result: str, codes: list[int | None]) -> str:
+    """Für das Tor; codes: je gestartetem pkexec sein Exit-Code, None ohne Ende. Als Ablehnung zählt auch ein pkexec,
+    das ein Signal beendete (fail closed: sonst gäbe jeder Weg, pkexec zu beenden, Dialoge ohne Zählung). Nur ein
+    Erfolg nach einem pkexec setzt zurück: sonst öffnete eine Seite mit „schon so“ dazwischen alle 10 s einen Dialog."""
+    if result in ("cancelled", "denied") or any(c is not None and c < 0 for c in codes):
         return "refused"
-    return "ok" if result == "ok" and ran else "other"
+    return "ok" if result == "ok" and codes else "other"
 
 
 class Jobs:
@@ -72,20 +73,22 @@ class Jobs:
         self._glib.idle_add(self._terminated, pid, start, force, result)
 
     def _counters_thread(self, on: bool, tools) -> None:
-        ran = []
+        codes: list[int | None] = []
 
         def run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-            ran.append(argv)
-            return self._run(argv, timeout)
+            codes.append(None)  # gestartet, auch wenn _run gleich scheitert
+            r = self._run(argv, timeout)
+            codes[-1] = r.returncode
+            return r
         try:
             result = actions.counters(on, run=run)
         except Exception:  # sonst bliebe das Tor für immer zu
             result = "error"
-        if result == "ok" and ran:
+        if result == "ok":  # auch „schon so“: die Merkdatei kann von außen gekommen sein (sudo counterhelper, sync)
             # intel_gpu_top mit der neuen Fähigkeit ohne Neustart (Q3); kann Sekunden dauern, daher hier im Thread
             with contextlib.suppress(Exception):  # dann erkennt erst der Neustart neu; das Tor muss frei werden
                 tools.recheck_tools()
-        self._glib.idle_add(self._counters_done, result, _outcome(result, bool(ran)), tools)
+        self._glib.idle_add(self._counters_done, result, _outcome(result, codes), tools)
 
     def _run(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess:
         """subprocess.run für pkexec, nur dass stop() das Kind erreicht und beenden kann."""

@@ -61,7 +61,7 @@
   "counters.denied": "Nicht ausgeführt – Umschalten geht nur in einer lokalen, aktiven Sitzung und mit dem Admin-Passwort.",
   "counters.error": "Umschalten ist fehlgeschlagen.",
   "counters.locked": "zu oft abgelehnt – orbitop neu starten",
-  "counters.nohelper": "Umschalten geht nur mit installiertem orbitop-Paket und pkexec von polkit.",
+  "counters.nohelper": "Umschalten geht nur mit installiertem orbitop-Paket, und dafür ist pkexec von polkit nötig (siehe README: https://github.com/zappelmann-sketch/orbitop/blob/main/README.de.md#installation).",
   "detail.cpu": "CPU",
   "detail.cpu_one_core": "{pct} % (ein voller Kern)",
   "detail.ctx": "Kontextwechsel",

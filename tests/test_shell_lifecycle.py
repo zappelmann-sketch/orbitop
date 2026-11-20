@@ -3,6 +3,7 @@
 """Hülle ohne Fenster: Unix-Signale, Herunterfahren, Sichtbarkeit, Start und Absturz der Seite."""
 import json
 import signal
+import subprocess
 import sys
 import threading
 import time
@@ -19,8 +20,8 @@ if check_runtime():
 import gi  # noqa: E402
 from gi.repository import GLib  # noqa: E402
 
-from orbitop import shell  # noqa: E402
-from tests.shell_helpers import INIT, L  # noqa: E402
+from orbitop import jobs, shell  # noqa: E402
+from tests.shell_helpers import INIT, L, Value  # noqa: E402
 
 
 # ---- Signale ----
@@ -149,6 +150,34 @@ def test_run_forwards_hidden_flag(hidden, argv):
     s = shell.Shell(hidden)
     s._app = SimpleNamespace(run=lambda a: 0 if a == argv else pytest.fail(str(a)))
     assert s.run() == 0
+
+
+def test_lockout_survives_reload_and_web_crash(rig, monkeypatch):  # Q-6: zurück nur mit Neustart von orbitop (B2.7)
+    now, jobs_before = [0.0], rig.s._jobs
+    jobs_before._gate._clock = lambda: now[0]
+    monkeypatch.setattr(jobs_before, "_run", lambda argv, timeout: subprocess.CompletedProcess(argv, 126))
+    monkeypatch.setattr(jobs.actions, "counters", lambda on, run: "cancelled" if run(["pkexec"], 120) else "x")
+
+    def counters():
+        rig.js.clear()
+        rig.s._on_message(None, Value({"type": "counters", "on": True}))
+        while rig.threads:
+            t = rig.threads.pop(0)
+            t.target(*t.args)
+        while rig.glib.idle:
+            fn, args = rig.glib.idle.pop(0)
+            fn(*args)
+        return [json.loads(j.removeprefix("window.orbitop.receive(").removesuffix(")"))["result"] for j in rig.js]
+    for t in (0.0, 10.0, 70.0):
+        now[0] = t
+        assert counters() == ["cancelled"]
+    rig.s._on_web_crash(rig.s._view, None)
+    _delay, reload, args = rig.glib.timeouts[-1]
+    reload(*args)
+    rig.s._on_message(None, Value({"type": "ready"}))  # die neue Seite meldet sich, init geht hinaus
+    assert rig.s._view.loads == [shell.INDEX_URI] and rig.s._jobs is jobs_before
+    now[0] = 1e9
+    assert counters() == ["locked"]
 
 
 def test_web_process_crash_reloads_at_most_every_10_s(rig, monkeypatch):

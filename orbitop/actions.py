@@ -91,9 +91,10 @@ def counters(on: bool, root="/", run=subprocess.run, lstat=os.lstat, opener=os.o
         return "cancelled"
     except (OSError, subprocess.SubprocessError):  # auch PermissionError: kill() am Helfer, der schon als root läuft
         return "error"
-    if r.returncode < 0:  # durch ein Signal beendet (etwa stop() beim Herunterfahren): kein Exit-Code des Helfers
-        return "error"
-    return _COUNTERS.get(r.returncode, "ok")
+    if r.returncode in _COUNTERS:
+        return _COUNTERS[r.returncode]
+    # ok nur für die Exit-Codes 0–4 des Helfers; alles andere, auch der Tod durch ein Signal, scheitert geschlossen
+    return "ok" if 0 <= r.returncode <= 4 else "error"
 
 
 def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, lstat=os.lstat, opener=os.open) -> str:

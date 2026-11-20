@@ -127,9 +127,32 @@ def test_already_so_without_dialog_does_not_reset(crig):  # sonst öffnete eine 
     assert ask(crig) == ["cancelled"]
     crig.now = 10.0
     assert ask(crig, False) == ["ok"] and len(crig.runs) == 1  # aus ist schon aus: kein pkexec
+    assert crig.tools.rechecks == 1  # Q-1: neu erkannt wie nach einem echten ok, die Merkdatei kam etwa von außen
     assert ask(crig) == ["cancelled"]
     crig.now = 69.9
     assert ask(crig) == ["busy"]  # die zweite Ablehnung: 60 s
+
+
+def test_signal_death_counts_as_refusal(crig):  # S-1: fail closed; die Seite sieht weiter nur error
+    crig.rc = -15
+    assert ask(crig) == ["error"] and ask(crig) == ["busy"]
+    crig.now = 10.0
+    assert ask(crig) == ["error"]
+    crig.now = 69.9
+    assert ask(crig) == ["busy"]  # die zweite Ablehnung: 60 s
+    assert crig.tools.rechecks == 0
+
+
+@pytest.mark.parametrize("rc", [5, 120, 255])
+def test_unknown_exit_code_neither_resets_nor_counts(crig, rc):  # Q-2: nur die Exit-Codes 0–4 des Helfers sind ok
+    crig.rc = 126
+    assert ask(crig) == ["cancelled"]
+    crig.now, crig.rc = 10.0, rc
+    assert ask(crig) == ["error"] and ask(crig) == ["error"]  # keine Wartezeit dazwischen
+    crig.rc = 126
+    assert ask(crig) == ["cancelled"]
+    crig.now = 69.9
+    assert ask(crig) == ["busy"]  # die zweite Ablehnung: nichts wurde zurückgesetzt
 
 
 def test_two_jobs_give_one_run_and_one_busy(crig):
@@ -170,8 +193,8 @@ def test_reply_carries_a_fresh_state_read_after_the_job(crig):
 
 
 @pytest.mark.parametrize("rc,on,rechecks", [(0, True, 1), (4, True, 1), (126, True, 0), (OSError(), True, 0),
-                                            (0, False, 0)], ids=["ok", "partial", "cancelled", "error", "noop"])
-def test_recheck_only_after_a_run_with_ok_and_in_the_thread(crig, rc, on, rechecks):  # Q3
+                                            (0, False, 1)], ids=["ok", "partial", "cancelled", "error", "already-so"])
+def test_recheck_only_after_ok_and_in_the_thread(crig, rc, on, rechecks):  # Q3, Q-1: auch nach „schon so“
     crig.rc = rc
     crig.j.counters(on, crig.tools)
     t = crig.threads.pop()

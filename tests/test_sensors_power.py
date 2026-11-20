@@ -57,6 +57,18 @@ def test_rapl_unreadable_is_none():
     assert RaplReader(INTEL).read(0) is None
 
 
+def test_rapl_noperm_from_the_start_and_on_every_read(intel_copy):  # Q-4: Zonen da, aber kein energy_uj lesbar
+    assert RaplReader(VM).noperm is False and RaplReader(INTEL).noperm is True
+    r = RaplReader(intel_copy)
+    assert r.noperm is True
+    _zone(intel_copy, "intel-rapl:0", 1_000_000)
+    r.read(0)
+    assert r.noperm is False
+    os.unlink(os.path.join(intel_copy, "sys/class/powercap/intel-rapl:0/energy_uj"))
+    r.read(1.0)
+    assert r.noperm is True
+
+
 def test_rapl_unreadable_midrun_and_recovery(intel_copy):
     _zone(intel_copy, "intel-rapl:0", 1_000_000)
     _zone(intel_copy, "intel-rapl:0:0", 1_000_000, name="core")

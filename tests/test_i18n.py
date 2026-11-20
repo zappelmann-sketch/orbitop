@@ -123,6 +123,9 @@ def test_counters_results_have_texts():  # Q2: jedes Ergebniswort außer ok hat 
             json_of(lang))
     assert json_of("de")["counters.locked"] == "zu oft abgelehnt – orbitop neu starten"
     assert "restart orbitop" in json_of("en")["counters.locked"]
+    assert "pkexec von polkit nötig" in json_of("de")["counters.nohelper"]  # Q-3: Wortlaut von E5
+    assert "pkexec from polkit" in json_of("en")["counters.nohelper"]
+    assert all("README" in json_of(lang)["counters.nohelper"] for lang in ("en", "de"))
 
 
 def test_rapl_hint_names_the_risk():

@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 """Sampler: Leser je Abschnitt, Raten, Leistungsquelle, Verläufe und Hinweise."""
 import json
+import os
 from pathlib import Path
 
 import pytest
@@ -223,6 +224,23 @@ def test_rapl_hint_only_if_all_zones_unreadable(tree_copy):
     assert "hint.rapl_noperm" not in hints()
     (Path(root) / "sys/class/powercap/intel-rapl:0/energy_uj").unlink()
     assert "hint.rapl_noperm" in hints()
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root liest auch Dateien mit Modus 0")
+def test_rapl_hint_follows_the_read_bits_without_restart(tree_copy):  # Q-4: nach „aus“ oder einer Änderung von außen
+    root = tree_copy(AMD)
+    energy = Path(root) / "sys/class/powercap/intel-rapl:0/energy_uj"
+    s = Sampler(root, tools=NoTools(), clock=fake_clock(), uid=1000)
+
+    def hints():
+        for _ in range(5):
+            s.tick_system()
+        return s.snapshot(OVERVIEW)["hints"]
+    assert "hint.rapl_noperm" not in hints()
+    energy.chmod(0)
+    assert "hint.rapl_noperm" in hints()
+    energy.chmod(0o444)
+    assert "hint.rapl_noperm" not in hints()
 
 
 # 3b: GPU-Nummern zählen nur Karten mit Kachel

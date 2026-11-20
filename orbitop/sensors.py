@@ -170,19 +170,32 @@ def read_sensors(root: str, held: dict | None = None, now: float = 0.0) -> Senso
     return SensorValues(cpu, temps, [f for c in chips for f in c.fans], [w for c in chips for w in c.power])
 
 
+def _energies(root: str) -> dict[str, int | None]:
+    """energy_uj je Zone intel-rapl:*, None wo nicht lesbar."""
+    return {z: sysfs.read_int(z + "/energy_uj") for z in sysfs.glob(root, "/sys/class/powercap/intel-rapl:*")}
+
+
+def _noperm(energies: dict[str, int | None]) -> bool:
+    return bool(energies) and all(e is None for e in energies.values())
+
+
 class RaplReader:
     def __init__(self, root: str):
         self._root = root
         self._t: float | None = None
         self._prev: dict[str, int] = {}
+        # Zonen da, aber kein energy_uj lesbar; jeder read() prüft neu, so folgt der Hinweis „aus“ und Änderungen
+        # von außen ohne Neustart (nur im Mess-Thread, daher ohne Sperre)
+        self.noperm = _noperm(_energies(root))
 
     def read(self, now: float) -> dict[str, float] | None:
         """Domänenname → Watt. Der erste Aufruf liefert nur die Basis (None)."""
         dt = None if self._t is None else now - self._t
         cur: dict[str, int] = {}
         names: dict[str, str] = {}
-        for z in sysfs.glob(self._root, "/sys/class/powercap/intel-rapl:*"):
-            e = sysfs.read_int(z + "/energy_uj")
+        energies = _energies(self._root)
+        self.noperm = _noperm(energies)
+        for z, e in energies.items():
             name = sysfs.read_str(z + "/name")
             if e is not None and name:
                 cur[z], names[z] = e, name
