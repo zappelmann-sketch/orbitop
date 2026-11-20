@@ -41,15 +41,6 @@ How the check runs:
   stops the step. The commands of each package manager are in `scripts/matrix/{apt,dnf,zypper,pacman}.sh`, the shared
   rpm part in `scripts/matrix/rpm.sh`, the helpers in `scripts/matrix/lib.sh` (`tests/test_matrix_lib.py`).
   `check-distros.sh` exits 1 unless every image passed.
-- Each command that fetches from the mirrors (`net` in `lib.sh`: the steps `refresh`, `install`, `tools` and
-  `upgrade`, on Fedora and openSUSE also `keyring`) and each index refresh that must be clean (`quiet`: apt in
-  `install` and `upgrade`, every package manager in `remove` and `purge`) runs again after 10 s if it failed and
-  printed a network hiccup of a mirror (`Curl error` 6, 7, 28, 35, 52 or 56, `Connection reset by peer`,
-  `Could not resolve host`, `Temporary failure in name resolution`, `Operation timed out`), up to three runs; only the
-  last one counts, and the log shows each run with a line `RETRY`. Any other failure, warning or error fails the step
-  at once: the expected refusal on `debian:bookworm` and `ubuntu:22.04` stays one run, and the `tamper` step runs its
-  refresh once. Cause: on 2026-11-19 `mirrors.fedoraproject.org` reset the connection ("Curl error (56)") in `remove`
-  or `purge` of three runs, although dnf then loaded the index from another mirror and exited 0.
   1. `refresh`: the index of the distribution (`apt-get update`, `dnf makecache`, `zypper refresh`, `pacman -Syu`).
   2. `keyring`: apt: `apt install ./orbitop-apt-source.deb`; the source's `Release` has `Architectures: all` and
      `Acquire-By-Hash: yes` and no `Valid-Until`. Fedora and openSUSE: `rpm --import orbitop-archive-keyring.asc`, then
@@ -96,6 +87,26 @@ How the check runs:
       valid) gives "is not signed", which tests the signature itself. Fedora and openSUSE: a digit of `<revision>` in
       `repomd.xml`, dnf "Bad PGP signature" (with `--setopt=skip_if_unavailable=False`, notes), zypper "Signature
       verification failed for repomd.xml". Arch: `orbitop.db`, pacman "invalid or corrupted database (PGP signature)".
+- Network hiccups of the mirrors (`scripts/matrix/lib.sh`, `tests/test_matrix_retry.py`): each command that fetches
+  from the mirrors runs under `net`, in the steps `refresh`, `install`, `tools` and `upgrade`, on Fedora and openSUSE
+  also `keyring`. A run that exits with a status other than 0, printed a hiccup and left the installed packages as
+  they were (a hash of `dpkg-query -W`, `rpm -qa | sort` or `pacman -Q` before and after it) runs again after 10 s, up
+  to three runs; only the last one counts, and the log shows each repetition with a line `RETRY`, or `NO RETRY` when
+  the packages changed. `net` judges only the exit status and the hiccup. The index refreshes that must be clean
+  (`quiet`: apt in `install` and `upgrade`, every package manager in `remove` and `purge`) also count a line that
+  matches `NOISE` as a failed run. Any other failure counts at once: the expected refusal on `debian:bookworm` and
+  `ubuntu:22.04` stays one run, and the `tamper` step runs its refresh once. A `NOISE` line of an earlier run stays in
+  the log, but the verdict comes from the last run: the sources are read-only, so a signature check gives the same
+  result in every run. A hiccup is one of the messages the images print (read from the strings of librepo, libzypp,
+  libalpm, libcurl, libapt-pkg and libc in the images, 2026-11-20): `Curl error` 6, 7, 28, 35, 52 or 56 (dnf with
+  parentheses, zypper without), zypper's `Timeout exceeded when accessing`, the texts of libcurl after pacman's
+  `failed retrieving file` (`Could not resolve host`, `Could not connect to server`, `Operation timed out`,
+  `Operation too slow`, `Empty reply from server`, `Connection timed out`), apt's `Temporary failure resolving`,
+  `Could not resolve '…'` and `Could not connect to`, and the system's `Connection reset by peer` and
+  `Temporary failure in name resolution`. Not a hiccup: `Curl error 60` (a certificate) and `Failed to connect to`,
+  which systemd prints in the scripts of packages. Cause: on 2026-11-19 `mirrors.fedoraproject.org` reset the
+  connection ("Curl error (56)") in `remove` or `purge` of three runs, although dnf then loaded the index from another
+  mirror and exited 0.
 - `debian:bookworm` and `ubuntu:22.04` pass only as an expected refusal: exactly the step `install` fails, with apt's
   `orbitop : Depends: python3 (>= 3.12)`. The run ends there.
 - In the table, `Packages` is the version of orbitop that the `install` step installed and the one the `upgrade` step

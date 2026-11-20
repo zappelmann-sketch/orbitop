@@ -1,50 +1,123 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Netzaussetzer der Spiegel in der Container-Matrix: net und quiet in scripts/matrix/lib.sh wiederholen einen
-gescheiterten Lauf, der einen Aussetzer meldet; jeder andere Fehler zählt sofort, der Manipulationstest läuft einmal.
-Die Programme der Paketverwaltungen sind Shell-Funktionen, die pm aufrufen."""
+gescheiterten Lauf, der einen Aussetzer meldet und die Paketdatenbank nicht änderte; jeder andere Fehler zählt
+sofort, der Manipulationstest läuft einmal. Die Programme der Paketverwaltungen sind Shell-Funktionen, die pm
+aufrufen."""
+import shlex
+
 import pytest
 
-from tests.test_matrix_lib import call
+from tests.matrix_helpers import PAGES, call, rpm_site
 
-# Ersatz-Paketmanager pm: Lauf N gibt STATE/out.N aus und endet mit STATE/rc.N (fehlen sie: nichts, 0); jeder Lauf
-# hängt eine Zeile an STATE/calls. sleep schreibt seine Dauer nach STATE/slept, statt zu warten.
+# Ersatz-Paketmanager pm: Lauf N gibt STATE/out.N aus, hängt STATE/installs.N an die Paketliste STATE/packages (eine
+# geänderte Paketdatenbank) und endet mit STATE/rc.N (fehlen sie: nichts, 0); jeder Lauf hängt eine Zeile an
+# STATE/calls. packages liest die Paketliste; sleep schreibt seine Dauer nach STATE/slept, statt zu warten.
 PM = ('pm() { echo >> "$STATE/calls"; local n; n=$(wc -l < "$STATE/calls"); cat "$STATE/out.$n" 2> /dev/null;'
-      ' return "$(cat "$STATE/rc.$n" 2> /dev/null || echo 0)"; }; sleep() { echo "$1" >> "$STATE/slept"; };')
-AS_PM = {"apt.sh": 'apt() { pm "$@"; }; apt-get() { pm "$@"; }; apt-cache() { echo policy; };',
+      ' cat "$STATE/installs.$n" >> "$STATE/packages" 2> /dev/null;'
+      ' return "$(cat "$STATE/rc.$n" 2> /dev/null || echo 0)"; }; packages() { cat "$STATE/packages"; };'
+      ' sleep() { echo "$1" >> "$STATE/slept"; };')
+# Die Quelldefinitionen liegen in STATE statt unter /etc; serve und kill in apts update_from tun nichts.
+SOURCES = ('SOURCE=$STATE/orbitop.sources REPO=$STATE/orbitop.repo CONF=$STATE/pacman.conf;'
+           ' serve() { :; }; kill() { :; };')
+POLICY = " 100 http://zappelmann-sketch.github.io/orbitop/apt stable/main all Packages"  # wie über serve
+AS_PM = {"apt.sh": f'apt() {{ pm "$@"; }}; apt-get() {{ pm "$@"; }}; apt-cache() {{ echo "{POLICY}"; }};',
          "dnf.sh": 'dnf() { pm "$@"; };', "zypper.sh": 'zypper() { pm "$@"; };', "pacman.sh": 'pacman() { pm "$@"; };'}
 CURL = (">>> Curl error (56): Failure when receiving data from the peer for https://mirrors.fedoraproject.org/"
         "metalink?repo=updates-released-f45&arch=x86_64 [Recv failure: Connection reset by peer]")  # 2026-11-19
 RESET = ("W: Failed to fetch http://deb.example.com/debian/dists/trixie/InRelease  Error reading from server - read "
          "(104: Connection reset by peer)")
+SLOW = ("error: failed retrieving file 'core.db' from mirror.example.com : Operation too slow. Less than 1 bytes/sec "
+        "transferred the last 10 seconds")
 # Ein Aussetzer je Paketverwaltung, mit ihrem Exit-Code.
 HICCUPS = {
     "apt.sh": (RESET, 100),
     "dnf.sh": (CURL, 1),
-    "pacman.sh": ("error: failed retrieving file 'core.db' from mirror.example.com : Could not resolve host: "
-                  "mirror.example.com", 1),
-    "zypper.sh": ("Download (curl) error for 'https://download.example.com/repodata/repomd.xml':\nError code: "
-                  "Connection failed\nError message: Operation timed out after 60000 milliseconds", 4),
+    "pacman.sh": (SLOW, 1),
+    "zypper.sh": ("Timeout exceeded when accessing 'https://download.example.com/repodata/repomd.xml'.", 4),
 }
 MANAGERS = sorted(HICCUPS)
-# Die Läufe von pm vor und nach dem Schritt der Paketverwaltung, der von den Spiegeln holt.
-AROUND = {("apt.sh", "install_pkg"): ([("Hit:1 http://deb.example.com/debian trixie InRelease", 0)], []),
-          ("zypper.sh", "install_pkg"): ([], [("GPG Check               : (rp) Yes", 0)])}
+FETCH = "error: failed retrieving file 'core.db' from mirror.example.com : "  # libalpm, dann der Text von libcurl
+APT = "W: Failed to fetch http://deb.example.com/debian/dists/trixie/InRelease  "
+# Die Meldungen der Images (Zeichenketten in librepo, libzypp, libalpm, libcurl 8, libapt-pkg und libc, gelesen in
+# fedora:latest, opensuse/tumbleweed, archlinux:latest, debian:trixie und ubuntu:24.04 am 2026-11-20). Die Fälle
+# zypper-6, -7 und -56 und dnf-56 treffen nur über den Code.
+MATCHES = {
+    "dnf-56": ">>> Curl error (56): Failure when receiving data from the peer for https://mirror.example.com/",
+    "dnf-6": ">>> Curl error (6): Could not resolve hostname for http://mirror.invalid/repodata/repomd.xml "
+             "[Could not resolve host: mirror.invalid]",
+    "dnf-28": ">>> Curl error (28): Timeout was reached for https://mirror.example.com/ [Operation timed out after "
+              "30000 milliseconds with 0 bytes received]",
+    "zypper-6": "Error code: Curl error 6",
+    "zypper-7": "Error code: Curl error 7",
+    "zypper-28": "Error code: Curl error 28",
+    "zypper-35": "Error code: Curl error 35",
+    "zypper-52": "Error code: Curl error 52",
+    "zypper-56": "Error code: Curl error 56",
+    "zypper-timeout": "Timeout exceeded when accessing 'https://download.example.com/repodata/repomd.xml'.",
+    "pacman-slow": SLOW,
+    "pacman-empty": f"{FETCH}Empty reply from server",
+    "pacman-connect": f"{FETCH}Failed to connect to mirror.example.com port 443 after 3 ms: "
+                      "Could not connect to server",
+    "pacman-couldnt": f"{FETCH}Couldn't connect to server",  # libcurl vor 8
+    "pacman-timeout": f"{FETCH}Connection timed out after 10001 milliseconds",
+    "pacman-host": f"{FETCH}Could not resolve host: mirror.example.com",
+    "pacman-reset": f"{FETCH}Recv failure: Connection reset by peer",
+    "apt-resolving": f"{APT}Temporary failure resolving 'deb.example.com'",
+    "apt-resolve": f"{APT}Could not resolve 'deb.example.com'",
+    "apt-connect": f"{APT}Could not connect to deb.example.com:80 (192.0.2.1). - connect (111: Connection refused)",
+    "apt-timeout": "  Could not connect to deb.example.com:80 (192.0.2.1), connection timed out",
+    "apt-timed-out": f"{APT}Unable to connect to deb.example.com:80: connect (110: Connection timed out)",
+    "apt-reset": RESET,
+    "libc-name": "Temporary failure in name resolution",
+    "curl-timeout": "Operation timed out after 30000 milliseconds with 0 bytes received",
+}
+# Keine Aussetzer: systemd in den Skripten der Pakete, Zertifikate, Signaturen, Pakete, die Ablehnung.
+OTHERS = {
+    "systemd-bus": "Failed to connect to bus: No such file or directory",
+    "dnf-60": ">>> Curl error (60): SSL peer certificate or SSH remote key was not OK for https://mirror.example.com/ "
+              "[SSL certificate problem: unable to get local issuer certificate]",
+    "zypper-60": "Error code: Curl error 60",
+    "apt-unsigned": "E: The repository 'file:/site/apt stable InRelease' is not signed.",
+    "apt-hash": "E: Failed to fetch file:/site/apt/dists/stable/main/binary-all/Packages.gz  Hash Sum mismatch",
+    "apt-depends": " orbitop : Depends: python3 (>= 3.12) but 3.11.2-1+b1 is to be installed",
+    "dnf-gpg": "Error: GPG check FAILED",
+    "dnf-signature": ">>> repomd.xml OpenPGP signature verification error: Bad PGP signature",
+    "zypper-signature": "Signature verification failed for repomd.xml",
+    "pacman-signature": 'error: orbitop: signature from "orbitop archive signing key" is invalid',
+    "pacman-db": "error: database 'orbitop' is not valid (invalid or corrupted database (PGP signature))",
+}
 
 
 def runs(tmp_path, command, *outputs, files=("dnf.sh",)):
-    """COMMAND nach lib.sh und FILES mit pm (auch als Programme von FILES), dessen Lauf N outputs[N-1] = (Ausgabe, rc)
-    liefert; gibt (bestanden, Ausgabe, Zahl der Läufe von pm, Pausen) zurück."""
+    """COMMAND nach lib.sh und FILES mit pm (auch als Programme von FILES), dessen Lauf N outputs[N-1] = (Ausgabe, rc[,
+    neue Pakete]) liefert; gibt (bestanden, Ausgabe, Zahl der Läufe von pm, Pausen) zurück."""
     state = tmp_path / "state"
     state.mkdir(parents=True)
-    for n, (text, rc) in enumerate(outputs, 1):
+    for name, line in {"packages": "bash 5.3", "orbitop.sources": f"URIs: {PAGES}apt",
+                       "orbitop.repo": f"baseurl={PAGES}rpm/fedora", "pacman.conf": f"Server = {PAGES}arch/$arch",
+                       "http.log": "GET /orbitop/apt/dists/stable/main/binary-all/by-hash/SHA512/0 HTTP/1.1"}.items():
+        (state / name).write_text(line + "\n")
+    for n, (text, rc, *installed) in enumerate(outputs, 1):
         (state / f"out.{n}").write_text(text + "\n")
         (state / f"rc.{n}").write_text(f"{rc}\n")
+        if installed:
+            (state / f"installs.{n}").write_text(installed[0] + "\n")
     stand_ins = " ".join(AS_PM[f] for f in files if f in AS_PM)
-    ok, out = call(tmp_path, f"{PM} {stand_ins} {command}", *files)
+    ok, out = call(tmp_path, f"{PM} {SOURCES} {stand_ins} {command}", *files, env={"RPMK": "digests signatures OK"})
     calls = (state / "calls").read_text().count("\n") if (state / "calls").exists() else 0
     slept = (state / "slept").read_text().split() if (state / "slept").exists() else []
     return ok, out, calls, slept
+
+
+@pytest.mark.parametrize("line", MATCHES.values(), ids=MATCHES.keys())
+def test_hiccup_matches_the_network_messages(tmp_path, line):
+    assert call(tmp_path, f'grep -qE -- "$HICCUP" <<< {shlex.quote(line)}')[0]
+
+
+@pytest.mark.parametrize("line", OTHERS.values(), ids=OTHERS.keys())
+def test_hiccup_leaves_other_errors_alone(tmp_path, line):
+    assert not call(tmp_path, f'grep -qE -- "$HICCUP" <<< {shlex.quote(line)}')[0]
 
 
 @pytest.mark.parametrize("files,line,rc", [
@@ -53,11 +126,10 @@ def runs(tmp_path, command, *outputs, files=("dnf.sh",)):
     (("dnf.sh",), "Curl error (28): Timeout was reached for https://mirrors.example.com/", 1),
     (("zypper.sh",), HICCUPS["zypper.sh"][0], 4),
     (("apt.sh",), RESET, 0),  # apt update meldet einen Abbruch als W: und endet mit 0
-    # nur das Muster: apt selbst schreibt "Could not resolve '<host>'" (Probe in debian:trixie, 2026-11-20)
-    (("apt.sh",), "W: Failed to fetch http://deb.example.com/  Temporary failure in name resolution", 0),
-    (("pacman.sh",), "error: failed retrieving file 'core.db' from mirror.example.com : Curl error (35): TLS", 1),
-    (("pacman.sh",), "error: failed retrieving file 'core.db' from mirror.example.com : Curl error (52): Empty", 1),
-], ids=["dnf-56-exit-0", "dnf-6", "dnf-28", "zypper-timeout", "apt-reset", "apt-name", "pacman-35", "pacman-52"])
+    (("apt.sh",), MATCHES["apt-resolving"], 0),
+    (("pacman.sh",), SLOW, 1),
+    (("pacman.sh",), MATCHES["pacman-empty"], 1),
+], ids=["dnf-56-exit-0", "dnf-6", "dnf-28", "zypper-timeout", "apt-reset", "apt-name", "pacman-slow", "pacman-empty"])
 def test_network_hiccup_is_retried_then_passes(tmp_path, files, line, rc):
     ok, out, calls, slept = runs(tmp_path, "quiet pm", (line, rc), ("Metadata cache created.", 0), files=files)
     assert ok and calls == 2 and slept == ["10"], out
@@ -107,24 +179,50 @@ def test_net_repeats_only_a_failed_run_with_a_hiccup(tmp_path, outputs, passed, 
     assert out.count("RETRY run") == count - 1
 
 
-@pytest.mark.parametrize("manager", MANAGERS)
-@pytest.mark.parametrize("step", ["refresh", "install_pkg"])
-def test_network_steps_retry_a_hiccup(tmp_path, manager, step):
-    """refresh und install holen von den Spiegeln; apt prüft vor der Installation den Index (quiet apt update), zypper
-    danach die Quelle (zypper lr)."""
-    before, after = AROUND.get((manager, step), ([], []))
+@pytest.mark.parametrize("prelude,outputs", [
+    ("", [(CURL, 1, "orbitop 0.2.0-1"), ("", 0)]),  # der gescheiterte Lauf installierte schon ein Paket
+    ("packages() { return 1; };", [(CURL, 1), ("", 0)]),  # ohne Fingerabdruck kein zweiter Lauf
+], ids=["packages-changed", "packages-unknown"])
+def test_hiccup_after_a_package_change_is_not_retried(tmp_path, prelude, outputs):
+    ok, out, calls, slept = runs(tmp_path, f"{prelude} net pm", *outputs)
+    assert not ok and calls == 1 and slept == [], out
+    assert "NO RETRY: the installed packages changed or are unknown" in out
+
+
+@pytest.mark.parametrize("pipefail", ["", "set -o pipefail;"])
+def test_net_streams_the_output_and_keeps_the_exit_code(tmp_path, pipefail):
+    ok, out, calls, _ = runs(tmp_path, f'{pipefail} net pm; [ "$?" -eq 4 ]', ("Problem retrieving files", 4))
+    assert ok and calls == 1 and out.count("Problem retrieving files") == 1, out
+    assert (tmp_path / "state" / "net.out").read_text() == "Problem retrieving files\n"
+
+
+HIT = ("Hit:1 http://deb.example.com/debian trixie InRelease", 0)  # quiet apt update vor dem Schritt
+# Schritt, Paketverwaltung, Läufe von pm vor dem Aussetzer und nach dem sauberen Lauf.
+STEPS = [*[("refresh", m, [], []) for m in MANAGERS],
+         ("install_pkg", "apt.sh", [HIT], []), ("install_pkg", "dnf.sh", [], []), ("install_pkg", "pacman.sh", [], []),
+         ("install_pkg", "zypper.sh", [], [("GPG Check               : (rp) Yes", 0)]),  # zypper lr
+         *[("tools", m, [], []) for m in MANAGERS],
+         ("update_from", "apt.sh", [HIT], []), *[("update_from", m, [], []) for m in MANAGERS if m != "apt.sh"],
+         ("keyring", "dnf.sh", [], []),
+         ("keyring", "zypper.sh", [], [("", 0)])]  # erst findutils, dann orbitop-release
+
+
+@pytest.mark.parametrize("step,manager,before,after", STEPS, ids=[f"{s[0]}-{s[1][:-3]}" for s in STEPS])
+def test_network_steps_retry_a_hiccup(tmp_path, step, manager, before, after):
+    """Jeder Schritt, der von den Spiegeln holt, mit den echten Funktionen aus den Dateien der Paketverwaltungen und
+    einer Quelle (ROOT) in tmp_path."""
+    site = rpm_site(tmp_path)
+    files = ("rpm.sh", manager) if manager in ("dnf.sh", "zypper.sh") else (manager,)
     outputs = [*before, HICCUPS[manager], ("", 0), *after]
-    ok, out, calls, slept = runs(tmp_path, step, *outputs, files=(manager,))
+    ok, out, calls, slept = runs(tmp_path, f"{step} {site}", *outputs, files=files)
     assert ok and calls == len(outputs) and slept == ["10"], out
 
 
 def test_refusal_without_hiccup_is_not_retried(tmp_path):
     """Die erwartete Ablehnung auf debian:bookworm und ubuntu:22.04 (Python älter als 3.12): ein Lauf, die Meldung im
     Protokoll, nach der check-distros.sh sie erkennt."""
-    refusal = (" orbitop : Depends: python3 (>= 3.12) but 3.11.2-1+b1 is to be installed\n"
-               "E: Unable to correct problems, you have held broken packages.")
-    ok, out, calls, slept = runs(tmp_path, "install_pkg", ("Hit:1 http://deb.example.com/debian bookworm InRelease", 0),
-                                 (refusal, 100), ("", 0), files=("apt.sh",))
+    refusal = (f"{OTHERS['apt-depends']}\nE: Unable to correct problems, you have held broken packages.")
+    ok, out, calls, slept = runs(tmp_path, "install_pkg", HIT, (refusal, 100), ("", 0), files=("apt.sh",))
     assert not ok and calls == 2 and slept == [], out  # apt update, dann genau eine Installation
     assert "orbitop : Depends: python3 (>= 3.12)" in out
 

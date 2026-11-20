@@ -31,23 +31,47 @@ written() {
 # forget FILE: written FILE, and point starts over with it: its package goes, and a new one installs it anew.
 forget() { written "$1" && rm -f -- "$STATE/written${1//\//_}" "$STATE/pristine${1//\//_}"; }
 
-# A network hiccup at a mirror, not a fault of the packages: curl's codes for resolve, connect, timeout, TLS
-# handshake, empty reply and receive, and the same failures in the words of the system.
-HICCUP='Curl error \((6|7|28|35|52|56)\)|Connection reset by peer|Could not resolve host'
-HICCUP+='|Temporary failure in name resolution|Operation timed out'
+# A network hiccup at a mirror, not a fault of the packages, in the words the images print (tests/test_matrix_retry.py):
+# curl's codes for resolve, connect, timeout, TLS handshake, empty reply and receive, as dnf ("Curl error (56):") and
+# zypper ("Curl error 56") write them, not 60 (a certificate); the texts of libcurl after pacman's "failed retrieving
+# file"; apt's own; those of the system. Never "Failed to connect to": systemd writes it in the scripts of packages.
+HICCUP='Curl error \(?(6|7|28|35|52|56)\b|Timeout exceeded when accessing'  # dnf, zypper
+HICCUP+="|Could not resolve host|Could(n't| not) connect to|Operation timed out|Operation too slow"  # libcurl
+HICCUP+="|Empty reply from server|Connection timed out|Temporary failure resolving|Could not resolve '"  # and apt
+HICCUP+='|Connection reset by peer|Temporary failure in name resolution'  # libc
 
-# net COMMAND…: COMMAND, for the commands that fetch from the mirrors. A run that fails and printed a network hiccup
-# (HICCUP) runs again after 10 s, up to three runs, and only the last one counts; any other failure counts at once.
-# 10 s let a reset connection or a resolver hiccup pass and add at most 20 s to a step. COMMAND runs in a subshell.
-# Never for the index refresh of the tamper step (refused).
+# logged FILE COMMAND…: COMMAND, its output live on stdout and in FILE; returns the exit code of COMMAND, with or
+# without set -e and pipefail.
+logged() {
+    local rc=0
+    { "${@:2}" 2>&1 | tee -- "$1"; rc=${PIPESTATUS[0]}; } || true
+    return "$rc"
+}
+
+# held: a fingerprint of the installed packages (packages, from the file of the package manager); without stderr,
+# where pacman warns about sync databases that the first refresh has not fetched yet.
+held() {
+    local list
+    list=$(packages 2> /dev/null) && sha256sum <<< "$list"
+}
+
+# net COMMAND…: COMMAND, for the commands that fetch from the mirrors. A run that fails, printed a network hiccup
+# (HICCUP) and left the installed packages as they were (held) runs again after 10 s, up to three runs, and only the
+# last one counts; any other failure counts at once. 10 s let a reset connection or a resolver hiccup pass and add at
+# most 20 s to a step. COMMAND runs in a subshell. Never for the index refresh of the tamper step (refused).
 net() {
-    local out rc run
+    local rc run before after
     for run in 1 2 3; do
+        before=$(held) || before=""
         rc=0
-        out=$("$@" 2>&1) || rc=$?
-        printf '%s\n' "$out"
+        logged "$STATE/net.out" "$@" || rc=$?
         [ "$rc" -ne 0 ] || return 0
-        if [ "$run" -eq 3 ] || ! grep -qE -- "$HICCUP" <<< "$out"; then return "$rc"; fi
+        if [ "$run" -eq 3 ] || ! grep -qE -- "$HICCUP" "$STATE/net.out"; then return "$rc"; fi
+        after=$(held) || after=""
+        if [ -z "$before" ] || [ "$before" != "$after" ]; then
+            echo "NO RETRY: the installed packages changed or are unknown"
+            return "$rc"
+        fi
         echo "RETRY run $((run + 1)) of 3 in 10 s: network hiccup"
         sleep 10
     done
@@ -55,10 +79,9 @@ net() {
 
 # clean COMMAND…: COMMAND succeeds and prints no line that matches NOISE (warnings, notices, errors).
 clean() {
-    local out rc=0 noise
-    out=$("$@" 2>&1) || rc=$?
-    printf '%s\n' "$out"
-    noise=$(grep -E -- "$NOISE" <<< "$out") || true
+    local rc=0 noise
+    logged "$STATE/clean.out" "$@" || rc=$?
+    noise=$(grep -E -- "$NOISE" "$STATE/clean.out") || true
     [ -z "$noise" ] || printf 'NOISE %s\n' "$noise"
     [ "$rc" -eq 0 ] && [ -z "$noise" ]
 }

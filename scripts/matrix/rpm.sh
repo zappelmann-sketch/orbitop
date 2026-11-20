@@ -9,6 +9,7 @@ installed() { rpm -q --qf '%{VERSION}-%{RELEASE}' orbitop; }
 offered() { rpm -qp --qf '%{VERSION}-%{RELEASE}' "$1/rpm/$FAMILY"/orbitop-[0-9]*.noarch.rpm; }
 files_of() { rpm -ql orbitop orbitop-release; }
 owned() { rpm -qf -- "$1" > /dev/null 2>&1; }
+packages() { rpm -qa | sort; }
 
 # rpm_key ROOT: the key of the site into the rpm database, as the README does before the first package (no
 # unknown key then for zypper, and dnf asks only for its copy for the metadata); exactly one key is new there. Then

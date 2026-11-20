@@ -59,6 +59,7 @@ update_from() {
 
 files_of() { dpkg -L orbitop orbitop-apt-source | grep -vx '/\.'; }
 owned() { dpkg -S -- "$1" > /dev/null 2>&1; }
+packages() { dpkg-query -W; }
 
 # apt remove orbitop, then orbitop-apt-source: its conffiles keep a working source with its key.
 remove() {

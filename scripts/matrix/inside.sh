@@ -7,7 +7,7 @@
 # source definitions under /etc point to file:// here (point); the packages keep the Pages address.
 # Prints "STEP <name> ok|fail". The helpers are in scripts/matrix/lib.sh, the commands of each package manager in
 # scripts/matrix/<manager>.sh; it provides NOISE and refresh, keyring ROOT, install_pkg, tools, installed, offered ROOT,
-# update_from ROOT, files_of, owned PATH, remove, purge, tamper and refresh_index.
+# update_from ROOT, files_of, owned PATH, packages (for net in lib.sh), remove, purge, tamper and refresh_index.
 # shellcheck source-path=SCRIPTDIR disable=SC2317,SC2329  # step calls the functions
 set -euo pipefail
 

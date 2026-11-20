@@ -34,6 +34,7 @@ update_from() { point "$CONF" "file://$1/" && net pacman -Syu --noconfirm; }
 
 files_of() { pacman -Qlq orbitop; }
 owned() { pacman -Qo -- "$1" > /dev/null 2>&1; }
+packages() { pacman -Q; }
 
 # -Syy: pacman -Sy downloads a database only when it changed.
 remove() { files_of > "$STATE/files" && pacman -R orbitop --noconfirm && quiet pacman -Syy; }
