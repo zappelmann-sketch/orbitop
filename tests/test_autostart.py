@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Autostart je Benutzer: Vorrang der Benutzerdatei, Hidden, seltsame Dateien, atomares Schreiben (Review Focus 2, 3)."""
+import errno
 import os
 import threading
 from pathlib import Path
@@ -25,7 +26,8 @@ def nowhere(_name):
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))  # selbst ein Fehler führt nie in den echten Autostart-Ordner
-    return {"XDG_CONFIG_HOME": str(tmp_path / "cfg"), "XDG_CONFIG_DIRS": f"{tmp_path / 'xdg1'}:{tmp_path / 'xdg2'}"}
+    return {"HOME": str(tmp_path / "home"), "XDG_CONFIG_HOME": str(tmp_path / "cfg"),
+            "XDG_CONFIG_DIRS": f"{tmp_path / 'xdg1'}:{tmp_path / 'xdg2'}"}
 
 
 def user(env) -> Path:
@@ -121,9 +123,9 @@ def test_user_file_and_first_system_dir_take_precedence(env):  # freedesktop: nu
 
 def test_relative_xdg_config_home_ignored(env, tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    rel = {"XDG_CONFIG_HOME": "rel", "XDG_CONFIG_DIRS": f"rel2:{tmp_path / 'xdg'}"}
+    rel = {"HOME": env["HOME"], "XDG_CONFIG_HOME": "rel", "XDG_CONFIG_DIRS": f"rel2:{tmp_path / 'xdg'}"}
     home = tmp_path / "home" / ".config" / "autostart" / FILE
-    assert user_path(rel) == str(home) and user_path({}) == str(home)
+    assert user_path(rel) == str(home) and user_path({"HOME": env["HOME"]}) == str(home)
     assert system_paths(rel) == [str(tmp_path / "xdg" / "autostart" / FILE)]
     assert system_paths({}) == system_paths({"XDG_CONFIG_DIRS": ""}) == ["/etc/xdg/autostart/" + FILE]
     assert set_enabled(True, rel, which) is True and home.read_text() == TEMPLATE
@@ -136,8 +138,7 @@ def test_relative_home_gives_none_and_writes_nothing(tmp_path, monkeypatch, home
     cwd = tmp_path / "cwd"
     cwd.mkdir()
     monkeypatch.chdir(cwd)
-    monkeypatch.setenv("HOME", home)
-    rel = {**xdg, "XDG_CONFIG_DIRS": str(tmp_path / "xdg")}
+    rel = {**xdg, "HOME": home, "XDG_CONFIG_DIRS": str(tmp_path / "xdg")}
     system(rel, 0, TEMPLATE)
     assert user_path(rel) is None and state(rel, which) is None
     assert set_enabled(True, rel, which) is None and set_enabled(False, rel, which) is None
@@ -227,3 +228,17 @@ def test_failed_write_keeps_state_and_leaves_no_tmp(env, monkeypatch, how):
         finally:
             d.chmod(0o700)
     assert os.listdir(d) == [FILE] and user(env).read_text() == TEMPLATE
+
+
+def test_autostart_write_error_is_reported_once(env, monkeypatch, capsys):
+    monkeypatch.setattr(userfile, "_reported", set())
+    errors = [errno.EACCES, errno.EACCES, errno.EROFS, errno.EPERM]
+
+    def boom(*args):
+        raise OSError(errors.pop(0), "x", args[-1])  # mit Pfad und Benutzername darin: die dürfen nicht nach stderr
+    monkeypatch.setattr(userfile.os, "replace", boom)
+    assert [set_enabled(True, env, which) for _ in range(3)] == [False] * 3
+    monkeypatch.setattr(autostart.os, "unlink", boom)  # erst jetzt: write_atomic räumt seine tmp-Datei mit unlink weg
+    assert set_enabled(False, env, which) is False  # Entfernen scheitert
+    assert capsys.readouterr().err.splitlines() == [f"orbitop: could not save autostart ({e})"
+                                                    for e in ("EACCES", "EROFS", "EPERM")]

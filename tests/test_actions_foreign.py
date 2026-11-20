@@ -10,18 +10,18 @@ import pytest
 
 from orbitop import actions
 from orbitop.actions import is_alive, terminate
-from tests.actions_helpers import INSTALLED, TRUSTED, fake, foreign_proc, start_of
+from tests.actions_helpers import ELF, INSTALLED, TRUSTED, fake, foreign_proc, start_of
 
 
 def test_foreign_uses_pkexec_helper(monkeypatch, foreign):
     monkeypatch.setattr(sys, "executable", "/venv/bin/python")
     calls = []
-    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 126), lstat=TRUSTED) == "denied"
+    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 126), lstat=TRUSTED, opener=ELF) == "denied"
     argv, kw = calls[0]
     assert argv == ["/usr/bin/pkexec", INSTALLED, "4242", "77", "TERM"]
     assert kw["timeout"] == 120 and "shell" not in kw
     calls.clear()
-    terminate(4242, 77, True, root=foreign, run=fake(calls, 0), lstat=TRUSTED)
+    terminate(4242, 77, True, root=foreign, run=fake(calls, 0), lstat=TRUSTED, opener=ELF)
     assert calls[0][0][-1] == "KILL"
 
 
@@ -30,19 +30,19 @@ def test_pkexec_runs_helper_directly(monkeypatch, tmp_path):
     monkeypatch.setattr(sys, "executable", "/venv/bin/python")
     foreign_proc(tmp_path, 123, 456, "S")
     calls = []
-    terminate(123, 456, False, root=str(tmp_path), run=fake(calls, 0), lstat=TRUSTED)
+    terminate(123, 456, False, root=str(tmp_path), run=fake(calls, 0), lstat=TRUSTED, opener=ELF)
     assert [c[0] for c in calls] == [["/usr/bin/pkexec", "/usr/lib/orbitop/killhelper", "123", "456", "TERM"]]
 
 
 @pytest.mark.parametrize("rc,want", [(0, "sent"), (3, "mismatch"), (4, "gone"), (5, "zombie"), (6, "kernel"),
                                      (126, "denied"), (127, "denied"), (2, "error"), (1, "error")])
 def test_exit_code_mapping(rc, want, foreign):
-    assert terminate(4242, 77, False, root=foreign, run=fake([], rc), lstat=TRUSTED) == want
+    assert terminate(4242, 77, False, root=foreign, run=fake([], rc), lstat=TRUSTED, opener=ELF) == want
 
 
 @pytest.mark.parametrize("exc", [subprocess.TimeoutExpired("pkexec", 120), FileNotFoundError("pkexec")])
 def test_pkexec_failures_are_error(exc, foreign):
-    assert terminate(4242, 77, False, root=foreign, run=fake([], exc=exc), lstat=TRUSTED) == "error"
+    assert terminate(4242, 77, False, root=foreign, run=fake([], exc=exc), lstat=TRUSTED, opener=ELF) == "error"
 
 
 def test_foreign_wrong_start_is_mismatch_without_prompt():
@@ -62,7 +62,7 @@ def test_foreign_dead_target_needs_no_prompt(tmp_path, state, want):
 
 def test_foreign_live_target_goes_to_pkexec(foreign):
     calls = []
-    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 0), lstat=TRUSTED) == "sent"
+    assert terminate(4242, 77, False, root=foreign, run=fake(calls, 0), lstat=TRUSTED, opener=ELF) == "sent"
     assert len(calls) == 1
 
 
@@ -81,7 +81,7 @@ def test_pid1_is_kernel_without_prompt(force):
 def test_kernel_thread_needs_no_prompt(tmp_path, ppid, cmdline, want, prompts):
     foreign_proc(tmp_path, 4243, 77, "S", ppid=ppid, cmdline=cmdline)
     calls = []
-    assert terminate(4243, 77, True, root=str(tmp_path), run=fake(calls, 0), lstat=TRUSTED) == want
+    assert terminate(4243, 77, True, root=str(tmp_path), run=fake(calls, 0), lstat=TRUSTED, opener=ELF) == want
     assert len(calls) == prompts
     assert is_alive(4243, 77, str(tmp_path)) is (want != "gone")
 
@@ -106,4 +106,4 @@ def test_precheck_reads_cmdline_only_for_kernel_thread_candidates(tmp_path):  # 
 
 def test_guard_blocks_real_pkexec(foreign):
     with pytest.raises(AssertionError):
-        terminate(4242, 77, False, root=foreign, lstat=TRUSTED)
+        terminate(4242, 77, False, root=foreign, lstat=TRUSTED, opener=ELF)

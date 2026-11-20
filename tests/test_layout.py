@@ -1,5 +1,6 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
+import errno
 import json
 import os
 import re
@@ -8,7 +9,7 @@ from pathlib import Path
 
 import pytest
 
-from orbitop import layout
+from orbitop import layout, userfile
 from orbitop.layout import COLUMNS, DEFAULT_HIDDEN, LayoutFile, config_path, repair, validate
 
 REPO = Path(__file__).parent.parent
@@ -50,16 +51,15 @@ def test_repair_keeps_users_order_and_strict_after():
     assert r["hidden"].count("mem") == 1 and repair({**L, "hidden": ["process"]}) is None
 
 
-def test_config_path(monkeypatch):
-    assert config_path({"XDG_CONFIG_HOME": "/x/cfg"}) == "/x/cfg/orbitop/layout.json"
-    monkeypatch.setenv("HOME", "/home/u")
-    assert config_path({}) == config_path({"XDG_CONFIG_HOME": "cfg"}) == "/home/u/.config/orbitop/layout.json"
+def test_config_path():
+    home = {"HOME": "/home/u"}
+    assert config_path({**home, "XDG_CONFIG_HOME": "/x/cfg"}) == "/x/cfg/orbitop/layout.json"
+    assert config_path(home) == config_path({**home, "XDG_CONFIG_HOME": "cfg"}) == "/home/u/.config/orbitop/layout.json"
 
 
 def test_without_absolute_config_home_nothing_is_read_or_written(monkeypatch, tmp_path):  # Audit M1
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("HOME", "rel")
-    assert config_path({}) is None and config_path({"XDG_CONFIG_HOME": "cfg"}) is None
+    assert config_path({"HOME": "rel"}) is None and config_path({"HOME": "rel", "XDG_CONFIG_HOME": "cfg"}) is None
     f = LayoutFile(None)
     assert f.load() is None and f.save(L) is False and os.listdir(tmp_path) == []
 
@@ -129,6 +129,17 @@ def test_save_failure_is_silent(tmp_path):  # Review Focus 1
         assert f.save(L) is False and f.current == L
     finally:
         d.chmod(0o700)
+
+
+def test_layout_write_error_is_reported_once(tmp_path, monkeypatch, capsys):
+    monkeypatch.setattr(userfile, "_reported", set())
+
+    def boom(a, b):
+        raise OSError(errno.ENOSPC, "No space left on device", b)  # mit Pfad: der darf nicht nach stderr
+    monkeypatch.setattr(layout.os, "replace", boom)
+    f = LayoutFile(str(tmp_path / "cfg" / "orbitop" / "layout.json"))
+    assert f.save(L) is False and f.save({**L, "split": 0.5}) is False and f.current["split"] == 0.5
+    assert capsys.readouterr().err == "orbitop: could not save layout (ENOSPC)\n"
 
 
 def test_repair_missing_visible_stays_visible_and_first_goes_to_front():

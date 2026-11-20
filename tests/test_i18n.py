@@ -106,6 +106,11 @@ def test_nohelper_points_to_the_readme():
         assert "README" in text and "setup-privileges" not in text
 
 
+def test_nohelper_names_pkexec_from_polkit():  # I-3: auch ein pkexec, das nicht von polkit ist, ergibt nohelper
+    assert "pkexec von polkit nötig" in json_of("de")["result.nohelper"]
+    assert "pkexec from polkit" in json_of("en")["result.nohelper"]
+
+
 def test_no_text_names_the_stage_1_scripts():  # Spec 6.5: sie entfallen, die Hinweise verweisen auf die README
     for lang in ("en", "de"):
         bad = {k: v for k, v in json_of(lang).items() if re.search(r"setup-privileges|install-user|--allow-", v)}

@@ -18,9 +18,18 @@ from orbitop.userfile import config_home, read_regular, write_atomic
     ("~", {"XDG_CONFIG_HOME": "cfg"}, None),
     ("rel", {"XDG_CONFIG_HOME": "/x/cfg"}, "/x/cfg"),
 ])
-def test_config_home(monkeypatch, home, env, want):
-    monkeypatch.setenv("HOME", home)
-    assert config_home(env) == want
+def test_config_home(home, env, want):
+    assert config_home({**env, "HOME": home}) == want
+
+
+def test_config_home_empty_home_is_none():
+    assert config_home({"HOME": ""}) is None and config_home({"HOME": "", "XDG_CONFIG_HOME": ""}) is None
+
+
+def test_config_home_never_reads_os_environ(monkeypatch):
+    monkeypatch.setenv("HOME", "/home/other")
+    monkeypatch.setenv("XDG_CONFIG_HOME", "/other/cfg")
+    assert config_home({"HOME": "/home/u"}) == "/home/u/.config" and config_home({}) is None
 
 
 def test_read_regular_limit_and_symlink(tmp_path):
@@ -49,12 +58,18 @@ def test_write_atomic_creates_private_dir_and_replaces_symlink_itself(tmp_path):
     target = tmp_path / "elsewhere"
     target.write_text("x")
     p = tmp_path / "a" / "b" / "f"
-    assert write_atomic(str(p), "eins") and p.read_text() == "eins"
-    assert (tmp_path / "a" / "b").stat().st_mode & 0o777 == 0o700  # makedirs: mode gilt für den letzten Ordner
+    assert write_atomic(str(p), "eins", "layout") and p.read_text() == "eins"
+    assert (tmp_path / "a" / "b").stat().st_mode & 0o777 == 0o700
     os.unlink(p)
     p.symlink_to(target)
-    assert write_atomic(str(p), "zwei") and p.read_text() == "zwei" and not p.is_symlink()
+    assert write_atomic(str(p), "zwei", "layout") and p.read_text() == "zwei" and not p.is_symlink()
     assert target.read_text() == "x" and os.listdir(p.parent) == ["f"]
+
+
+def test_write_atomic_creates_all_levels_0700(tmp_path):
+    p = tmp_path / "a" / "b" / "c" / "f"
+    assert write_atomic(str(p), "x", "layout")
+    assert [(tmp_path / d).stat().st_mode & 0o777 for d in ("a", "a/b", "a/b/c")] == [0o700] * 3
 
 
 @pytest.mark.parametrize("how", ["replace-fails", "target-is-directory",
@@ -73,7 +88,7 @@ def test_write_atomic_failure_returns_false_and_leaves_no_tmp(tmp_path, monkeypa
     else:
         d.chmod(0o500)
     try:
-        assert write_atomic(str(p), "x") is False
+        assert write_atomic(str(p), "x", "layout") is False
     finally:
         d.chmod(0o700)
     assert os.listdir(d) == (["f"] if how == "target-is-directory" else [])

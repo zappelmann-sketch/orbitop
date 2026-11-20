@@ -46,7 +46,23 @@ def _trusted(path: str, lstat=os.lstat) -> bool:
     return False
 
 
-def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, lstat=os.lstat) -> str:
+def _real_pkexec(lstat=os.lstat, opener=os.open) -> bool:
+    """True, wenn PKEXEC das setuid-ELF von polkit sein kann: _trusted, root-eigen mit S_ISUID, beginnt mit \\x7fELF.
+    run0-wrappers (openSUSE) legt dort ein bash-Skript um run0 ab, das die polkit-Action von orbitop umgeht (I-3).
+    Vor jedem Aufruf von PKEXEC; gelesen mit O_NOFOLLOW aus einem fd, ein Symlink scheitert also auch hier."""
+    try:
+        if not _trusted(PKEXEC, lstat) or not lstat(PKEXEC).st_mode & stat.S_ISUID:
+            return False
+        fd = opener(PKEXEC, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+        try:
+            return os.read(fd, 4) == b"\x7fELF"
+        finally:
+            os.close(fd)
+    except OSError:
+        return False
+
+
+def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, lstat=os.lstat, opener=os.open) -> str:
     if type(pid) is not int or type(start) is not int:
         return "error"
     sig = "KILL" if force else "TERM"
@@ -63,7 +79,7 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, l
     refused = _precheck(pid, start, root)
     if refused:  # veraltete Startzeit oder verweigertes Ziel: kein Passwortdialog
         return refused
-    if not _trusted(_HELPER, lstat):  # Helfer fehlt oder ist austauschbar: kein pkexec
+    if not (_trusted(_HELPER, lstat) and _real_pkexec(lstat, opener)):  # Helfer austauschbar, pkexec fremd: kein pkexec
         return "nohelper"
     try:
         r = run([PKEXEC, _HELPER, str(pid), str(start), sig], timeout=120)

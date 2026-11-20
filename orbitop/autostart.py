@@ -3,13 +3,12 @@
 """Autostart je Benutzer nach der freedesktop-Spezifikation „Desktop Application Autostart“. Ohne GTK.
 
 Eine Benutzerdatei gleichen Namens geht allen Systemdateien vor, unter diesen gilt nur die im wichtigsten Ordner."""
-import contextlib
 import os
 import shutil
 from collections.abc import Mapping
 
 from orbitop import APP_ID
-from orbitop.userfile import config_home, read_regular, write_atomic
+from orbitop.userfile import config_home, read_regular, report_write_error, write_atomic
 
 FILE = APP_ID + ".desktop"
 TEMPLATE = """\
@@ -79,7 +78,7 @@ def state(env: Mapping[str, str], which=shutil.which) -> bool | None:
 
 def set_enabled(on: bool, env: Mapping[str, str], which=shutil.which) -> bool | None:
     """Schaltet den Autostart des Benutzers und gibt den Stand danach zurück; wo state None ist, schreibt es nichts.
-    Schreibfehler bleiben still wie bei LayoutFile.save: der Stand danach nennt sie."""
+    Schreibfehler stehen je Art einmal auf stderr; an die Seite geht wie bei LayoutFile.save nur der Stand danach."""
     path = user_path(env)
     if path is None or which("orbitop") is None:
         return None
@@ -87,10 +86,14 @@ def set_enabled(on: bool, env: Mapping[str, str], which=shutil.which) -> bool | 
     if on:
         # lexists: liegt dort etwas Unlesbares oder Seltsames, wird es ersetzt, damit sicher TEMPLATE gilt
         if not (entries and _on(entries[0]) and not os.path.lexists(path)):
-            write_atomic(path, TEMPLATE)
+            write_atomic(path, TEMPLATE, "autostart")
     elif entries:
-        write_atomic(path, OVERRIDE)
+        write_atomic(path, OVERRIDE, "autostart")
     else:
-        with contextlib.suppress(OSError):  # fehlt sie, ist das kein Fehler
+        try:
             os.unlink(path)
+        except FileNotFoundError:  # fehlt sie, ist das kein Fehler
+            pass
+        except OSError as e:
+            report_write_error("autostart", e)
     return state(env, which)

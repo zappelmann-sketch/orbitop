@@ -80,4 +80,4 @@ class LayoutFile:
         if layout == self.current:
             return False
         self.current = layout
-        return bool(self.path) and write_atomic(self.path, json.dumps(layout))
+        return bool(self.path) and write_atomic(self.path, json.dumps(layout), "layout")
