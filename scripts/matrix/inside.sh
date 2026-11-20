@@ -52,7 +52,7 @@ print("VERSIONS python", sys.version.split()[0], "pygobject", gi.__version__, "g
 # installed orbitop accepts it (real_pkexec), so a pkexec that orbitop refuses fails here instead of silently taking
 # away "terminate other users' processes". openSUSE ships it in a package of its own, which orbitop requires as
 # /usr/bin/pkexec.
-install_orbitop() { install_pkg && owned /usr/bin/pkexec && real_pkexec; }
+install_orbitop() { install_pkg && owned /usr/bin/pkexec && real_pkexec /usr/share/orbitop; }
 
 as_tester() { runuser -u tester -- "$@"; }
 
