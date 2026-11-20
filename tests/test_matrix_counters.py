@@ -3,6 +3,7 @@
 """Die Fälle der Freigabe in der Container-Matrix (scripts/matrix/counters.sh, Schritt counters in inside.sh): die
 Liste je Format, eine Zeile COUNTERS je Fall, ein Fehler macht den Lauf rot. Ohne Docker: die Funktionen laufen wie in
 step, mit Stellvertretern (tests/matrix_helpers.py)."""
+import os
 import re
 
 import pytest
@@ -119,3 +120,106 @@ def test_orbitop_file_names_exactly_one_package(tmp_path, name, files, passed):
     assert ok is passed, out
     if passed:
         assert out.splitlines()[-2] == str(tmp_path / files[0])
+
+
+# Jede Prüfung der Fälle kann scheitern (Review Task 3, Minor 3): sonst bestünde ein Fall leer. Stellvertreter sind
+# Shell-Funktionen nach dem Laden von counters.sh; MARKER und TOOL zeigen in tmp_path.
+CAP = "0100000200000000000000004000000000000000"
+
+
+@pytest.mark.parametrize("value,has,no", [(CAP, True, False), ("none", False, True),
+                                          ("0100000200000000000000000000000000000000", False, False), (None, False, False)],
+                         ids=["perfmon", "none", "other", "error"])
+def test_has_cap_and_no_cap(tmp_path, value, has, no):
+    stub = "cap() { return 1; };" if value is None else f"cap() {{ echo {value}; }};"
+    for check, want in (("has_cap", has), ("no_cap", no)):
+        assert call(tmp_path, f"{stub} {check}", "apt.sh", "counters.sh")[0] is want, check
+
+
+def test_cap_reads_the_file_and_fails_without_it(tmp_path):
+    tool = tmp_path / "intel_gpu_top"
+    tool.write_bytes(b"\x7fELF")
+    ok, out = call(tmp_path, f'TOOL={tool}; [ "$(cap)" = none ]', "apt.sh", "counters.sh")
+    assert ok, out
+    assert not call(tmp_path, f"TOOL={tmp_path}/missing; cap", "apt.sh", "counters.sh")[0]
+
+
+def marker_tree(tmp_path, kind):
+    etc = tmp_path / "etc-orbitop"
+    etc.mkdir()
+    marker = etc / "counters-released"
+    if kind == "file":
+        marker.touch()
+    elif kind == "symlink":
+        (etc / "elsewhere").touch()
+        marker.symlink_to(etc / "elsewhere")
+    elif kind == "directory":
+        marker.mkdir()
+    return marker
+
+
+@pytest.mark.parametrize("kind,stat,on,off", [
+    ("file", "0 0 644 0", True, False), ("file", "1000 1000 644 0", False, False), ("file", "0 0 600 0", False, False),
+    ("file", "0 0 644 3", False, False), ("symlink", "0 0 644 0", False, False), ("directory", "0 0 644 0", False, False),
+    ("missing", "0 0 644 0", False, True)], ids=["ok", "owner", "mode", "size", "symlink", "directory", "missing"])
+def test_marker_on_and_off(tmp_path, kind, stat, on, off):  # stat liefert uid gid Modus Größe, als wäre root Eigentümer
+    marker = marker_tree(tmp_path, kind)
+    for check, want in (("marker_on", on), ("marker_off", off)):
+        ok, out = call(tmp_path, f'MARKER={marker}; stat() {{ echo "{stat}"; }}; {check}', "apt.sh", "counters.sh")
+        assert ok is want, (check, out)
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root öffnet jeden Ordner")
+@pytest.mark.parametrize("mode,stat,passed", [(0o000, "0 0 711", True), (0o755, "0 0 711", False),
+                                              (0o000, "0 0 755", False), (0o000, "1000 1000 711", False)],
+                         ids=["closed", "openable", "readable-mode", "owner"])
+def test_closed_needs_root_0711_and_no_access_for_others(tmp_path, mode, stat, passed):
+    """runuser läuft hier als derselbe Benutzer: ein Ordner mit 000 ist dann so zu wie 0711 für nobody."""
+    marker = marker_tree(tmp_path, "missing")
+    marker.parent.chmod(mode)
+    try:
+        ok, out = call(tmp_path, f'MARKER={marker}; stat() {{ echo "{stat}"; }}; runuser() {{ shift 3; "$@"; }}; closed',
+                       "apt.sh", "counters.sh")
+    finally:
+        marker.parent.chmod(0o755)
+    assert ok is passed, out
+
+
+@pytest.mark.parametrize("kind", ["symlink", "missing"])
+def test_closed_refuses_a_link_or_no_directory(tmp_path, kind):
+    target = tmp_path / "real"
+    target.mkdir()
+    etc = tmp_path / "etc-orbitop"
+    if kind == "symlink":
+        etc.symlink_to(target)
+    command = f'MARKER={etc}/counters-released; stat() {{ echo "0 0 711"; }}; runuser() {{ return 0; }}; closed'
+    assert not call(tmp_path, command, "apt.sh", "counters.sh")[0]
+
+
+@pytest.mark.parametrize("pattern,log,passed", [("^Processing triggers for orbitop ", "Processing triggers for orbitop "
+                                                 "(0.2.0-1) ...", True),
+                                                ("^Processing triggers for orbitop ", "Setting up orbitop", False),
+                                                ("", "Setting up orbitop", True)], ids=["ran", "not-run", "no-pattern"])
+def test_triggered(tmp_path, pattern, log, passed):  # ohne Muster (Format ohne solche Zeile) gilt der Fall weiter
+    ok, out = call(tmp_path, f"scripted echo '{log}'; TRIGGERED='{pattern}'; triggered", "apt.sh", "counters.sh")
+    assert ok is passed, out
+
+
+@pytest.mark.parametrize("rc,want,passed", [(0, 0, True), (3, 0, False), (0, 3, False), (3, 3, True)])
+def test_helper_compares_the_exit_code(tmp_path, rc, want, passed):
+    stub = tmp_path / "counterhelper"
+    stub.write_text(f"#!/bin/sh\nexit {rc}\n")
+    stub.chmod(0o755)
+    ok, out = call(tmp_path, f"HELPER={stub}; helper on {want}", "apt.sh", "counters.sh")
+    assert ok is passed and f"counterhelper on: exit {rc}" in out, out
+
+
+@pytest.mark.parametrize("prerm,passed", [("orbitop: counter release not revoked", True),
+                                          ("Removing orbitop (0.2.0-1) ...", False)], ids=["helper-failed", "silent"])
+def test_remove_broken_helper_needs_the_report_of_prerm(tmp_path, prerm, passed):
+    """Review Task 3, Minor 1: ohne die Zeile von prerm scheitert der Fall von selbst, auch wenn Fähigkeit und
+    Merkdatei stimmen (etwa wenn prerm den Helfer nie riefe)."""
+    stubs = (f"helper() {{ :; }}; has_cap() {{ :; }}; marker_off() {{ :; }}; set_cap() {{ :; }}; chmod() {{ :; }};"
+             f" remove_pkg() {{ echo '{prerm}'; }}; purge_pkg() {{ :; }}; MARKER={tmp_path}/gone/counters-released;")
+    ok, out = call(tmp_path, f"{stubs} case_remove_broken_helper", "apt.sh", "counters.sh")
+    assert ok is passed, out

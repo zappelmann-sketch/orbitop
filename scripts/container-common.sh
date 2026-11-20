@@ -81,15 +81,17 @@ only_plain() {
 
 # container DIR IMAGE [DOCKER-OPTION…] -- SCRIPT [ARG…]: one disposable container without the MKNOD and SETFCAP
 # capabilities, the tracked files read-only at /src, DIR writable at /out and $tmp/key.pgp on stdin; afterwards DIR
-# must be plain.
+# must be plain, also after a failure. Returns the status of the container, so that a caller may look at what a
+# failed one left (build-packages.sh --lint report).
 container() {
-    local dir=$1 image=$2 opts=()
+    local dir=$1 image=$2 opts=() rc=0
     shift 2
     while [ "$1" != -- ]; do opts+=("$1") && shift; done
     shift
     docker run --rm -i --cap-drop MKNOD --cap-drop SETFCAP -e OWNER="$(id -u):$(id -g)" -v "$tmp/src:/src:ro" \
-        -v "$dir:/out" "${opts[@]}" "$image" bash "$@" < "$tmp/key.pgp"
+        -v "$dir:/out" "${opts[@]}" "$image" bash "$@" < "$tmp/key.pgp" || rc=$?
     only_plain "$dir"
+    return "$rc"
 }
 
 # fingerprint FILE: the fingerprint of the one primary key in the key file FILE, read in the empty keyring $tmp/gnupg

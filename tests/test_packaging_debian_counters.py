@@ -3,6 +3,7 @@
 """Die Paket-Skripte der Freigabe unter Debian (Security-Dokument 0.3.0, B2.4, B2.8, E1, E4): wörtlich die Zeilen des
 Dokuments, kein Paket-Skript ruft je "on", und keins scheitert wegen des Helfers. Die Skripte laufen hier mit sh auf
 Kopien, in denen der Helfer ein Stellvertreter und /etc/orbitop ein Ordner in tmp_path ist."""
+import os
 import re
 import shutil
 import subprocess
@@ -15,12 +16,14 @@ from tests.packaging_common import PKG
 DEBIAN = PKG / "debian"
 HELPER = "/usr/lib/orbitop/counterhelper"
 SCRIPTS = ("postinst", "prerm", "postrm")
-# B2.4 und B2.8, wörtlich; "…" der Tabelle in B2.8 ist hier der Text für off.
+# B2.4 und B2.8, wörtlich; "…" der Tabelle in B2.8 ist hier der Text für off. postrm macht das Löschen danach mit
+# sync -f dauerhaft (Audit Task 3, M-1).
 POSTINST = ('    configure|triggered) /usr/lib/orbitop/counterhelper sync || echo "orbitop: counter release not applied"'
             ' >&2 ;;')
 PRERM = '    remove) /usr/lib/orbitop/counterhelper off || echo "orbitop: counter release not revoked" >&2 ;;'
-POSTRM = ["    remove) rm -f /etc/orbitop/counters-released ;;",
-          "    purge) rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || true ;;"]
+POSTRM = ["    remove) rm -f /etc/orbitop/counters-released; sync -f /etc 2>/dev/null || true ;;",
+          "    purge) rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || true;"
+          " sync -f /etc 2>/dev/null || true ;;"]
 # Ein Aufruf des Helfers mit seinem Wort, in jeder Datei unter packaging/ (Task 4 ergänzt RPM und Arch).
 CALL = re.compile(r"counterhelper[ \t]+(\S+)")
 
@@ -74,8 +77,10 @@ def test_scripts_keep_debhelper_and_set_e(name):  # dh_python3 setzt bei #DEBHEL
 
 
 def test_trigger_is_the_path_of_the_tool():
-    lines = [ln.split("#", 1)[0].strip() for ln in (DEBIAN / "orbitop.triggers").read_text().splitlines()]
-    assert [ln for ln in lines if ln] == [f"interest-noawait {counterhelper.TOOL}"]  # deb-triggers(5): # bis Zeilenende
+    """Nur ganze Kommentarzeilen: dpkg in trixie lehnt ein # hinter der Anweisung ab ("trigger name contains invalid
+    character"), obwohl deb-triggers(5) es beschreibt (Audit Task 3)."""
+    lines = [ln.strip() for ln in (DEBIAN / "orbitop.triggers").read_text().splitlines()]
+    assert [ln for ln in lines if ln and not ln.startswith("#")] == [f"interest-noawait {counterhelper.TOOL}"]
 
 
 def test_readme_debian_names_the_policy_deviation():  # E1
@@ -84,16 +89,23 @@ def test_readme_debian_names_the_policy_deviation():  # E1
     assert "setcap -r /usr/bin/intel_gpu_top" in text  # M-3: der Weg, wenn der Helfer beim Entfernen nicht lief
 
 
-def run(tmp_path, name, arg, rc=0, helper=True):
-    """orbitop.NAME ARG mit sh; der Helfer schreibt seine Wörter nach calls und endet mit RC (ohne HELPER fehlt er)."""
-    etc, stub = tmp_path / "etc" / "orbitop", tmp_path / "counterhelper"
+def run(tmp_path, name, arg, rc=0, helper=True, sync_rc=0):
+    """orbitop.NAME ARG mit sh; der Helfer schreibt seine Wörter nach calls und endet mit RC (ohne HELPER fehlt er).
+    sync ist ein Stellvertreter, der seine Argumente und ob die Merkdatei dann noch da ist nach syncs schreibt und mit
+    SYNC_RC endet."""
+    etc, stub, bin_ = tmp_path / "etc" / "orbitop", tmp_path / "counterhelper", tmp_path / "bin"
     etc.mkdir(parents=True, exist_ok=True)
+    bin_.mkdir(exist_ok=True)
     if helper:
         stub.write_text(f'#!/bin/sh\necho "$*" >> {tmp_path}/calls\nexit {rc}\n')
         stub.chmod(0o755)
+    (bin_ / "sync").write_text(f'#!/bin/sh\nleft=no && [ ! -e {etc}/counters-released ] || left=yes\n'
+                               f'echo "$* marker-left=$left" >> {tmp_path}/syncs\nexit {sync_rc}\n')
+    (bin_ / "sync").chmod(0o755)
     text = script(name).replace(HELPER, str(stub)).replace("/etc/orbitop", str(etc))
     (tmp_path / name).write_text(text)
-    r = subprocess.run(["sh", str(tmp_path / name), arg], capture_output=True, text=True, timeout=30)
+    r = subprocess.run(["sh", str(tmp_path / name), arg], capture_output=True, text=True, timeout=30,
+                       env={**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}"})
     words = (tmp_path / "calls").read_text().split() if (tmp_path / "calls").exists() else []
     return r, words, etc
 
@@ -123,14 +135,24 @@ def test_a_failing_helper_never_fails_the_script(tmp_path, name, arg, text, rc, 
 
 
 @pytest.mark.parametrize("arg,marker,directory", [("remove", False, True), ("purge", False, False),
-                                                  ("upgrade", True, True), ("abort-install", True, True),
+                                                  ("upgrade", True, True), ("failed-upgrade", True, True),
+                                                  ("abort-upgrade", True, True), ("abort-install", True, True),
                                                   ("disappear", True, True)])
 def test_postrm_marker_and_directory(tmp_path, arg, marker, directory):
     _, _, etc = run(tmp_path, "postrm", "remove")  # legt etc an
+    (tmp_path / "syncs").unlink(missing_ok=True)
     (etc / "counters-released").touch()
     r, called, _ = run(tmp_path, "postrm", arg)
     assert (r.returncode, called) == (0, [])
     assert ((etc / "counters-released").exists(), etc.exists()) == (marker, directory)
+    syncs = (tmp_path / "syncs").read_text().splitlines() if (tmp_path / "syncs").exists() else []
+    assert syncs == ([] if marker else ["-f /etc marker-left=no"])  # erst gelöscht, dann dauerhaft (M-1)
+
+
+@pytest.mark.parametrize("arg", ["remove", "purge"])
+def test_a_failing_sync_never_fails_postrm(tmp_path, arg):
+    r, _, etc = run(tmp_path, "postrm", arg, sync_rc=1)
+    assert (r.returncode, (etc / "counters-released").exists()) == (0, False), r.stderr
 
 
 def test_purge_keeps_a_directory_that_is_not_empty_and_one_that_is_gone(tmp_path):

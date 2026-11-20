@@ -19,6 +19,18 @@ PACKAGES = ["deb/orbitop_0.2.0-1_all.deb", "deb/orbitop-apt-source_2026.11.18_al
             "arch/orbitop-0.2.0-1-any.pkg.tar.zst", "lint/orbitop_0.2.0-1_all.txt"]
 # build-site.sh nimmt Vorlage und Container-Skripte aus git archive HEAD
 needs_git = pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")
+
+
+def tagged(repo):
+    """Ob REPO den Tag v0.2.0 hat, aus dessen Dateien scripts/check-distros.sh 0.2.0 baut."""
+    git = shutil.which("git")
+    return bool(git) and subprocess.run([git, "-C", str(repo), "rev-parse", "--verify", "--quiet",
+                                         "refs/tags/v0.2.0^{commit}"], capture_output=True).returncode == 0
+
+
+# Review Task 3, Minor 5: ohne den Tag (ein Klon mit --no-tags) überspringen statt scheitern.
+needs_tag = pytest.mark.skipif(not (ROOT / ".git").exists() or not tagged(ROOT),
+                               reason="baut aus git archive HEAD und aus dem Tag v0.2.0, den dieser Checkout nicht hat")
 RPMS = ROOT / "tests" / "fixtures" / "rpm"  # echte Paare aus build-packages.sh und build-site.sh (test_rpm_same.py)
 # createrepo_c schreibt neben repomd.xml je Index eine Datei <sha256>-<Name>.xml.zst
 REPODATA = [f"repodata/{hashlib.sha256(t.encode() + b'\n').hexdigest()}-{t}.xml.zst"

@@ -5,7 +5,8 @@
 # after lib.sh and the file of the package manager, which provides COUNTER_CASES (its cases, in the order they run:
 # each starts from the state the one before left), OWNER (the package of intel_gpu_top), JOINT (the ways to update
 # orbitop and OWNER in one transaction, each called as WAY ORBITOP-FILE OWNER-FILE), TRIGGERED (a pattern for the line
-# its log prints when orbitop's trigger runs, or empty), install_owner, reinstall_owner and remove_owner (OWNER from
+# its log prints when orbitop's trigger runs, or empty), REVOKE_FAILED (a pattern for what a removal prints when the
+# helper cannot run), install_owner, reinstall_owner and remove_owner (OWNER from
 # the mirrors), fake_owner N (OWNER of a higher version, built here; prints the file), install_file FILE (orbitop from
 # a file, also of the same or a lower version), orbitop_file rev1|rev2|v020, pkg_files (orbitop's file list),
 # remove_pkg NAME, purge_pkg NAME, installed and owned PATH.
@@ -51,16 +52,17 @@ except OSError as e:
 marker_on() { [ -f "$MARKER" ] && [ ! -L "$MARKER" ] && [ "$(stat -c '%u %g %a %s' -- "$MARKER")" = "0 0 644 0" ]; }
 marker_off() { [ ! -e "$MARKER" ] && [ ! -L "$MARKER" ]; }
 
-# closed: /etc/orbitop is a directory, root 0711, that another account (nobody) cannot open, so none can hold the
-# helper's lock on it (B2.2).
+# closed: /etc/orbitop, the directory of the marker, is root 0711, and another account (nobody) cannot open it, so none
+# can hold the helper's lock on it (B2.2).
 closed() {
-    [ -d /etc/orbitop ] && [ ! -L /etc/orbitop ] && [ "$(stat -c '%u %g %a' /etc/orbitop)" = "0 0 711" ] &&
-        runuser -u nobody -- python3 -I -c 'import os
+    local dir=${MARKER%/*}
+    [ -d "$dir" ] && [ ! -L "$dir" ] && [ "$(stat -c '%u %g %a' -- "$dir")" = "0 0 711" ] &&
+        runuser -u nobody -- python3 -I -c 'import os, sys
 try:
-    os.open("/etc/orbitop", os.O_RDONLY | os.O_DIRECTORY)
+    os.open(sys.argv[1], os.O_RDONLY | os.O_DIRECTORY)
 except PermissionError:
     raise SystemExit(0)
-raise SystemExit("nobody can open /etc/orbitop")'
+raise SystemExit("nobody can open " + sys.argv[1])' "$dir"
 }
 
 # helper WORD CODE: counterhelper WORD exits with CODE.
@@ -96,7 +98,7 @@ case_file_list() {
     list=$(pkg_files | sed 's|/$||') && printf '%s\n' "$list" | grep -E '^/etc|rules' &&
         grep -qx /etc/orbitop <<< "$list" && ! grep -qE '^/etc/(orbitop/|udev)' <<< "$list" &&
         [ "$(grep -E '\.rules$' <<< "$list")" = /usr/lib/udev/rules.d/70-orbitop-counters.rules ] &&
-        closed && [ -z "$(ls -A /etc/orbitop)" ]
+        closed && [ -z "$(ls -A -- "${MARKER%/*}")" ]
 }
 
 # B2.4, 1 and B2.2: without a marker, reinstalling the Intel tools runs the trigger and releases nothing.
@@ -130,23 +132,25 @@ case_rev2_upgrade_on() {
 # tools again then releases nothing. /etc/orbitop goes on purge at the latest (case purge).
 case_remove_on() {
     helper on 0 && has_cap && scripted remove_pkg orbitop && marker_off && no_cap &&
-        { ls -ld /etc/orbitop 2> /dev/null || echo "no /etc/orbitop after the removal"; } &&
+        { ls -ld -- "${MARKER%/*}" 2> /dev/null || echo "no /etc/orbitop after the removal"; } &&
         scripted install_file "$(orbitop_file rev1)" && marker_off && no_cap && scripted reinstall_owner && no_cap &&
         marker_off
 }
 
-# B2.8, 6 (M-3): with on and a helper that cannot run, removing orbitop still succeeds and the marker goes. The
-# capability stays, as expected (README.Debian names setcap -r); purge then leaves no /etc/orbitop.
+# B2.8, 6 (M-3): with on and a helper that cannot run, removing orbitop still succeeds, its log shows that the helper
+# failed (REVOKE_FAILED), and the marker goes. The capability stays, as expected (README.Debian names setcap -r);
+# purge then leaves no /etc/orbitop.
 case_remove_broken_helper() {
-    helper on 0 && has_cap && chmod -x "$HELPER" && logged "$STATE/op.out" remove_pkg orbitop && marker_off &&
-        has_cap && echo "M-3: the capability stays after a removal with a broken helper, as expected" &&
-        set_cap none && scripted purge_pkg orbitop && [ ! -e /etc/orbitop ]
+    helper on 0 && has_cap && chmod -x "$HELPER" && logged "$STATE/op.out" remove_pkg orbitop &&
+        matching "$REVOKE_FAILED" "$STATE/op.out" && marker_off && has_cap &&
+        echo "M-3: the capability stays after a removal with a broken helper, as expected" && set_cap none &&
+        scripted purge_pkg orbitop && [ ! -e "${MARKER%/*}" ]
 }
 
 # B2.8, 7: with on, purging orbitop leaves nothing below /etc/orbitop, and no /etc/orbitop.
 case_purge() {
     scripted install_file "$(orbitop_file rev1)" && helper on 0 && has_cap && scripted purge_pkg orbitop &&
-        marker_off && no_cap && [ ! -e /etc/orbitop ]
+        marker_off && no_cap && [ ! -e "${MARKER%/*}" ]
 }
 
 # B2.9: the udev rule of the README of 0.2.0 stays as it is through install, on, off, remove and purge.

@@ -42,10 +42,11 @@ def keys(tmp_path_factory):
     kill_agent(home)
 
 
-def build(tmp_path, *args, plant=""):
+def build(tmp_path, *args, plant="", fail=""):
     """Lauf mit docker-Stellvertreter: schreibt die Argumente nach docker.log und stdin nach stdin.bin, dazu je Format
     ein Paket und einen Lint-Bericht wie die Container; PLANT legt etwas Fremdes in /out, wie es ein Container als root
-    könnte, "cross" und "lint" erst im zweiten Container (Fedora)."""
+    könnte, "cross" und "lint" erst im zweiten Container (Fedora). FAIL "lint:<format>" endet nach Paket und Bericht mit
+    1 (der Lint-Schritt, der letzte), "early:<format>" vorher ohne beides (Bau oder Wächter)."""
     fake = tmp_path / "bin"
     fake.mkdir(exist_ok=True)
     (fake / "docker").write_text(f"""#!/bin/sh
@@ -66,12 +67,13 @@ case $PLANT:$fmt in
     cross:rpm-fedora) mkdir "$out/deb" && echo evil > "$out/deb/package-deb" ;;
     lint:rpm-fedora) echo evil > "$out/lint/orbitop_9.9.9-1_all.txt" ;;
 esac
+case $FAIL in "lint:$fmt") exit 1 ;; "early:$fmt") rm -r "$out/$fmt" "$out/lint"; exit 1 ;; esac
 """)
     (fake / "getcap").write_text(GETCAP)
     for f in fake.iterdir():
         f.chmod(0o755)
     r = subprocess.run(["bash", str(ROOT / "scripts" / "build-packages.sh"), *args], capture_output=True, text=True,
-                       env={**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "PLANT": plant})
+                       env={**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "PLANT": plant, "FAIL": fail})
     log = tmp_path / "docker.log"
     return r, log.read_text().splitlines() if log.exists() else []
 
@@ -168,4 +170,26 @@ def test_build_takes_a_revision(tmp_path, keys, args, versions):  # orbitop N+1 
 @pytest.mark.parametrize("revision", ["0", "02", "a", "2.1", "-1", ""])
 def test_build_refuses_a_bad_revision(tmp_path, keys, revision):
     r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), "--revision", revision)
+    assert r.returncode != 0 and calls == [], r.stderr
+
+
+@pytest.mark.skipif(not (ROOT / ".git").exists(), reason="baut aus git archive HEAD")
+@pytest.mark.parametrize("args,fail,passed", [
+    ([], "lint:deb", False), (["--lint", "fatal"], "lint:arch", False), (["--lint", "report"], "lint:deb", True),
+    (["--lint", "report"], "lint:rpm-opensuse", True), (["--lint", "report"], "early:deb", False),
+    (["--lint", "report"], "early:arch", False), (["--lint", "report"], "", True)],
+    ids=["default", "fatal", "report-deb", "report-rpm", "report-build-failed", "report-guard-failed", "report-clean"])
+def test_lint_report_keeps_only_lint_findings_from_failing_the_build(tmp_path, keys, args, fail, passed):
+    """Review Task 3, Minor 4: --lint report (für 0.2.0 in check-distros.sh) meldet Lint-Befunde, statt abzubrechen.
+    Jeder andere Fehler eines Containers (Bau, cmp- oder Modus-Wächter: dann liegt nichts in /out) bricht weiter ab."""
+    r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), *args, fail=fail)
+    assert (r.returncode == 0) is passed, r.stderr
+    if passed:
+        assert calls.count("run") == 4 and len(list((tmp_path / "out").glob("*/*"))) == 8
+    if passed and fail:
+        assert "not fatal for this build (--lint report)" in r.stderr, r.stderr
+
+
+def test_build_refuses_an_unknown_lint_mode(tmp_path, keys):
+    r, calls = build(tmp_path, "--out", str(tmp_path / "out"), "--pubkey", str(keys["one"]), "--lint", "off")
     assert r.returncode != 0 and calls == [], r.stderr

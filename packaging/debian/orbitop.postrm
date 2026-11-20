@@ -3,12 +3,13 @@
 # Copyright © 2026 zappelmann-sketch
 # The marker goes on "remove" already, so that a new installation never releases the counters again (security document
 # 0.3.0, B2.8 and E1; a deviation from Debian Policy 10.7.3, README.Debian). "purge" also removes the directory, should
-# it be left empty.
+# it be left empty. sync -f makes the deletion durable, as the helper's fsync does: after a crash a marker must not come
+# back and release on the next installation (audit of Task 3, M-1).
 set -e
 
 case "$1" in
-    remove) rm -f /etc/orbitop/counters-released ;;
-    purge) rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || true ;;
+    remove) rm -f /etc/orbitop/counters-released; sync -f /etc 2>/dev/null || true ;;
+    purge) rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || true; sync -f /etc 2>/dev/null || true ;;
 esac
 
 #DEBHELPER#

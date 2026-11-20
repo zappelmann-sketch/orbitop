@@ -111,6 +111,7 @@ OWNER=intel-gpu-tools
 if grep -qx 'ID=ubuntu' /etc/os-release && grep -qx 'VERSION_ID="26.04"' /etc/os-release; then OWNER=igt-gpu-tools; fi
 JOINT=(install_pair dpkg_pair dpkg_pair_reversed)  # B2.4, 6: apt-get install of both files, dpkg -i in both orders
 TRIGGERED='^Processing triggers for orbitop '
+REVOKE_FAILED='^orbitop: counter release not revoked$'  # prerm, when off cannot run
 
 install_owner() { net apt-get install -y "$OWNER" && [ "$(owned "$TOOL")" = "$OWNER: $TOOL" ]; }
 reinstall_owner() { net apt-get install --reinstall -y "$OWNER"; }

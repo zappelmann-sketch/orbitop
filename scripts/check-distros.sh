@@ -65,16 +65,21 @@ key=$(fingerprint "$site/orbitop-archive-keyring.asc") ||
 [ "$(fingerprint "$site2/orbitop-archive-keyring.asc" || true)" = "$key" ] ||
     die "--site2 must carry the same key as --site ($key)"
 echo "KEY $key"
-tracked_files  # a container sees only the files of the commit ORBITOP_REV (default HEAD), never CLAUDE.md or .git
+# HEAD once, for /src and the build as revision 2 alike, even if it moves meanwhile (release.sh passes its pinned HEAD).
+[ -n "${ORBITOP_REV:-}" ] || ORBITOP_REV=$(git --no-replace-objects -C "$repo" rev-parse --verify HEAD) ||
+    die "no HEAD in $repo"
+export ORBITOP_REV
+tracked_files  # a container sees only the files of the commit ORBITOP_REV, never CLAUDE.md or .git
 # The packages that the step counters updates from and to (docs/distro-check.md), with the key of the sites: the same
 # commit as revision 2, and 0.2.0 from the files of its tag (git archive; the containers run the tag's own build
-# scripts), never from the published source. Their logs go to stderr: stdout stays the protocol of the run, which
-# scripts/release/distro-check.py reads.
+# scripts), never from the published source. 0.2.0 can no longer change, so its lint findings are only reported
+# (--lint report); every other failure stops the run. The logs go to stderr: stdout stays the protocol of the run,
+# which scripts/release/distro-check.py reads.
 bash "$repo/scripts/build-packages.sh" --out "$tmp/rev2" --pubkey "$site/orbitop-archive-keyring.asc" --revision 2 >&2 ||
     die "cannot build orbitop as revision 2"
-old=$(git --no-replace-objects -C "$repo" rev-parse --verify --quiet 'v0.2.0^{commit}') || die "no tag v0.2.0"
+old=$(git --no-replace-objects -C "$repo" rev-parse --verify --quiet 'refs/tags/v0.2.0^{commit}') || die "no tag v0.2.0"
 ORBITOP_REV=$old bash "$repo/scripts/build-packages.sh" --out "$tmp/v020" --pubkey "$site/orbitop-archive-keyring.asc" \
-    >&2 || die "cannot build orbitop 0.2.0 from the tag v0.2.0"
+    --lint report >&2 || die "cannot build orbitop 0.2.0 from the tag v0.2.0"
 results=()
 for image in "$@"; do
     echo "IMAGE $image"  # scripts/release/distro-check.py finds the log of each image by this line

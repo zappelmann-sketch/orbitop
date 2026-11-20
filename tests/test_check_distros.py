@@ -7,15 +7,17 @@ import configparser
 import hashlib
 import os
 import re
+import shutil
 import subprocess
 from pathlib import Path
 
 import pytest
 
 from tests.packaging_common import APT_SOURCE, PKG, ROOT, deb822
-from tests.site_stub import GETCAP, gpg, kill_agent, make_keys, needs_git
+from tests.site_stub import GETCAP, gpg, kill_agent, make_keys, needs_tag, tagged
 
 SCRIPT = ROOT / "scripts" / "check-distros.sh"
+GIT = shutil.which("git")
 MATRIX = ROOT / "scripts" / "matrix"
 PAGES = "https://zappelmann-sketch.github.io/orbitop/"
 DIGEST = "fake@sha256:" + "0" * 64
@@ -28,7 +30,8 @@ STEP install fail"""
 # Schreibt die Argumente je Aufruf nach docker.log, die Dateien der Repo-Kopie nach files.txt, die Pakete unter /rev2
 # und /v020 nach extras.txt und gibt OUTPUT aus. Ein Bau-Container (build-inside.sh von build-packages.sh) legt sein
 # Format und einen Lint-Bericht an, unter deb/ das Paket orbitop der Version, und schreibt nach builds.log, ob /src
-# den Helfer counterhelper.py hat (new) oder nicht (old, 0.2.0), und seine Argumente.
+# den Helfer counterhelper.py hat (new) oder nicht (old, 0.2.0), und seine Argumente. BUILD_FAIL=old|new lässt den
+# Bau dieses Baums vor der Ausgabe scheitern (Bau, Wächter), LINT_FAIL=old|new danach (im Lint-Schritt).
 DOCKER = f"""#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/docker.log"
 case $1 in
@@ -43,10 +46,12 @@ case $1 in
             while [ "$1" != bash ]; do shift; done
             tree=old && [ ! -e "$src/orbitop/counterhelper.py" ] || tree=new
             echo "BUILD $fmt $tree $3 $4" >> "$LOG_DIR/builds.log"
+            [ "$BUILD_FAIL" != "$tree" ] || exit 1
             mkdir -p "$out/$fmt" "$out/lint" && echo ok > "$out/lint/$fmt.txt" && echo "$image" > "$out/$fmt/$fmt"
             [ "$fmt" != deb ] || touch "$out/deb/orbitop_$3_all.deb"
             cat > /dev/null
-            exit 0
+            [ "$LINT_FAIL" != "$tree" ]
+            exit
         fi
         echo "$src" > "$LOG_DIR/src.txt"
         (cd "$src" && tar -cf - . | tar -tf -) > "$LOG_DIR/files.txt"
@@ -77,12 +82,12 @@ def sites(tmp_path, key=b"no key\n", key2=None):
     return tmp_path / "site", tmp_path / "site2"
 
 
-def run(tmp_path, *args, output="", rc=0, env=()):
-    """check-distros.sh mit docker-Stellvertreter; gibt das Ergebnis, die docker-Aufrufe (je Aufruf seine
-    Argumente) und die RESULT-Zeilen zurück."""
+def run(tmp_path, *args, output="", rc=0, env=(), stubs=()):
+    """check-distros.sh mit docker-Stellvertreter (und STUBS: Name -> Skript); gibt das Ergebnis, die docker-Aufrufe
+    (je Aufruf seine Argumente) und die RESULT-Zeilen zurück."""
     fake = tmp_path / "bin"
     fake.mkdir(exist_ok=True)
-    for name, text in {"docker": DOCKER, "getcap": GETCAP}.items():
+    for name, text in {"docker": DOCKER, "getcap": GETCAP, **dict(stubs)}.items():
         (fake / name).write_text(text)
         (fake / name).chmod(0o755)
     env = {**os.environ, "PATH": f"{fake}:{os.environ['PATH']}", "LOG_DIR": str(tmp_path), "OUTPUT": output,
@@ -99,7 +104,7 @@ def run(tmp_path, *args, output="", rc=0, env=()):
     return r, calls, [ln for ln in r.stdout.splitlines() if ln.startswith("RESULT ")]
 
 
-@needs_git
+@needs_tag
 def test_one_docker_run_per_image_with_ro_mounts(tmp_path, keys):
     site, site2 = sites(tmp_path, keys["asc"][0])
     r, calls, results = run(tmp_path, "--site", str(site), "--site2", str(site2), "fake:1", "fake/two:latest",
@@ -123,7 +128,7 @@ def test_one_docker_run_per_image_with_ro_mounts(tmp_path, keys):
     assert not Path(src).exists()  # nach dem Lauf entfernt
 
 
-@needs_git
+@needs_tag
 def test_builds_revision_2_and_0_2_0_for_the_counter_cases(tmp_path, keys):
     """Vor den Images: derselbe Stand als Revision 2 und 0.2.0 aus den Dateien des Tags v0.2.0 (nie aus der
     veröffentlichten Quelle), je in allen vier Formaten, mit dem Schlüssel der Bäume; die Container sehen sie
@@ -141,6 +146,42 @@ def test_builds_revision_2_and_0_2_0_for_the_counter_cases(tmp_path, keys):
     assert (tmp_path / "extras.txt").read_text().split() == ["deb", f"orbitop_{version}-2_all.deb", "deb",
                                                              "orbitop_0.2.0-1_all.deb"]
     assert "fpr:" not in r.stdout and "fpr:" in r.stderr  # build-packages.sh nennt den Schlüssel, aber nicht auf stdout
+
+
+@needs_tag
+@pytest.mark.parametrize("fail,error", [({"LINT_FAIL": "old"}, ""), ({"LINT_FAIL": "new"}, "as revision 2"),
+                                        ({"BUILD_FAIL": "old"}, "0.2.0 from the tag"),
+                                        ({"BUILD_FAIL": "new"}, "as revision 2")],
+                         ids=["lint-0.2.0", "lint-rev2", "build-0.2.0", "build-rev2"])
+def test_only_lint_findings_of_0_2_0_are_not_fatal(tmp_path, keys, fail, error):
+    """Review Task 3, Minor 4: Lint hält den Bau des unveränderlichen 0.2.0 nicht an, den von Revision 2 schon;
+    jeder andere Fehler (Bau, Wächter) bricht in beiden ab."""
+    site, site2 = sites(tmp_path, keys["asc"][0])
+    r, calls, results = run(tmp_path, "--site", str(site), "--site2", str(site2), "fake:1", output=steps(), env=fail)
+    if error:
+        assert r.returncode == 1 and results == [] and f"cannot build orbitop {error}" in r.stderr, r.stderr
+    else:
+        assert results == [f"RESULT fake:1 {DIGEST} pass -"] and "(--lint report)" in r.stderr, r.stderr
+
+
+@needs_tag
+def test_one_commit_for_src_and_revision_2_and_the_tag_by_its_full_name(tmp_path, keys):
+    """Audit Task 3, M-2: HEAD einmal für /src und Revision 2; 0.2.0 nur aus refs/tags/v0.2.0."""
+    site, site2 = sites(tmp_path, keys["asc"][0])
+    wrapper = f'#!/bin/sh\nprintf "%s\\n" "$*" >> "$LOG_DIR/git.log"\nexec {GIT} "$@"\n'
+    r, _, results = run(tmp_path, "--site", str(site), "--site2", str(site2), "fake:1", output=steps(),
+                        env={"ORBITOP_REV": ""}, stubs={"git": wrapper})
+    assert results == [f"RESULT fake:1 {DIGEST} pass -"], r.stderr
+    head, old = (subprocess.run([GIT, "-C", str(ROOT), "rev-parse", ref], capture_output=True, text=True).stdout.strip()
+                 for ref in ("HEAD", "refs/tags/v0.2.0^{commit}"))
+    log = (tmp_path / "git.log").read_text().splitlines()
+    archives = [ln.split()[-1] for ln in log if " archive " in f" {ln} "]
+    assert archives == [head, head, old], log  # /src, Revision 2, 0.2.0; nie "HEAD" je Bau neu
+    assert "--no-replace-objects -C {} rev-parse --verify --quiet refs/tags/v0.2.0^{{commit}}".format(ROOT) in log
+
+
+def test_tagged_is_false_without_the_tag(tmp_path):  # needs_tag überspringt dann statt zu scheitern
+    assert not tagged(tmp_path)
 
 
 @pytest.mark.parametrize("args", [
@@ -178,7 +219,7 @@ def test_sites_must_carry_one_and_the_same_key(tmp_path, keys, case):  # die Mat
     assert expect in r.stderr
 
 
-@needs_git
+@needs_tag
 @pytest.mark.parametrize("image,output,rc,result", [
     ("debian:bookworm", REFUSED, 1, "pass install"),
     ("ubuntu:22.04", REFUSED, 1, "pass install"),
@@ -197,7 +238,7 @@ def test_expected_refusal_counts_as_pass(tmp_path, keys, image, output, rc, resu
     assert r.returncode == (0 if result.startswith("pass ") else 1)  # Exit 1, sobald ein Image nicht besteht
 
 
-@needs_git
+@needs_tag
 def test_one_failed_image_fails_the_run_after_all_images(tmp_path, keys):
     site, site2 = sites(tmp_path, keys["asc"][0])
     r, calls, results = run(tmp_path, "--site", str(site), "--site2", str(site2), "debian:trixie", "debian:bookworm",
@@ -211,7 +252,7 @@ def tree_hash(d):
             if p.is_file()}
 
 
-@needs_git
+@needs_tag
 def test_rewrite_only_inside_container(tmp_path, keys):
     """Die Pakete tragen die echte Pages-Adresse; nur die installierten Kopien unter /etc im Container zeigen auf
     file://, und der Rechner ändert die Bäume nie."""

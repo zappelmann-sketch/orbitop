@@ -29,9 +29,12 @@ How the check runs:
 
 - Before the images, `check-distros.sh` builds the packages that the step `counters` updates from and to, with
   `scripts/build-packages.sh` and the key of the sites, their logs on stderr: the commit `ORBITOP_REV` once more as
-  revision 2 (`--revision 2`, orbitop N+1), and 0.2.0 from the files of the tag `v0.2.0` (`ORBITOP_REV` set to its
-  commit, so the containers run the tag's own build scripts), never from the published source: the run depends neither
-  on the state of Pages nor on the archive key.
+  revision 2 (`--revision 2`, orbitop N+1), and 0.2.0 from the files of the tag `refs/tags/v0.2.0` (`ORBITOP_REV` set
+  to its commit, so the containers run the tag's own build scripts), never from the published source: the run depends
+  neither on the state of Pages nor on the archive key. Without `ORBITOP_REV`, the script takes HEAD once and passes
+  it on, so `/src` and revision 2 are the same commit. The tag cannot change, so its build runs with
+  `--lint report`: lint findings of a newer lintian, rpmlint or namcap are reported, not fatal; any other failure
+  (the build, a cmp or mode guard) stops the run, as every finding of revision 1 and 2 does.
 - Each image runs once as
   `docker run --rm -v <copy>:/src:ro -v SITE:/site:ro -v SITE2:/site2:ro -v <rev2>:/rev2:ro -v <v020>:/v020:ro <digest> bash /src/scripts/matrix/inside.sh`,
   from the digest that `docker image inspect` reported after the pull (the one in the table), not from the tag:
@@ -96,8 +99,8 @@ How the check runs:
       `/etc/orbitop` does not exist; the index refresh (`dnf makecache --refresh`, `pacman -Syy`) is clean; and no index
       of the source is left (apt lists, `/var/cache/zypp/*/orbitop`, `/var/lib/pacman/sync/orbitop.*`).
   11. `counters`: the cases of the counter release (security document 0.3.0, the container matrix of B2.1, B2.2,
-      B2.3, B2.4, B2.8 and B2.9), from the state the purge left: no source of orbitop and its dependencies installed,
-      so orbitop comes only from files, of `SITE` (revision 1), `/rev2` and `/v020`. One line `COUNTERS <case> ok|FAIL`
+      B2.3, B2.4, B2.8 and B2.9), from the state the purge left: no source of orbitop configured; its dependencies
+      stay installed, so orbitop comes only from files, of `SITE` (revision 1), `/rev2` and `/v020`. One line `COUNTERS <case> ok|FAIL`
       per case; one `FAIL` fails the step, and with it the image. The cases are the same for every format
       (`scripts/matrix/counters.sh`, `tests/test_matrix_counters.py`); the file of the package manager gives their
       list, the owner of `/usr/bin/intel_gpu_top` and the commands; until the RPM scriptlets and the pacman hook come,
