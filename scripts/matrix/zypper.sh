@@ -43,3 +43,30 @@ purge() {
 }
 
 refresh_index() { "${ZYPPER[@]}" refresh orbitop; }
+
+# The counter release (scripts/matrix/counters.sh, rpm.sh). The owner of intel_gpu_top as in the security document
+# 0.3.0, B2.4 (igt-gpu-tools is only a Provides there), and the package of /usr/bin/pkexec, which orbitop requires as
+# a file. zypper prints no line for a trigger whose scriptlet prints nothing (probe on 2026-11-20), so TRIGGERED is
+# empty.
+OWNER=intel-gpu-tools
+PKEXEC_PROVIDER=pkexec
+TRIGGERED=''
+JOINT=(rpm_pair zypper_pair)  # B2.4, 6: rpm -U of both files, zypper up of both
+get_pkg() { "${ZYPPER[@]}" install "$@"; }
+reget_pkg() { "${ZYPPER[@]}" install --force "$@"; }
+remove_pkg() { "${ZYPPER[@]}" remove "$1"; }  # zypper removes no dependencies along by default
+
+# install_new FILE: zypper refuses an unsigned file and one whose key is not in the rpm database (/rev2 and /v020 are
+# unsigned, the key of SITE left the database in the step purge).
+install_new() { net "${ZYPPER[@]}" --no-gpg-checks install --allow-unsigned-rpm "$1"; }
+
+# zypper_pair ORBITOP OWNER: zypper up takes no files, so both go into a repository of their own (plaindir, without
+# signatures, like the files themselves), and zypper up updates both from it in one transaction; the repository goes
+# afterwards.
+zypper_pair() {
+    local dir=$STATE/joint rc=0
+    rm -rf -- "$dir" && mkdir -p "$dir" && cp -- "$1" "$2" "$dir/" &&
+        "${ZYPPER[@]}" addrepo --no-gpgcheck --type plaindir "$dir" joint || return 1
+    "${ZYPPER[@]}" update --repo joint orbitop "$OWNER" || rc=$?
+    "${ZYPPER[@]}" removerepo joint && return "$rc"
+}

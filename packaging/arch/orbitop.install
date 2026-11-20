@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Loads the signing key of the orbitop repository from /usr/share/pacman/keyrings into the keyring of pacman
-# (pacman-key(8), "Providing a keyring for import"), so that a renewed key arrives with the update. Like
-# archlinux-keyring, only when pacman's keyring is set up.
+# The install script of the Arch package (PKGBUILD(5), install). On install and upgrade it loads the signing key of
+# the orbitop repository from /usr/share/pacman/keyrings into the keyring of pacman (pacman-key(8), "Providing a
+# keyring for import"), so that a renewed key arrives with the update. Like archlinux-keyring, only when pacman's
+# keyring is set up. On removal it takes the counter release back (below).
 
 post_install() {
     if pacman-key -l >/dev/null 2>&1; then
@@ -15,3 +16,11 @@ post_install() {
 post_upgrade() {
     post_install
 }
+
+# The counter release (security document 0.3.0, B2.8): pacman calls these only when orbitop goes, never on an
+# upgrade, which keeps the release; the hook orbitop-counters.hook applies it to new copies of intel_gpu_top. Neither
+# fails because of the helper. post_remove is the backup for a helper that could not run (M-3): the marker goes
+# anyway, durably, and the empty directory too.
+pre_remove() { /usr/lib/orbitop/counterhelper off || true; }
+
+post_remove() { rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || true; sync -f /etc 2>/dev/null || true; }

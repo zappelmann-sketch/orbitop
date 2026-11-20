@@ -5,11 +5,12 @@
 # after lib.sh and the file of the package manager, which provides COUNTER_CASES (its cases, in the order they run:
 # each starts from the state the one before left), OWNER (the package of intel_gpu_top), JOINT (the ways to update
 # orbitop and OWNER in one transaction, each called as WAY ORBITOP-FILE OWNER-FILE), TRIGGERED (a pattern for the line
-# its log prints when orbitop's trigger runs, or empty), REVOKE_FAILED (a pattern for what a removal prints when the
-# helper cannot run), install_owner, reinstall_owner and remove_owner (OWNER from
-# the mirrors), fake_owner N (OWNER of a higher version, built here; prints the file), install_file FILE (orbitop from
-# a file, also of the same or a lower version), orbitop_file rev1|rev2|v020, pkg_files (orbitop's file list),
-# remove_pkg NAME, purge_pkg NAME, installed and owned PATH.
+# its log prints when orbitop's trigger runs, or empty if it prints none), REMOVE_TRIGGERED (the same when OWNER goes,
+# empty where no trigger runs then), REVOKE_FAILED (a pattern for what a removal prints when the helper cannot run;
+# never empty), install_owner, reinstall_owner and remove_owner (OWNER from the mirrors), fake_owner N (OWNER of a
+# higher version, built here; prints the file), install_file FILE (orbitop from a file, also of the same or a lower
+# version), orbitop_file rev1|rev2|v020, pkg_files (orbitop's file list), remove_pkg NAME, purge_pkg NAME, installed
+# and owned PATH. A format may add cases of its own (case_<name>).
 # As root, without polkit. Docker masks the RAPL zones (/sys/devices/virtual/powercap), so the helper finds none and
 # exits 0 for that part (ruling of Task 2): the cases check the capability, the marker and the exit codes.
 # shellcheck shell=bash disable=SC2154  # STATE comes from lib.sh, the rest from the file of the package manager
@@ -18,7 +19,9 @@ HELPER=/usr/lib/orbitop/counterhelper
 MARKER=/etc/orbitop/counters-released  # counterhelper.MARKER
 TOOL=/usr/bin/intel_gpu_top
 CAP=0100000200000000000000004000000000000000  # cap_perfmon=ep, the 20 bytes setcap writes (B2.1)
-NOT_APPLIED='orbitop: counter release not (applied|revoked)'  # what the package scripts print if the helper failed
+# What the package scripts print if the helper failed: the lines of postinst and prerm (deb), and the helper's own
+# message or the shell's if it cannot start, as RPM and Arch scripts print nothing of their own.
+NOT_APPLIED='orbitop: counter release not (applied|revoked)|counterhelper: '
 MANUAL_RULE=/etc/udev/rules.d/70-orbitop-rapl.rules  # the rule of the README of 0.2.0 (B2.9)
 MANUAL_LINE='ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"'
 
@@ -81,10 +84,19 @@ scripted() {
     [ "$found" -eq 1 ]  # 1: no such line; 2: the log cannot be read
 }
 
-# triggered: the last scripted command ran orbitop's trigger, if the format logs that.
-triggered() { [ -z "$TRIGGERED" ] || matching "$TRIGGERED" "$STATE/op.out"; }
+# triggered [PATTERN]: the last scripted command ran orbitop's trigger (PATTERN, default TRIGGERED), if the format
+# logs that.
+triggered() { local pattern=${1-$TRIGGERED}; [ -z "$pattern" ] || matching "$pattern" "$STATE/op.out"; }
 
 inode() { stat -c %i -- "$TOOL"; }
+# stamp: inode and change time of TOOL. A reinstall changes it also where rpm keeps an unchanged file and only sets
+# its metadata anew, which takes the capability as well (%_minimize_writes on openSUSE, probe on 2026-11-20).
+stamp() { stat -c '%i %z' -- "$TOOL"; }
+
+# For the files of the formats. only_file FILE…: prints FILE if it is the one regular file given (a glob that matched
+# exactly one); elf FILE: FILE starts with the magic bytes of an ELF program.
+only_file() { [ $# -eq 1 ] && [ -f "$1" ] && echo "$1"; }
+elf() { [ "$(head -c 4 -- "$1" | od -An -c | tr -d ' ')" = 177ELF ]; }
 
 # B2.4, 5: with a capability set by hand, the first installation of orbitop creates no marker and leaves it.
 case_orbitop_install_manual_cap() {
@@ -101,22 +113,28 @@ case_file_list() {
         closed && [ -z "$(ls -A -- "${MARKER%/*}")" ]
 }
 
-# B2.4, 1 and B2.2: without a marker, reinstalling the Intel tools runs the trigger and releases nothing.
-case_reinstall_owner_off() { helper off 0 && scripted reinstall_owner && triggered && no_cap && marker_off; }
+# B2.4, 1 and B2.2: without a marker, reinstalling the Intel tools runs the trigger and releases nothing. The
+# capability set by hand before shows that a reinstall takes it in this format, which reinstall_owner_on builds on.
+case_reinstall_owner_off() {
+    helper off 0 && set_cap "$CAP" && scripted reinstall_owner && triggered && no_cap && marker_off
+}
 
 # B2.1 and B2.2: on sets cap_perfmon=ep and the marker; no other account can open /etc/orbitop; off takes both back.
 case_on_off() { helper on 0 && has_cap && marker_on && closed && helper off 0 && no_cap && marker_off; }
 
-# B2.4, 2: after on, the new file of a reinstalled Intel package has the capability again.
+# B2.4, 2: after on, the file of a reinstalled Intel package (new, or with its metadata set anew) has the capability
+# again.
 case_reinstall_owner_on() {
-    local ino
-    helper on 0 && ino=$(inode) && scripted reinstall_owner && triggered && [ "$(inode)" != "$ino" ] && has_cap &&
+    local was
+    helper on 0 && was=$(stamp) && scripted reinstall_owner && triggered && [ "$(stamp)" != "$was" ] && has_cap &&
         marker_on
 }
 
-# B2.4, 3: removing the Intel tools runs the trigger, where the helper ends with 0, as it does on its own.
+# B2.4, 3: removing the Intel tools runs the trigger where the format has one then (deb), and the helper ends with 0,
+# as it does on its own.
 case_owner_remove() {
-    helper on 0 && scripted remove_owner && triggered && [ ! -e "$TOOL" ] && helper sync 0 && marker_on
+    helper on 0 && scripted remove_owner && triggered "$REMOVE_TRIGGERED" && [ ! -e "$TOOL" ] && helper sync 0 &&
+        marker_on
 }
 
 # B2.4, 4: after on, the first installation of the Intel tools brings the capability.
@@ -187,10 +205,10 @@ case_joint_upgrade() {
 }
 
 # counters: every case of COUNTER_CASES in turn, a line "COUNTERS <case> ok|FAIL" each; fails if one failed. A format
-# without cases says so in a line "COUNTERS none".
+# without cases says so in a line "COUNTERS none" and fails: every format has them.
 counters() {
     local name failed=0
-    [ ${#COUNTER_CASES[@]} -gt 0 ] || echo "COUNTERS none"
+    [ ${#COUNTER_CASES[@]} -gt 0 ] || { echo "COUNTERS none" && return 1; }
     for name in "${COUNTER_CASES[@]}"; do
         echo "--- $name"
         if "case_$name"; then

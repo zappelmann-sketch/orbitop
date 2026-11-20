@@ -9,6 +9,9 @@ import subprocess
 from tests.packaging_common import ROOT
 
 MATRIX = ROOT / "scripts" / "matrix"
+# Die Dateien je Paketverwaltung, in der Reihenfolge, in der inside.sh sie lädt (vor counters.sh).
+FILES = {"apt.sh": ("apt.sh",), "dnf.sh": ("rpm.sh", "dnf.sh"), "zypper.sh": ("rpm.sh", "zypper.sh"),
+         "pacman.sh": ("pacman.sh",)}
 PAGES = "https://zappelmann-sketch.github.io/orbitop/"
 # rpm --import legt einen Schlüssel in keys ab, rpm -K meldet für jede Datei $RPMK; rpmkeys liest und löscht dort.
 RPM = """#!/bin/sh

@@ -111,6 +111,7 @@ OWNER=intel-gpu-tools
 if grep -qx 'ID=ubuntu' /etc/os-release && grep -qx 'VERSION_ID="26.04"' /etc/os-release; then OWNER=igt-gpu-tools; fi
 JOINT=(install_pair dpkg_pair dpkg_pair_reversed)  # B2.4, 6: apt-get install of both files, dpkg -i in both orders
 TRIGGERED='^Processing triggers for orbitop '
+REMOVE_TRIGGERED=$TRIGGERED  # dpkg's trigger fires when the owner goes as well
 REVOKE_FAILED='^orbitop: counter release not revoked$'  # prerm, when off cannot run
 
 install_owner() { net apt-get install -y "$OWNER" && [ "$(owned "$TOOL")" = "$OWNER: $TOOL" ]; }
@@ -122,7 +123,7 @@ remove_owner() { apt-get remove -y "$OWNER"; }
 fake_owner() {
     local dir=$STATE/owner-$1 version
     version=$(dpkg-query -W -f '${Version}' "$OWNER") && rm -rf -- "$dir" && mkdir -p "$dir/DEBIAN" "$dir/usr/bin" &&
-        cp -- "$TOOL" "$dir/usr/bin/" && [ "$(head -c 4 -- "$TOOL" | od -An -c | tr -d ' ')" = 177ELF ] &&
+        cp -- "$TOOL" "$dir/usr/bin/" && elf "$TOOL" &&
         printf '%s\n' "Package: $OWNER" "Version: $version+fake$1" "Architecture: $(dpkg --print-architecture)" \
             "Maintainer: orbitop matrix <matrix@example.com>" "Description: the next version of $OWNER, for the matrix" \
             > "$dir/DEBIAN/control" && dpkg-deb --root-owner-group --build "$dir" "$dir.deb" > /dev/null && echo "$dir.deb"
@@ -139,12 +140,10 @@ pkg_files() { dpkg -L orbitop; }
 # orbitop_file rev1|rev2|v020: orbitop of SITE, or the one check-distros.sh built of the same tree as revision 2
 # (REV2) or of the tag v0.2.0 (V020).
 orbitop_file() {
-    local files
     case $1 in
-        rev1) files=("$SITE"/apt/pool/main/o/orbitop/orbitop_*_all.deb) ;;
-        rev2) files=("$REV2"/deb/orbitop_*_all.deb) ;;
-        v020) files=("$V020"/deb/orbitop_*_all.deb) ;;
+        rev1) only_file "$SITE"/apt/pool/main/o/orbitop/orbitop_*_all.deb ;;
+        rev2) only_file "$REV2"/deb/orbitop_*_all.deb ;;
+        v020) only_file "$V020"/deb/orbitop_*_all.deb ;;
         *) return 1 ;;
     esac
-    [ ${#files[@]} -eq 1 ] && [ -f "${files[0]}" ] && echo "${files[0]}"
 }

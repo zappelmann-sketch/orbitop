@@ -23,4 +23,6 @@ package() {
     install -D -m 0644 -t "$pkgdir/usr/share/licenses/$pkgname" orbitop/ui/fonts/OFL-*.txt
     # The key for "pacman-key --populate orbitop" (orbitop.install), so that a renewed key arrives with the update.
     install -D -m 0644 -t "$pkgdir/usr/share/pacman/keyrings" "$srcdir/orbitop.gpg" "$srcdir/orbitop-trusted"
+    # The hook that applies the counter release to each new intel_gpu_top (security document 0.3.0, B2.4).
+    install -D -m 0644 -t "$pkgdir/usr/share/libalpm/hooks" packaging/arch/orbitop-counters.hook
 }

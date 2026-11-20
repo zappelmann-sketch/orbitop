@@ -56,6 +56,25 @@ bash packaging/install-tree.sh %{buildroot}
 desktop-file-validate %{buildroot}%{_datadir}/applications/io.github.zappelmann_sketch.orbitop.desktop
 appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github.zappelmann_sketch.orbitop.metainfo.xml
 
+# The counter release (security document 0.3.0, B2.4 and B2.8). No scriptlet ever turns it on, and none fails
+# because of the helper. "sync" changes nothing without the marker /etc/orbitop/counters-released, which only the
+# helper creates after the admin password.
+%preun
+# Only on the final removal ($1 = 0), never on an upgrade: an update keeps the release.
+if [ "$1" -eq 0 ]; then /usr/lib/orbitop/counterhelper off || :; fi
+
+%postun
+# The backup for a helper that could not run (M-3): the marker goes anyway, durably, and the empty directory too.
+if [ "$1" -eq 0 ]; then rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || :; sync -f /etc 2>/dev/null || :; fi
+
+%posttrans
+# Also when orbitop and the Intel tools come in one transaction, where no file trigger reaches orbitop (I-1, E4).
+/usr/lib/orbitop/counterhelper sync || :
+
+%filetriggerin -- /usr/bin/intel_gpu_top
+# Each new copy of the file loses the capability. A transaction file trigger on a path never fires (R4.4).
+/usr/lib/orbitop/counterhelper sync || :
+
 %files
 %license LICENSE
 %{_bindir}/orbitop

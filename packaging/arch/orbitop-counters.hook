@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# The counter release (security document 0.3.0, B2.4): each new copy of intel_gpu_top loses the capability, so
+# after every transaction that brings one, "sync" applies the release again; without the marker
+# /etc/orbitop/counters-released it changes nothing. PostTransaction also covers orbitop and the Intel tools in one
+# transaction (I-1). Installed to /usr/share/libalpm/hooks/ (alpm-hooks(5)).
+[Trigger]
+Type = Path
+Operation = Install
+Operation = Upgrade
+Target = usr/bin/intel_gpu_top
+
+[Action]
+Description = Applying the orbitop counter release, if turned on...
+When = PostTransaction
+Exec = /usr/lib/orbitop/counterhelper sync

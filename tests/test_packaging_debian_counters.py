@@ -3,7 +3,6 @@
 """Die Paket-Skripte der Freigabe unter Debian (Security-Dokument 0.3.0, B2.4, B2.8, E1, E4): wörtlich die Zeilen des
 Dokuments, kein Paket-Skript ruft je "on", und keins scheitert wegen des Helfers. Die Skripte laufen hier mit sh auf
 Kopien, in denen der Helfer ein Stellvertreter und /etc/orbitop ein Ordner in tmp_path ist."""
-import os
 import re
 import shutil
 import subprocess
@@ -12,9 +11,9 @@ import pytest
 
 from orbitop import counterhelper
 from tests.packaging_common import PKG
+from tests.scriptlets import HELPER, deb_script as script, recorded, run_deb as run
 
 DEBIAN = PKG / "debian"
-HELPER = "/usr/lib/orbitop/counterhelper"
 SCRIPTS = ("postinst", "prerm", "postrm")
 # B2.4 und B2.8, wörtlich; "…" der Tabelle in B2.8 ist hier der Text für off. postrm macht das Löschen danach mit
 # sync -f dauerhaft (Audit Task 3, M-1).
@@ -24,12 +23,8 @@ PRERM = '    remove) /usr/lib/orbitop/counterhelper off || echo "orbitop: counte
 POSTRM = ["    remove) rm -f /etc/orbitop/counters-released; sync -f /etc 2>/dev/null || true ;;",
           "    purge) rm -f /etc/orbitop/counters-released; rmdir /etc/orbitop 2>/dev/null || true;"
           " sync -f /etc 2>/dev/null || true ;;"]
-# Ein Aufruf des Helfers mit seinem Wort, in jeder Datei unter packaging/ (Task 4 ergänzt RPM und Arch).
+# Ein Aufruf des Helfers mit seinem Wort, in jeder Datei unter packaging/, aller Formate.
 CALL = re.compile(r"counterhelper[ \t]+(\S+)")
-
-
-def script(name):
-    return (DEBIAN / f"orbitop.{name}").read_text(encoding="utf-8")
 
 
 def calls():
@@ -47,8 +42,12 @@ def calls():
 
 
 def test_package_scripts_call_only_sync_and_off():
-    """B2.4: sync nur in postinst, off nur in prerm, on nirgends (auch nicht über eine andere Schreibweise)."""
-    assert calls() == {"debian/orbitop.postinst": ["sync"], "debian/orbitop.prerm": ["off"]}
+    """B2.4, alle Formate: sync nur in postinst, %posttrans, %filetriggerin und im pacman-Hook, off nur in den
+    Entfern-Skripten (prerm, %preun, pre_remove), on nirgends; die Zweige prüfen die Tests je Format. Hier für
+    Debian auch keine andere Schreibweise von on."""
+    assert calls() == {"arch/orbitop-counters.hook": ["sync"], "arch/orbitop.install": ["off"],
+                       "debian/orbitop.postinst": ["sync"], "debian/orbitop.prerm": ["off"],
+                       "rpm/orbitop.spec": ["off", "sync", "sync"]}
     for p in (DEBIAN / f"orbitop.{n}" for n in SCRIPTS):
         assert not re.search(r"\bon\b", p.read_text().split("set -e", 1)[1].replace("#DEBHELPER#", "")), p
 
@@ -89,27 +88,6 @@ def test_readme_debian_names_the_policy_deviation():  # E1
     assert "setcap -r /usr/bin/intel_gpu_top" in text  # M-3: der Weg, wenn der Helfer beim Entfernen nicht lief
 
 
-def run(tmp_path, name, arg, rc=0, helper=True, sync_rc=0):
-    """orbitop.NAME ARG mit sh; der Helfer schreibt seine Wörter nach calls und endet mit RC (ohne HELPER fehlt er).
-    sync ist ein Stellvertreter, der seine Argumente und ob die Merkdatei dann noch da ist nach syncs schreibt und mit
-    SYNC_RC endet."""
-    etc, stub, bin_ = tmp_path / "etc" / "orbitop", tmp_path / "counterhelper", tmp_path / "bin"
-    etc.mkdir(parents=True, exist_ok=True)
-    bin_.mkdir(exist_ok=True)
-    if helper:
-        stub.write_text(f'#!/bin/sh\necho "$*" >> {tmp_path}/calls\nexit {rc}\n')
-        stub.chmod(0o755)
-    (bin_ / "sync").write_text(f'#!/bin/sh\nleft=no && [ ! -e {etc}/counters-released ] || left=yes\n'
-                               f'echo "$* marker-left=$left" >> {tmp_path}/syncs\nexit {sync_rc}\n')
-    (bin_ / "sync").chmod(0o755)
-    text = script(name).replace(HELPER, str(stub)).replace("/etc/orbitop", str(etc))
-    (tmp_path / name).write_text(text)
-    r = subprocess.run(["sh", str(tmp_path / name), arg], capture_output=True, text=True, timeout=30,
-                       env={**os.environ, "PATH": f"{bin_}:{os.environ['PATH']}"})
-    words = (tmp_path / "calls").read_text().split() if (tmp_path / "calls").exists() else []
-    return r, words, etc
-
-
 @pytest.mark.parametrize("arg,words", [("configure", ["sync"]), ("triggered", ["sync"]), ("abort-upgrade", []),
                                        ("abort-remove", []), ("abort-deconfigure", [])])
 def test_postinst_runs_sync(tmp_path, arg, words):
@@ -127,7 +105,7 @@ def test_prerm_runs_off(tmp_path, arg, words):
 @pytest.mark.parametrize("name,arg,text", [("postinst", "configure", "orbitop: counter release not applied"),
                                            ("postinst", "triggered", "orbitop: counter release not applied"),
                                            ("prerm", "remove", "orbitop: counter release not revoked")])
-@pytest.mark.parametrize("rc,helper", [(1, True), (3, True), (4, True), (126, True), (0, False)],
+@pytest.mark.parametrize("rc,helper", [(1, 0o755), (3, 0o755), (4, 0o755), (126, 0o755), (0, None)],
                          ids=["busy", "unsafe", "partial", "not-executable", "missing"])
 def test_a_failing_helper_never_fails_the_script(tmp_path, name, arg, text, rc, helper):
     r, _, _ = run(tmp_path, name, arg, rc=rc, helper=helper)
@@ -145,8 +123,7 @@ def test_postrm_marker_and_directory(tmp_path, arg, marker, directory):
     r, called, _ = run(tmp_path, "postrm", arg)
     assert (r.returncode, called) == (0, [])
     assert ((etc / "counters-released").exists(), etc.exists()) == (marker, directory)
-    syncs = (tmp_path / "syncs").read_text().splitlines() if (tmp_path / "syncs").exists() else []
-    assert syncs == ([] if marker else ["-f /etc marker-left=no"])  # erst gelöscht, dann dauerhaft (M-1)
+    assert recorded(tmp_path, "syncs") == ([] if marker else ["-f /etc marker-left=no"])  # erst gelöscht, dann dauerhaft (M-1)
 
 
 @pytest.mark.parametrize("arg", ["remove", "purge"])

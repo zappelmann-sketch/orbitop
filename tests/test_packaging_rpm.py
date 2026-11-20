@@ -40,9 +40,9 @@ def values(spec, tag, branch):
     return [v for b, t, v in tags(spec) if t == tag and b in ("", branch)]
 
 
-# Tags, über die dnf oder zypper ein Paket mitinstallieren: Requires (auch Requires(pre, post)) und Recommends,
-# rückwärts Supplements und Enhances. rpm liest die Tags ohne Rücksicht auf Groß- und Kleinschreibung.
-DEPENDS = re.compile(r"(requires|recommends|supplements|enhances)(?:\([\w,\s]+\))?\s*:\s*(.*)", re.I)
+# Tags, über die dnf oder zypper ein Paket mitinstallieren: Requires (auch Requires(pre, post) und Requires (post))
+# und Recommends, rückwärts Supplements und Enhances. rpm liest die Tags ohne Rücksicht auf Groß- und Kleinschreibung.
+DEPENDS = re.compile(r"(requires|recommends|supplements|enhances)\s*(?:\([^)]*\))?\s*:\s*(.*)", re.I)
 ALL = ("requires", "recommends", "supplements", "enhances")
 
 
@@ -61,7 +61,12 @@ def pulled_orbitop(spec, kinds=ALL):
     ("Requires(pre, post): orbitop-release", True), ("Requires:       %{name}-release", True),
     ("Recommends:     %name-release", True), ("Supplements:    orbitop", True),
     ("Enhances:       (orbitop if dnf)", True),
-    ("Provides:       orbitop-release", False), ("Requires:       %{?name_suffix}", False)])
+    ("Provides:       orbitop-release", False), ("Requires:       %{?name_suffix}", False),
+    # Plan 2, Backlog aus Plan 1 (K3): weitere Schreibweisen, die rpm annimmt
+    ("Requires (post): orbitop-release", True), ("Requires(pre,post):orbitop-release", True),
+    ("Requires(meta): orbitop-release", True), ("Requires:       %{?name}-release", True),
+    ("Recommends:     %{?NAME}-release", True), ("requires (POST) : %Name-release", True),
+    ("Requires:       %name_suffix", False)])
 def test_k3_guard_sees_alternatives_and_versions(line, pulled):
     assert bool(pulled_orbitop(f"Name: orbitop\n{line}\n")) is pulled
 

@@ -9,17 +9,17 @@ import re
 import pytest
 
 from orbitop import counterhelper
-from tests.matrix_helpers import MATRIX, call
+from tests.matrix_helpers import FILES, MATRIX, call
 
 COUNTERS = MATRIX / "counters.sh"
 # Security-Dokument 0.3.0: B2.4 Fälle 1–6, B2.8 Fälle 1–7, B2.2 und B2.3 (Dateiliste), B2.9; in der Reihenfolge des
-# Laufs, denn jeder Fall beginnt mit dem Stand des vorigen (zuletzt die falsche nächste Version des Eigentümers).
-CASES = {"apt.sh": ["orbitop_install_manual_cap", "file_list", "reinstall_owner_off", "on_off", "reinstall_owner_on",
-                    "owner_remove", "owner_first_install_on", "rev2_upgrade_on", "remove_on", "remove_broken_helper",
-                    "purge", "manual_rule_untouched", "upgrade_from_020", "joint_upgrade"],
-         "dnf.sh": [], "zypper.sh": [], "pacman.sh": []}  # ihre Auslöser und Fälle kommen mit den RPM- und Arch-Skripten
-FILES = {"apt.sh": ("apt.sh",), "dnf.sh": ("rpm.sh", "dnf.sh"), "zypper.sh": ("rpm.sh", "zypper.sh"),
-         "pacman.sh": ("pacman.sh",)}
+# Laufs, denn jeder Fall beginnt mit dem Stand des vorigen (zuletzt die falsche nächste Version des Eigentümers). RPM
+# dazu B2.4 Fall 8 (pkexec_provider, nach der ersten Installation) und Fall 7 (rpm_verify, nach on mit Fähigkeit).
+COMMON = ["orbitop_install_manual_cap", "file_list", "reinstall_owner_off", "on_off", "reinstall_owner_on",
+          "owner_remove", "owner_first_install_on", "rev2_upgrade_on", "remove_on", "remove_broken_helper", "purge",
+          "manual_rule_untouched", "upgrade_from_020", "joint_upgrade"]
+RPM_CASES = [*COMMON[:1], "pkexec_provider", *COMMON[1:5], "rpm_verify", *COMMON[5:]]
+CASES = {"apt.sh": COMMON, "dnf.sh": RPM_CASES, "zypper.sh": RPM_CASES, "pacman.sh": COMMON}
 # Was counters.sh vom Format braucht.
 FORMAT = ["install_owner", "reinstall_owner", "remove_owner", "fake_owner", "install_file", "orbitop_file",
           "pkg_files", "remove_pkg", "purge_pkg", "installed", "owned"]
@@ -36,11 +36,11 @@ def test_case_list_per_format(tmp_path, manager):
     assert cases(tmp_path, manager) == CASES[manager]
 
 
-@pytest.mark.parametrize("manager", sorted(m for m, c in CASES.items() if c))
+@pytest.mark.parametrize("manager", sorted(CASES))
 def test_every_case_and_format_function_exists(tmp_path, manager):
     names = [f"case_{c}" for c in CASES[manager]] + FORMAT
     ok, out = call(tmp_path, " && ".join(f"declare -F {n} > /dev/null" for n in names) + " && "
-                   + '[ ${#JOINT[@]} -gt 0 ] && for w in "${JOINT[@]}"; do declare -F "$w"; done', manager,
+                   + '[ ${#JOINT[@]} -gt 0 ] && for w in "${JOINT[@]}"; do declare -F "$w"; done', *FILES[manager],
                    "counters.sh")
     assert ok, out
 
@@ -64,10 +64,9 @@ def test_one_failed_case_fails_the_step_and_all_run(tmp_path, results, passed):
     assert out.count("running c") == 3
 
 
-@pytest.mark.parametrize("manager", sorted(m for m, c in CASES.items() if not c))
-def test_a_format_without_cases_says_so_and_passes(tmp_path, manager):  # set -u wie in inside.sh
-    ok, out = call(tmp_path, "set -u; counters", *FILES[manager], "counters.sh")
-    assert ok and [ln for ln in out.splitlines() if ln.startswith("COUNTERS ")] == ["COUNTERS none"], out
+def test_a_format_without_cases_fails(tmp_path):  # jedes Format hat Fälle; eine leere Liste wäre eine stille Lücke
+    ok, out = call(tmp_path, "set -u; COUNTER_CASES=(); counters", "apt.sh", "counters.sh")
+    assert not ok and [ln for ln in out.splitlines() if ln.startswith("COUNTERS ")] == ["COUNTERS none"], out
 
 
 def test_inside_runs_the_cases_as_a_step_before_tamper():
@@ -92,8 +91,12 @@ def test_manual_rule_is_the_one_of_the_readme_of_0_2_0():  # B2.9
             """RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"'""") in text
 
 
-def test_package_scripts_report_a_failed_helper_in_the_words_of_the_matrix(tmp_path):  # NOT_APPLIED trifft beide Texte
-    for line in ("orbitop: counter release not applied", "orbitop: counter release not revoked"):
+def test_package_scripts_report_a_failed_helper_in_the_words_of_the_matrix(tmp_path):
+    """NOT_APPLIED trifft die Texte von postinst und prerm und, für RPM und Arch, deren Scriptlets selbst nichts
+    melden, jede Meldung des Helfers und die der Shell, wenn er nicht starten kann."""
+    for line in ("orbitop: counter release not applied", "orbitop: counter release not revoked",
+                 *(f"counterhelper: {text}" for text in counterhelper._MESSAGES.values()),
+                 ">>> /var/tmp/rpm-tmp.Ab12: line 1: /usr/lib/orbitop/counterhelper: Permission denied"):
         ok, out = call(tmp_path, f'grep -qE -- "$NOT_APPLIED" <<< "{line}"', "apt.sh", "counters.sh")
         assert ok, out
 
@@ -223,3 +226,22 @@ def test_remove_broken_helper_needs_the_report_of_prerm(tmp_path, prerm, passed)
              f" remove_pkg() {{ echo '{prerm}'; }}; purge_pkg() {{ :; }}; MARKER={tmp_path}/gone/counters-released;")
     ok, out = call(tmp_path, f"{stubs} case_remove_broken_helper", "apt.sh", "counters.sh")
     assert ok is passed, out
+
+
+@pytest.mark.parametrize("after,passed", [("none", True), (CAP, False)], ids=["taken", "kept"])
+def test_reinstall_owner_off_needs_the_reinstall_to_take_a_capability_set_by_hand(tmp_path, after, passed):
+    """openSUSE behält bei einer Neuinstallation eine unveränderte Datei (%_minimize_writes), nimmt ihr aber die
+    Fähigkeit: dieser Fall belegt das je Format, reinstall_owner_on baut darauf."""
+    stubs = (f"helper() {{ :; }}; marker_off() {{ :; }}; triggered() {{ :; }}; cap() {{ echo {after}; }};"
+             f" set_cap() {{ echo \"SET $1\" >> {tmp_path}/log; }};"
+             f" reinstall_owner() {{ echo REINSTALL >> {tmp_path}/log; }};")
+    ok, out = call(tmp_path, f"{stubs} case_reinstall_owner_off", "apt.sh", "counters.sh")
+    assert ok is passed, out
+    assert (tmp_path / "log").read_text().splitlines() == [f"SET {CAP}", "REINSTALL"]
+
+
+@pytest.mark.parametrize("changed,passed", [(True, True), (False, False)], ids=["touched", "untouched"])
+def test_reinstall_owner_on_needs_the_file_touched(tmp_path, changed, passed):
+    stubs = ("helper() { :; }; has_cap() { :; }; marker_on() { :; }; triggered() { :; }; reinstall_owner() { :; };"
+             f" stamp() {{ echo x >> {tmp_path}/n; echo \"1 $(({int(changed)} * $(wc -l < {tmp_path}/n)))\"; }};")
+    assert call(tmp_path, f"{stubs} case_reinstall_owner_on", "apt.sh", "counters.sh")[0] is passed

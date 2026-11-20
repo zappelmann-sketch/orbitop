@@ -38,3 +38,18 @@ purge() {
 # dnf5 skips a source that fails and exits 0 by default (docs/release.md); here the failure must show. -y imports
 # the key for the metadata, so that the signature is checked at all.
 refresh_index() { dnf makecache -y --setopt=skip_if_unavailable=False; }
+
+# The counter release (scripts/matrix/counters.sh, rpm.sh). The owner of intel_gpu_top as in the security document
+# 0.3.0, B2.4, and the package of /usr/bin/pkexec (polkit, 127 on Fedora 45). dnf5 names a scriptlet only when it
+# prints something (">>> Running %triggerin scriptlet: …"), and sync without a marker prints nothing (probe on
+# 2026-11-20), so TRIGGERED is empty.
+OWNER=igt-gpu-tools
+PKEXEC_PROVIDER=polkit
+TRIGGERED=''
+JOINT=(rpm_pair dnf_pair)  # B2.4, 6: rpm -U of both files, dnf upgrade of both
+get_pkg() { dnf install -y "$@"; }
+reget_pkg() { dnf reinstall -y "$@"; }
+# Without the dependencies, which dnf removes along by default: install_file then needs no mirror.
+remove_pkg() { dnf remove -y --setopt=clean_requirements_on_remove=False "$1"; }
+install_new() { net dnf install -y "$1"; }  # dnf skips the OpenPGP check of a file given on the command line
+dnf_pair() { dnf upgrade -y "$1" "$2"; }

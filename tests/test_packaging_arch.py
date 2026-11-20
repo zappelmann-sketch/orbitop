@@ -136,3 +136,9 @@ def test_trusted_file_never_trusts_the_key_as_introducer(built):  # Owner-Trust 
     assert files["usr/share/pacman/keyrings/orbitop-trusted"] == f"{key['fpr']}:3:\n".encode()
     assert files["usr/share/pacman/keyrings/orbitop.gpg"] == key["pub"].read_bytes()
     assert files["usr/lib/orbitop/killhelper"] == (ROOT / "orbitop" / "killhelper.py").read_bytes()
+
+
+def test_package_ships_the_counter_hook(built):  # B2.4: pacman liest Hooks aus /usr/share/libalpm/hooks
+    files, _ = built
+    hook = files["usr/share/libalpm/hooks/orbitop-counters.hook"]
+    assert hook == (ARCH / "orbitop-counters.hook").read_bytes()

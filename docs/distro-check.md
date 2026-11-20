@@ -101,10 +101,10 @@ How the check runs:
   11. `counters`: the cases of the counter release (security document 0.3.0, the container matrix of B2.1, B2.2,
       B2.3, B2.4, B2.8 and B2.9), from the state the purge left: no source of orbitop configured; its dependencies
       stay installed, so orbitop comes only from files, of `SITE` (revision 1), `/rev2` and `/v020`. One line `COUNTERS <case> ok|FAIL`
-      per case; one `FAIL` fails the step, and with it the image. The cases are the same for every format
-      (`scripts/matrix/counters.sh`, `tests/test_matrix_counters.py`); the file of the package manager gives their
-      list, the owner of `/usr/bin/intel_gpu_top` and the commands; until the RPM scriptlets and the pacman hook come,
-      Fedora, openSUSE and Arch have none and print `COUNTERS none`. They run as root without polkit and check the
+      per case; one `FAIL` fails the step, and with it the image, and so does a format without cases (`COUNTERS
+      none`). The cases are the same for every format (`scripts/matrix/counters.sh`, `tests/test_matrix_counters.py`);
+      the file of the package manager gives their list, the owner of `/usr/bin/intel_gpu_top`, the commands and the
+      cases of its own (`tests/test_matrix_counters_formats.py`). They run as root without polkit and check the
       capability (`security.capability` must be the 20 bytes of `cap_perfmon=ep`,
       `0100000200000000000000004000000000000000`), the marker `/etc/orbitop/counters-released` (empty, root 0644) and
       the exit codes of `counterhelper`. Docker masks the RAPL zones (`/sys/devices/virtual/powercap`), so the helper
@@ -117,10 +117,12 @@ How the check runs:
         `/usr/lib/udev/rules.d/70-orbitop-counters.rules` and nothing below `/etc/udev`; `/etc/orbitop` is empty, root
         0711, and `nobody` cannot open it.
       - `reinstall_owner_off` (B2.4, 1): `apt-get install --reinstall` of the owner runs orbitop's trigger
-        ("Processing triggers for orbitop") and releases nothing.
+        ("Processing triggers for orbitop") and releases nothing; a capability set by hand before is gone afterwards,
+        which shows that a reinstall takes it in this format.
       - `on_off` (B2.1, B2.2): `counterhelper on` exits 0 and sets the capability and the marker; `nobody` cannot open
         `/etc/orbitop` (`EACCES`); `off` exits 0 and takes both back.
-      - `reinstall_owner_on` (B2.4, 2): after `on`, the reinstalled `intel_gpu_top` (a new inode) has the capability.
+      - `reinstall_owner_on` (B2.4, 2): after `on`, the reinstalled `intel_gpu_top` (a new inode, or a new change
+        time) has the capability.
       - `owner_remove` (B2.4, 3): removing the owner runs the trigger, no package script reports a failed helper, and
         `counterhelper sync` exits 0.
       - `owner_first_install_on` (B2.4, 4): after `on`, the first installation of the owner brings the capability.
@@ -140,6 +142,37 @@ How the check runs:
         in one transaction: `apt-get install` of both files, then `dpkg -i` in both orders. The new version of the owner
         is a package built in the container with the owner's name and `<version>+fake<N>`, whose `intel_gpu_top` is a
         copy of the installed program. Afterwards the new file (a new inode) has the capability.
+
+      RPM (Fedora, openSUSE), the same cases with these differences (`scripts/matrix/rpm.sh`, `dnf.sh`, `zypper.sh`):
+      the owner is `igt-gpu-tools` on Fedora and `intel-gpu-tools` on openSUSE (`rpm -qf` must name it), from the
+      mirrors with `dnf install`/`reinstall` or `zypper install`/`install --force`, removed with `dnf remove` (without
+      the dependencies) or `zypper remove`. orbitop goes in with `rpm -U --replacepkgs --oldpackage --nosignature`,
+      the first time with `dnf install` or `zypper --no-gpg-checks install --allow-unsigned-rpm`, which bring the
+      dependencies (rpm 6 on Fedora refuses unsigned packages, and the key of `SITE` left the rpm database in step 10;
+      the signatures are the business of steps 2, 3 and 12). RPM has no purge: `purge` is the removal, so it also
+      covers B2.8, 1 (no `/etc/orbitop` right after it). `%filetriggerin` runs only when the file comes, so
+      `owner_remove` expects no trigger; dnf5 and zypper name a scriptlet only when it prints something, and `sync`
+      without a marker prints nothing, so no case looks for a trigger line there. `remove_broken_helper` expects the
+      shell's own line from `%preun` (`… /usr/lib/orbitop/counterhelper: Permission denied`). Two cases of RPM only:
+      - `pkexec_provider` (B2.4, 8; E5), after the first installation: `rpm -q --whatprovides /usr/bin/pkexec` names
+        exactly `polkit` (Fedora) or `pkexec` (openSUSE), not `run0-wrappers`; the log line `PKEXEC <name>`.
+      - `rpm_verify` (B2.4, 7), after `reinstall_owner_on`: `rpm -V` of the owner exits 1 and reports exactly
+        `........P    /usr/bin/intel_gpu_top`, the capability; the log line `RPM-V …` goes into the report.
+
+      `joint_upgrade` there: `rpm -U` of both files, then `dnf upgrade` of both, or `zypper up --repo joint` from a
+      plaindir repository of both files without signatures (zypper up takes no files), removed afterwards. The new
+      owner is `<release>.fake<N>` with the installed epoch, version, architecture and vendor (zypper keeps the vendor),
+      built with `rpmbuild` (`rpm-build` from the mirrors), its `intel_gpu_top` the installed program plus one byte at
+      the end. openSUSE's rpm keeps an unchanged file on an update or reinstall (`%_minimize_writes 1`) and only sets
+      its metadata anew, which takes the capability too (probe on 2026-11-20): hence the changed program here, and the
+      change time in `reinstall_owner_on`.
+
+      Arch, the same cases (`scripts/matrix/pacman.sh`): the owner `intel-gpu-tools` with `pacman -S` (`pacman -Qqo`
+      must name it), removed with `pacman -R`; orbitop with `pacman -U` of a copy, since pacman checks a `.sig` next
+      to the file and the key left pacman's keyring in step 10. pacman has no purge: `purge` is the removal. The hook
+      shows as "(n/m) Applying the orbitop counter release, if turned on..."; it has no `Remove`, so `owner_remove`
+      expects none. `remove_broken_helper` expects the shell's line from `pre_remove`. `joint_upgrade`: `pacman -U` of
+      both files; the new owner is packed by hand (`.PKGINFO` and the file, `<pkgver>.fake<N>`, newer for `vercmp`).
   12. `tamper`: a copy of `SITE` with one changed byte, set up again like in step 2; the index refresh must fail with
       its reason. apt, twice: `Packages.gz` (also at its by-hash paths) gives "Hash Sum mismatch", which tests the
       hashes in `InRelease`; the last digit of the seconds in the signed `Date:` of `InRelease` (the format stays
@@ -244,8 +277,13 @@ From the run of 2026-11-18 (orbitop 0.1.0, throwaway key) unless a note names an
   trigger runs; `reinstall_owner_on`, `owner_first_install_on`, `remove_on`, `remove_broken_helper`, `purge`,
   `joint_upgrade`); with `sync` only on `triggered`, only `joint_upgrade` fails, already with
   `apt-get install` of both files: dpkg calls orbitop's postinst only with `configure` there (I-1); with `off` also on
-  `upgrade`, `rev2_upgrade_on` and `joint_upgrade` fail. Not covered in the containers: the RAPL read bits and the
-  udev rule at boot (Docker masks the zones and runs no udev); they belong to the hardware test.
+  `upgrade`, `rev2_upgrade_on` and `joint_upgrade` fail. RPM and Arch, probe on 2026-11-20 with the packages of the
+  commit before their scriptlets and hook (as revision 1 and 2): Fedora and openSUSE fail 6 of 16 cases
+  (`reinstall_owner_on`, `owner_first_install_on`, `remove_on`, `remove_broken_helper`, `purge`, `joint_upgrade`),
+  Arch 7 of 14 (the same and `reinstall_owner_off`, which sees no hook line); with revision 2 without `%posttrans`,
+  `joint_upgrade` fails on Fedora already with `rpm -U` of both files: no file trigger runs there (I-1). Not covered in
+  the containers: the RAPL read bits and the udev rule at boot (Docker masks the zones and runs no udev); they belong
+  to the hardware test.
 - **Not covered:** the window itself (no display in the containers), the kill helper through `pkexec`, the upgrade
   of a distribution release (Ubuntu disables third-party sources then), and the package source over HTTPS from Pages
   itself (plan 2026-11-18, Task 10).
