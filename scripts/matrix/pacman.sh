@@ -8,7 +8,7 @@
 NOISE='^(warning|error):'
 CONF=/etc/pacman.conf
 
-refresh() { pacman -Syu --noconfirm; }  # Arch supports only full upgrades
+refresh() { net pacman -Syu --noconfirm; }  # Arch supports only full upgrades
 
 # keyring ROOT: the image has no local master key, so pacman-key --init first (docs/release.md). The fingerprint is
 # that of the key in ROOT; check-distros.sh prints it (KEY), and release.sh compares it with ORBITOP_KEY.
@@ -23,14 +23,14 @@ keyring() {
         point "$CONF" "file://$1/"
 }
 
-install_pkg() { pacman -Syu orbitop --noconfirm; }
+install_pkg() { net pacman -Syu orbitop --noconfirm; }
 
-tools() { pacman -S --needed --noconfirm python-pytest shellcheck desktop-file-utils appstream; }
+tools() { net pacman -S --needed --noconfirm python-pytest shellcheck desktop-file-utils appstream; }
 
 installed() { pacman -Q orbitop | awk '{ print $2 }'; }
 offered() { pacman -Qp "$1"/arch/x86_64/orbitop-*-any.pkg.tar.zst | awk '{ print $2 }'; }
 
-update_from() { point "$CONF" "file://$1/" && pacman -Syu --noconfirm; }
+update_from() { point "$CONF" "file://$1/" && net pacman -Syu --noconfirm; }
 
 files_of() { pacman -Qlq orbitop; }
 owned() { pacman -Qo -- "$1" > /dev/null 2>&1; }

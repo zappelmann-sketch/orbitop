@@ -11,7 +11,7 @@ DISTS=apt/dists/stable
 INDEX=$DISTS/main/binary-all
 SERVED=http://${PAGES#https://}  # the Pages address over http, served by serve
 
-refresh() { apt-get update; }
+refresh() { net apt-get update; }
 
 # keyring ROOT: orbitop-apt-source from the file, as the README downloads it from the release; the Release of ROOT
 # has Architectures all, by-hash and no Valid-Until (spec 2).
@@ -24,9 +24,9 @@ keyring() {
         ! grep '^Valid-Until:' <<< "$release"
 }
 
-install_pkg() { quiet apt update && apt install orbitop -y && apt-cache policy orbitop; }
+install_pkg() { quiet apt update && net apt install orbitop -y && apt-cache policy orbitop; }
 
-tools() { apt-get install -y python3-pytest shellcheck desktop-file-utils appstream; }
+tools() { net apt-get install -y python3-pytest shellcheck desktop-file-utils appstream; }
 
 installed() { dpkg-query -W -f '${Version}' orbitop; }
 offered() { dpkg-deb -f "$1"/apt/pool/main/o/orbitop/orbitop_*_all.deb Version; }
@@ -51,7 +51,7 @@ update_from() {
     local rc=0 policy
     serve "$1" || return 1
     { point "$SOURCE" "$SERVED" && quiet apt update && policy=$(apt-cache policy orbitop) && echo "$policy" &&
-        grep -qE "^ +100 ${SERVED//./\\.}apt stable/main all Packages$" <<< "$policy" && apt upgrade -y &&
+        grep -qE "^ +100 ${SERVED//./\\.}apt stable/main all Packages$" <<< "$policy" && net apt upgrade -y &&
         grep -F "GET /orbitop/$INDEX/by-hash/SHA" "$STATE/http.log"; } || rc=1
     kill "$server"
     point "$SOURCE" "file://$1/" && return "$rc"

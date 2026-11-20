@@ -36,23 +36,35 @@ forget() { written "$1" && rm -f -- "$STATE/written${1//\//_}" "$STATE/pristine$
 HICCUP='Curl error \((6|7|28|35|52|56)\)|Connection reset by peer|Could not resolve host'
 HICCUP+='|Temporary failure in name resolution|Operation timed out'
 
-# quiet COMMAND…: COMMAND succeeds and prints no line that matches NOISE (warnings, notices, errors). A run that fails
-# so and printed a network hiccup (HICCUP) runs again after 10 s, up to three runs, and only the last one counts; any
-# other failure counts at once. The callers are index refreshes, which may run again; the tamper step uses refused.
-quiet() {
-    local out rc noise run
+# net COMMAND…: COMMAND, for the commands that fetch from the mirrors. A run that fails and printed a network hiccup
+# (HICCUP) runs again after 10 s, up to three runs, and only the last one counts; any other failure counts at once.
+# 10 s let a reset connection or a resolver hiccup pass and add at most 20 s to a step. COMMAND runs in a subshell.
+# Never for the index refresh of the tamper step (refused).
+net() {
+    local out rc run
     for run in 1 2 3; do
         rc=0
         out=$("$@" 2>&1) || rc=$?
         printf '%s\n' "$out"
-        noise=$(grep -E -- "$NOISE" <<< "$out") || true
-        [ -z "$noise" ] || printf 'NOISE %s\n' "$noise"
-        [ "$rc" -ne 0 ] || [ -n "$noise" ] || return 0
-        if [ "$run" -eq 3 ] || ! grep -qE -- "$HICCUP" <<< "$out"; then return 1; fi
+        [ "$rc" -ne 0 ] || return 0
+        if [ "$run" -eq 3 ] || ! grep -qE -- "$HICCUP" <<< "$out"; then return "$rc"; fi
         echo "RETRY run $((run + 1)) of 3 in 10 s: network hiccup"
         sleep 10
     done
 }
+
+# clean COMMAND…: COMMAND succeeds and prints no line that matches NOISE (warnings, notices, errors).
+clean() {
+    local out rc=0 noise
+    out=$("$@" 2>&1) || rc=$?
+    printf '%s\n' "$out"
+    noise=$(grep -E -- "$NOISE" <<< "$out") || true
+    [ -z "$noise" ] || printf 'NOISE %s\n' "$noise"
+    [ "$rc" -eq 0 ] && [ -z "$noise" ]
+}
+
+# quiet COMMAND…: clean COMMAND with the retries of net; the callers are index refreshes, which may run again.
+quiet() { net clean "$@"; }
 
 # refused TEXT COMMAND…: COMMAND fails, and its output names the reason TEXT.
 refused() {

@@ -8,20 +8,20 @@ NOISE='[Ww]arning|[Ee]rror|[Ff]ailed|[Ss]kipping'
 TAMPERED='Bad PGP signature'
 REPO=/etc/yum.repos.d/orbitop.repo
 
-refresh() { dnf makecache; }
+refresh() { net dnf makecache; }
 
 # rpm -V before point: the .repo that point keeps is the one of the package.
 keyring() {
-    rpm_key "$1" && release_package "$1" && (cd "$STATE" && dnf install ./orbitop-release-fedora.rpm -y) &&
+    rpm_key "$1" && release_package "$1" && (cd "$STATE" && net dnf install ./orbitop-release-fedora.rpm -y) &&
         rpm -V orbitop-release && point "$REPO" "file://$1/"
 }
 
 # On the first use of the source, dnf asks once whether to import the key for its metadata (-y answers).
-install_pkg() { dnf install orbitop -y; }
+install_pkg() { net dnf install orbitop -y; }
 
-tools() { dnf install -y python3-pytest ShellCheck desktop-file-utils appstream util-linux; }  # runuser
+tools() { net dnf install -y python3-pytest ShellCheck desktop-file-utils appstream util-linux; }  # runuser
 
-update_from() { point "$REPO" "file://$1/" && dnf upgrade -y; }
+update_from() { point "$REPO" "file://$1/" && net dnf upgrade -y; }
 
 # --refresh: dnf makecache alone keeps metadata that has not expired and fetches nothing.
 remove() { files_of > "$STATE/files" && dnf remove orbitop -y && quiet dnf makecache --refresh; }

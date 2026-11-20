@@ -9,26 +9,26 @@ TAMPERED='Signature verification failed for repomd.xml'
 REPO=/etc/zypp/repos.d/orbitop.repo
 ZYPPER=(zypper --non-interactive)
 
-refresh() { "${ZYPPER[@]}" refresh; }
+refresh() { net "${ZYPPER[@]}" refresh; }
 
 # Without rpm --import first, zypper refuses the signed local package: "public key is not available". rpm -V before
 # point: the .repo that point keeps is the one of the package. findutils first, as in the README: the image has no
 # xargs, which the full uninstall needs.
 keyring() {
-    "${ZYPPER[@]}" install findutils && rpm_key "$1" && release_package "$1" &&
-        (cd "$STATE" && "${ZYPPER[@]}" install ./orbitop-release-opensuse.rpm) && rpm -V orbitop-release &&
+    net "${ZYPPER[@]}" install findutils && rpm_key "$1" && release_package "$1" &&
+        (cd "$STATE" && net "${ZYPPER[@]}" install ./orbitop-release-opensuse.rpm) && rpm -V orbitop-release &&
         point "$REPO" "file://$1/"
 }
 
 # zypper checks the metadata and each package of the source: GPG Check (rp).
 install_pkg() {
-    "${ZYPPER[@]}" install orbitop && zypper lr orbitop | tee "$STATE/repo" &&
+    net "${ZYPPER[@]}" install orbitop && zypper lr orbitop | tee "$STATE/repo" &&
         grep -qE '^GPG Check +: \(rp\) Yes$' "$STATE/repo"
 }
 
-tools() { "${ZYPPER[@]}" install python3-pytest ShellCheck desktop-file-utils AppStream; }
+tools() { net "${ZYPPER[@]}" install python3-pytest ShellCheck desktop-file-utils AppStream; }
 
-update_from() { point "$REPO" "file://$1/" && "${ZYPPER[@]}" dup; }
+update_from() { point "$REPO" "file://$1/" && net "${ZYPPER[@]}" dup; }
 
 # --force: without it, zypper only compares repomd.xml and reports "up to date".
 remove() {

@@ -41,13 +41,15 @@ How the check runs:
   stops the step. The commands of each package manager are in `scripts/matrix/{apt,dnf,zypper,pacman}.sh`, the shared
   rpm part in `scripts/matrix/rpm.sh`, the helpers in `scripts/matrix/lib.sh` (`tests/test_matrix_lib.py`).
   `check-distros.sh` exits 1 unless every image passed.
-- An index refresh that must be clean (`quiet`: apt in `install` and `upgrade`, every package manager in `remove` and
-  `purge`) runs again after 10 s if it failed and printed a network hiccup of a mirror (`Curl error` 6, 7, 28, 35, 52
-  or 56, `Connection reset by peer`, `Could not resolve host`, `Temporary failure in name resolution`,
-  `Operation timed out`), up to three runs; only the last one counts, and the log shows each run with a line
-  `RETRY`. Any other warning or error fails the step at once, and the `tamper` step runs its refresh once. Cause: on
-  2026-11-19 `mirrors.fedoraproject.org` reset the connection ("Curl error (56)") in `remove` or `purge` of three runs,
-  although dnf then loaded the index from another mirror and exited 0.
+- Each command that fetches from the mirrors (`net` in `lib.sh`: the steps `refresh`, `install`, `tools` and
+  `upgrade`, on Fedora and openSUSE also `keyring`) and each index refresh that must be clean (`quiet`: apt in
+  `install` and `upgrade`, every package manager in `remove` and `purge`) runs again after 10 s if it failed and
+  printed a network hiccup of a mirror (`Curl error` 6, 7, 28, 35, 52 or 56, `Connection reset by peer`,
+  `Could not resolve host`, `Temporary failure in name resolution`, `Operation timed out`), up to three runs; only the
+  last one counts, and the log shows each run with a line `RETRY`. Any other failure, warning or error fails the step
+  at once: the expected refusal on `debian:bookworm` and `ubuntu:22.04` stays one run, and the `tamper` step runs its
+  refresh once. Cause: on 2026-11-19 `mirrors.fedoraproject.org` reset the connection ("Curl error (56)") in `remove`
+  or `purge` of three runs, although dnf then loaded the index from another mirror and exited 0.
   1. `refresh`: the index of the distribution (`apt-get update`, `dnf makecache`, `zypper refresh`, `pacman -Syu`).
   2. `keyring`: apt: `apt install ./orbitop-apt-source.deb`; the source's `Release` has `Architectures: all` and
      `Acquire-By-Hash: yes` and no `Valid-Until`. Fedora and openSUSE: `rpm --import orbitop-archive-keyring.asc`, then
