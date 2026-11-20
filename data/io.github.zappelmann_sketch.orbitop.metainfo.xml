@@ -19,6 +19,15 @@
   <url type="homepage">https://github.com/zappelmann-sketch/orbitop</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.0" date="2026-11-20">
+      <description>
+        <p>New switch "Release counters" in the settings of the About dialog: with the admin password, it lets every account read the GPU counters of intel_gpu_top and the RAPL energy counters, and it locks them again.</p>
+        <p>New button "Install" in the hint about missing Intel GPU tools: it installs them through PackageKit.</p>
+        <p>Hints can be hidden and shown again in the settings.</p>
+        <p>Package triggers keep the counter release when the Intel GPU tools are installed or updated; removing orbitop locks the counters again.</p>
+        <p>Security hardening: orbitop runs pkexec only if it is the setuid program of polkit and starts only helpers owned by root, waits longer after each refused password prompt before it asks again, and ignores a relative XDG_CONFIG_HOME.</p>
+      </description>
+    </release>
     <release version="0.2.0" date="2026-11-19">
       <description>
         <p>Packages for Debian, Ubuntu, Fedora, openSUSE and Arch Linux from a signed package source; new versions come with the regular system update.</p>

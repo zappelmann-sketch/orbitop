@@ -96,3 +96,13 @@ def test_release_notes_of_one_version():  # Tag und GitHub-Release (scripts/rele
     assert changelog.notes(META, "0.1.0") == "- Release 0.1.0.\n"
     with pytest.raises(ValueError):
         changelog.notes(META, "0.3.0")
+
+
+def test_every_changelog_of_real_metainfo_carries_the_changes_of_the_version():  # deb, RPM und Release-Notizen
+    meta, changelog = METAINFO.read_text(encoding="utf-8"), load_changelog()
+    items = [ln.removeprefix("- ") for ln in changelog.notes(meta, __version__).splitlines()]
+    assert len(items) >= 2 and f"Release {__version__}." not in items  # eigene Änderungen, nicht der Ersatztext
+    deb = changelog.debian(meta, f"{__version__}-1").split("\n\n")
+    rpm = changelog.rpm(meta, f"{__version__}-1").split("\n\n")[0].split("\n", 1)
+    assert " ".join(deb[1].split()) == " ".join(f"* {i}" for i in items)
+    assert rpm[0].endswith(f" - {__version__}-1") and " ".join(rpm[1].split()) == " ".join(f"- {i}" for i in items)

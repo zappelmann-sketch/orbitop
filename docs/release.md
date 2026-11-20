@@ -235,7 +235,7 @@ If the old key is lost or misused before step 2, no update reaches the systems. 
 
 ## Release
 
-`GNUPGHOME=<dir> ORBITOP_KEY=<fingerprint> bash scripts/release.sh <version> [--dry-run]` (spec 5). Before: the branch is on `main`; `orbitop/__init__.py` and the newest `<release>` of the metainfo (version, the date of the release day in UTC, changes in English) carry the version; `origin` pushes to `zappelmann-sketch/orbitop` on GitHub; `git config user.name` and `user.email` give exactly `zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>`; docker runs; `gh auth status` works with admin rights on `zappelmann-sketch/orbitop`; no token is plugged in.
+`GNUPGHOME=<dir> ORBITOP_KEY=<fingerprint> bash scripts/release.sh <version> [--dry-run]` (spec 5). Before: the branch is on `main`; `orbitop/__init__.py` and the newest `<release>` of the metainfo (version, the date of the release day in UTC, changes in English) carry the version (the `<release>` of 0.3.0 was written with the date of its commit; if the release day is later, a commit on the branch sets that day before the run); `origin` pushes to `zappelmann-sketch/orbitop` on GitHub; `git config user.name` and `user.email` give exactly `zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>`; docker runs; `gh auth status` works with admin rights on `zappelmann-sketch/orbitop`; no token is plugged in.
 
 ```sh
 export GNUPGHOME="$HOME/.local/share/orbitop-release/gnupg"
@@ -307,6 +307,43 @@ Probe on 2026-11-20 of every `gh`, `curl`, `git` and `docker` call of `scripts/r
 | `docker pull` | `--help` | listed |
 | `docker run --rm -v DIR:/src:ro -v DIR:/site:ro -v DIR:/site2:ro <digest> bash …` | run with a scratch directory | exit 0, `/src` read-only |
 | `docker run --rm -i --network none --cap-drop MKNOD --cap-drop SETFCAP -e KEY=… <image> bash -c …` (`signed`, step 2) | run with `rpmkeys --list` and `rpm --version` | exit 0; rpm 6.1.0 on Fedora, 4.20.1 on Tumbleweed |
+
+## Test version
+
+Before the release of 0.3.0, a test version runs on real hardware (spec 2026-11-19, part D, step 0; security document 0.3.0, E7). Only the `.deb` is built, as `0.3.0~rc1`, Debian version `0.3.0~rc1-1`: dpkg sorts it before `0.3.0-1` (`dpkg --compare-versions 0.3.0~rc1-1 lt 0.3.0-1` is true), so the release comes afterwards as a normal update. pacman sorts `~rc1` after `0.3.0` (`vercmp` gives 1) and would hold that update back, so there is no Arch test version; RPM sorts it correctly, but none is built either. The test version stays unsigned and is never published: not on `main`, not as a release and not on the site.
+
+It comes from a throwaway clone of the branch to be released, with a scratch commit that only changes the version: in `orbitop/__init__.py` and in the newest `<release>` of the metainfo, because `packaging/changelog.py` takes a Debian version only with a matching `<release>`. `build-packages.sh` takes only digits and dots as the version and builds all four formats, so the Debian build runs by hand, in the same disposable container as there (`container` in `scripts/container-common.sh`). The key on stdin goes only into `orbitop-apt-source`, which the test leaves out, so `KEY` is the armored file of any throwaway public key:
+
+```sh
+rc=$(mktemp -d)
+git clone -q --branch <branch> <repo> "$rc/orbitop"
+cd "$rc/orbitop"
+sed -i 's/^__version__ = "0.3.0"$/__version__ = "0.3.0~rc1"/' orbitop/__init__.py
+sed -i 's/<release version="0.3.0" /<release version="0.3.0~rc1" /' data/io.github.zappelmann_sketch.orbitop.metainfo.xml
+git -c user.name=zappelmann-sketch -c user.email=235797375+zappelmann-sketch@users.noreply.github.com \
+    commit -qam "scratch: Testversion 0.3.0~rc1"
+mkdir "$rc/src" "$rc/out"
+git archive HEAD | tar -C "$rc/src" -xf -
+gpg --dearmor < "$KEY" > "$rc/key.pgp"
+docker run --rm -i --cap-drop MKNOD --cap-drop SETFCAP -e OWNER="$(id -u):$(id -g)" -v "$rc/src:/src:ro" \
+    -v "$rc/out:/out" debian:trixie bash /src/packaging/debian/build-inside.sh 0.3.0~rc1-1 < "$rc/key.pgp"
+```
+
+The result is `$rc/out/deb/orbitop_0.3.0~rc1-1_all.deb`; keep it and its `sha256sum`, then delete `$rc`. Before handing it over:
+
+- `dpkg-deb --info`: `Version: 0.3.0~rc1-1`, the maintainer scripts `postinst`, `prerm` and `postrm`, and `triggers` with `interest-noawait /usr/bin/intel_gpu_top`.
+- `dpkg-deb --contents`: the helper `/usr/lib/orbitop/counterhelper` (`-rwxr-xr-x root/root`), the udev rule `/usr/lib/udev/rules.d/70-orbitop-counters.rules`, `/etc/orbitop/` as `drwx--x--x root/root` and the polkit policy.
+- `dpkg --compare-versions 0.3.0~rc1-1 lt 0.3.0-1` exits 0.
+
+Probe on 2026-11-20 of these steps, from the commit of version 0.3.0 with a throwaway key: the build exits 0 with the lintian findings of a release build (`no-manual-page`, `non-standard-dir-perm 0711 != 0755 [etc/orbitop/]`, Lint notes); `orbitop_0.3.0~rc1-1_all.deb` shows every item above, its helper equals `orbitop/counterhelper.py` byte for byte, its changelog starts with `orbitop (0.3.0~rc1-1)`, and the version check exits 0.
+
+Nothing of it is installed on the build machine. On the test machine, the user installs it with `sudo apt install ./orbitop_0.3.0~rc1-1_all.deb` and checks, as spec D0 lists:
+
+- The switch "Release counters": on, off, the password dialog every time, the lines below the switch. The first "off" also takes away a capability set by hand on `intel_gpu_top` (security document B2.9).
+- The button "Install": first `sudo apt remove igt-gpu-tools intel-gpu-tools`, because on Ubuntu 26.04 `intel-gpu-tools` is only a metapackage that brings `igt-gpu-tools`; then orbitop installs the Intel GPU tools again.
+- Hiding the hints and showing them again.
+
+The maintainer checks the marker `/etc/orbitop/counters-released`, the capability (`getcap /usr/bin/intel_gpu_top`), the modes of `energy_uj` (`stat -c '%a %n' /sys/class/powercap/intel-rapl:*/energy_uj`: `444` with the switch on, `400` with it off) and the window. A fault is fixed with review and audit, then `0.3.0~rc2` follows the same way, until everything passes. With the switch on, `rc1` → `rc2` → `0.3.0` keeps the release without a dialog, because an upgrade runs only `sync` (security document B2.8, E4).
 
 ## Sources
 

@@ -122,7 +122,7 @@ def test_python_3_11_gets_clear_message(tmp_path):  # Review Focus 5 (Debian 12)
     assert (r.returncode, "3.12" in r.stderr, "Traceback" in r.stderr) == (2, True, False), r.stderr
 
 
-@pytest.mark.parametrize("args,rc,out", [(["--version"], 0, "orbitop 0.2.0"), ([], 2, None)])
+@pytest.mark.parametrize("args,rc,out", [(["--version"], 0, "orbitop 0.3.0"), ([], 2, None)])
 def test_without_pygobject_no_traceback(tmp_path, args, rc, out):
     out = out or app.PACKAGES[app.package_manager()][0]  # main liest das echte /etc/os-release
     code = (f"import sys; sys.path.insert(0, {str(REPO)!r}); sys.modules['gi'] = None; import orbitop.sampler; "
@@ -140,13 +140,13 @@ def test_main_exit_2_without_webkit(monkeypatch, capsys):
 def test_main_version_skips_runtime_check(monkeypatch, capsys):
     monkeypatch.setattr(app, "check_runtime", lambda *a: pytest.fail("kein Laufzeit-Check für --version"))
     assert app.main(["--version"]) == 0
-    assert capsys.readouterr().out.strip() == "orbitop 0.2.0"
+    assert capsys.readouterr().out.strip() == "orbitop 0.3.0"
 
 
 def test_version_flag(tmp_path):
     r = subprocess.run([sys.executable, str(REPO / "bin" / "orbitop"), "--version"], capture_output=True, text=True,
                        cwd=tmp_path)
-    assert r.stdout.strip() == "orbitop 0.2.0" and r.returncode == 0
+    assert r.stdout.strip() == "orbitop 0.3.0" and r.returncode == 0
 
 
 def test_launcher_is_executable():
