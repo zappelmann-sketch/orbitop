@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Builds the packages from `git archive HEAD` in disposable containers and lints them (docs/release.md).
+# Builds the packages from `git archive` of the commit ORBITOP_REV (default HEAD) in disposable containers and lints
+# them (docs/release.md).
 # Usage: bash build-packages.sh --out DIR --pubkey FILE [--suffix SUFFIX]
 #        DIR is empty or missing and receives deb/, rpm-fedora/, rpm-opensuse/, arch/ and lint/; FILE is the armored
 #        public key of the package source. --suffix marks a check build that is never published (K6): Debian revision

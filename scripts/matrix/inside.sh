@@ -2,7 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # The container matrix of scripts/check-distros.sh (docs/distro-check.md), as root in a disposable container: the files
-# of HEAD at /src, the package source at /site and the one with the check version (plan K6) at /site2, all read-only.
+# of the commit the packages are built from at /src, the package source at /site and the one with the check version
+# (plan K6) at /site2, all read-only.
 # It installs, tests, updates and removes orbitop with the commands of the README. Only the installed copies of the
 # source definitions under /etc point to file:// here (point); the packages keep the Pages address.
 # Prints "STEP <name> ok|fail". The helpers are in scripts/matrix/lib.sh, the commands of each package manager in
@@ -54,7 +55,7 @@ run_tests() {
         (cd /home/tester/orbitop && as_tester python3 -m pytest -q)
 }
 
-# The installed starter names the version of /src: the packages are built from the same HEAD.
+# The installed starter names the version of /src: the packages are built from the same commit.
 version() {
     local want got
     want="orbitop $(sed -n 's/^__version__ = "\(.*\)"$/\1/p' /src/orbitop/__init__.py)"

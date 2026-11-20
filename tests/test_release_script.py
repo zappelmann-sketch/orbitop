@@ -85,6 +85,7 @@ CASES = {  # Fall: (README, Trockenlauf, Umgebung, erwarteter Text)
     "no-gnupghome": ("fpr", True, {"GNUPGHOME": ""}, "GNUPGHOME must be the GnuPG directory"),
     "gh-login": ("fpr", False, {"GH_AUTH_RC": "1"}, "gh is not logged in"),
     "gh-admin": ("fpr", False, {"GH_ADMIN": "false"}, "no admin rights on zappelmann-sketch/orbitop"),
+    "info-attributes": ("fpr", True, {}, "info/attributes is not empty"),  # Audit M3, Plan 2026-11-19, Task 9
 }
 
 
@@ -108,6 +109,8 @@ def test_refuses_before_building(tmp_path, keys, case):
         init = repo["repo"] / "orbitop" / "__init__.py"
         init.write_text(init.read_text().replace(f'"{VERSION}"', '"9.9.9"'))
         git(repo["repo"], "commit", "-qam", "version")
+    elif case == "info-attributes":  # git archive läse export-ignore daraus, an jedem Commit vorbei
+        (repo["repo"] / ".git" / "info" / "attributes").write_text("README.md export-ignore\n")
     r, calls = run(tmp_path, repo, keys, version, *(["--dry-run"] if dry else []), env=env)
     refused_before_building(r, calls, text)
 

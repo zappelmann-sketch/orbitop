@@ -139,12 +139,15 @@ def gpg_agents_below(path):
 def gnupg_leaves_nothing(tmp_path_factory):
     """Jeder Test, der ein GNUPGHOME anlegt, stoppt am Ende dessen Agenten und entfernt den Socket-Ordner
     (site_stub.kill_agent); ein Testlauf lässt keinen neuen d.*-Ordner und keinen gpg-agent eines Test-GNUPGHOME
-    zurück. shortcut: ein gleichzeitiger GnuPG-Lauf außerhalb dieser Tests zählt mit."""
+    zurück. shortcut: ein gleichzeitiger GnuPG-Lauf außerhalb dieser Tests zählt mit; schlägt der Wächter deshalb
+    fehl, jeden d.* einem GNUPGHOME unter dem basetemp zuordnen (d.<zbase32 der ersten 15 Byte von SHA-1 des
+    Pfads>, wie GnuPG ihn bildet)."""
     before = gnupg_socket_dirs()
     yield
     new = sorted(gnupg_socket_dirs() - before)
     agents = gpg_agents_below(tmp_path_factory.getbasetemp())
-    assert not new and not agents, f"GnuPG-Reste des Testlaufs: Socket-Ordner {new}, gpg-agent {agents}"
+    assert not new and not agents, (f"GnuPG-Reste des Testlaufs (oder ein gleichzeitiger GnuPG-Lauf außerhalb dieser "
+                                    f"Tests): Socket-Ordner {new}, gpg-agent {agents}")
 
 
 @pytest.fixture(autouse=True)

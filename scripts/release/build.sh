@@ -99,7 +99,7 @@ matrix() {
     [ "$key" = "$fpr" ] || die "the matrix ran with the key ${key:-none}, not ORBITOP_KEY=$fpr"
     python3 -I "$repo/scripts/release/distro-check.py" "$repo/$doc" "$version" "$keyring_version" ${dry:+"--dry-run"} \
         < "$tmp/matrix.log" || die "cannot write the results to $doc"
-    (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY python3 -m pytest -q tests/test_readme.py) ||
+    (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY -u ORBITOP_REV python3 -m pytest -q tests/test_readme.py) ||
         die "the README does not match the results in $doc"
     [ -z "$dry" ] || return 0
     ! git -C "$repo" diff --quiet -- "$doc" || return 0
@@ -114,7 +114,7 @@ matrix() {
 make_assets() {
     local a=$tmp/assets s=$tmp/site p=$version-1 k=$keyring_version status
     mkdir "$a"
-    git -C "$repo" archive --format=tar.gz --prefix="orbitop-$version/" -o "$a/orbitop-$version.tar.gz" "$release_rev"
+    git_archive --format=tar.gz --prefix="orbitop-$version/" -o "$a/orbitop-$version.tar.gz" "$release_rev"
     cp -- "$s/$POOL/orbitop/orbitop_${p}_all.deb" "$s/arch/x86_64/orbitop-$p-any.pkg.tar.zst" "$a/"
     cp -- "$s/rpm/fedora/orbitop-$p.noarch.rpm" "$a/orbitop-$p.fedora.noarch.rpm"
     cp -- "$s/rpm/opensuse/orbitop-$p.noarch.rpm" "$a/orbitop-$p.opensuse.noarch.rpm"

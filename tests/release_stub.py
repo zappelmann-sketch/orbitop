@@ -24,12 +24,14 @@ GIT_ENV = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
 NAME, NOREPLY = "zappelmann-sketch", "235797375+zappelmann-sketch@users.noreply.github.com"
 TOOLS = ("calls", "git", "gh", "curl", "docker", "gpg-agent", "gpgconf")
 # Jedes Bau-Skript holt die Dateien wie das echte (tracked_files) und schreibt nach trees.log, ob sie den Commit
-# MOVE_HEAD enthalten; MOVE_HEAD: der erste Bau committet vorher moved.txt (ein anderer Prozess nach Schritt 1).
+# MOVE_HEAD enthalten; MOVE_HEAD: der erste Bau committet vorher moved.txt (ein anderer Prozess nach Schritt 1);
+# CHANGE_SCRIPT: der Bau ändert ein Skript des Laufs im Arbeitsbaum, ohne Commit.
 TREE = """(. "$REPO/scripts/container-common.sh" && workdir && tracked_files &&
     if [ -e "$tmp/src/moved.txt" ]; then echo "${0##*/} moved"; else echo "${0##*/} pinned"; fi) >> "$LOG_DIR/trees.log"
 """
 MOVE = """[ -z "$MOVE_HEAD" ] || [ -e "$REPO/moved.txt" ] || { echo moved > "$REPO/moved.txt" &&
     "$REAL_GIT" -C "$REPO" add moved.txt && "$REAL_GIT" -C "$REPO" commit -qm moved; }
+[ -z "$CHANGE_SCRIPT" ] || echo "# changed" >> "$REPO/scripts/container-common.sh"
 """
 # Die Bau-Skripte als Stellvertreter: Sie schreiben nur die Dateinamen, die release.sh liest.
 BUILD_PACKAGES = f"""#!/bin/sh
@@ -78,6 +80,13 @@ printf '%s\\n' check-distros "$@" ---- >> "$LOG_DIR/calls.log"
 cat "$LOG_DIR/matrix.txt"
 exit "${MATRIX_RC:-0}"
 """
+# Die Tests des Wegwerf-Repositorys: Keine Variable des Release erreicht sie.
+SUITE = """import os
+
+
+def test_ok():
+    assert not {"GNUPGHOME", "ORBITOP_KEY", "ORBITOP_REV"} & set(os.environ)
+"""
 LOGGED = """#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/{tool}.log"
 exec {real} "$@"
@@ -106,7 +115,11 @@ case "$1 $2" in
     "release create")
         from_tag="" repo=""  # wie gh 2.104: --notes-from-tag mit --repo oder -R, in jeder Reihenfolge und Schreibweise
         for a; do
-            case $a in --notes-from-tag | --notes-from-tag=true) from_tag=1 ;; --repo | --repo=* | -R*) repo=1 ;; esac
+            case $a in  # die wahren Werte von pflag (strconv.ParseBool)
+                --notes-from-tag | --notes-from-tag=[1tT] | --notes-from-tag=true | --notes-from-tag=TRUE | \\
+                    --notes-from-tag=True) from_tag=1 ;;
+                --repo | --repo=* | -R*) repo=1 ;;
+            esac
         done
         if [ -n "$from_tag" ] && [ -n "$repo" ]; then
             echo "using \\`--notes-from-tag\\` with \\`--repo\\` is not supported" >&2 && exit 1
@@ -224,7 +237,7 @@ def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY, date=None):
                                count=1))
     (repo / "tests").mkdir()
     for name in ("test_ok.py", "test_readme.py"):  # die strenge Suite und der README-Abgleich nach der Matrix
-        (repo / "tests" / name).write_text("def test_ok():\n    pass\n")
+        (repo / "tests" / name).write_text(SUITE)
     (repo / ".gitignore").write_text("__pycache__/\n.pytest_cache/\n")
     git(tmp_path, "init", "-q", "--bare", "-b", "main", str(remote))
     git(repo.parent, "init", "-q", "-b", "main", str(repo))

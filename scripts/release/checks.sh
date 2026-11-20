@@ -32,14 +32,19 @@ check_ident() {
 # check_tree: a clean main at VERSION, without the tag, whose commits and tag carry IDENT; the Debian and the RPM
 # changelog of this version come from the one source, the <release> entries of the metainfo (packaging/changelog.py).
 # pinned is this HEAD: the builds and the matrix take its files (build.sh), the release files and the tag are of it or
-# of the one commit of step 3 on top (check_head).
+# of the one commit of step 3 on top (check_head). git archive would take export-ignore and export-subst from
+# info/attributes, which no commit shows and git_archive cannot turn off, so it must be empty.
 check_tree() {
-    local branch status have kind
+    local branch status have kind attributes
     check_ident "$repo"
     branch=$(git -C "$repo" symbolic-ref --short -q HEAD) || true
     [ "$branch" = main ] || die "release only from the branch main, not ${branch:-a detached HEAD}"
     status=$(git -C "$repo" status --porcelain) || die "git status failed"
     [ -z "$status" ] || die "the working tree is not clean (git status):"$'\n'"$status"
+    attributes=$(git -C "$repo" rev-parse --path-format=absolute --git-path info/attributes) ||
+        die "git rev-parse --git-path info/attributes failed"
+    [ ! -s "$attributes" ] || die "$attributes is not empty: git archive would apply it to the release files" \
+        "(git-archive(1), ATTRIBUTES); empty or remove it"
     have=$(sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$repo/orbitop/__init__.py")
     [ "$have" = "$version" ] || die "orbitop/__init__.py has the version ${have:-none}, not $version"
     ! git -C "$repo" rev-parse -q --verify "refs/tags/v$version" > /dev/null || die "the tag v$version exists already"
@@ -156,20 +161,26 @@ remote_state() {
 }
 
 # run_tests: the strict test suite (CLAUDE.md), with the environment of an ordinary run: without GNUPGHOME and
-# ORBITOP_KEY, so that no test reaches the archive key.
+# ORBITOP_KEY, so that no test reaches the archive key, and without ORBITOP_REV, so that every test builds its own
+# files.
 run_tests() {
-    (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY python3 -m pytest -q -W error::ResourceWarning \
+    (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY -u ORBITOP_REV python3 -m pytest -q -W error::ResourceWarning \
         -W error::DeprecationWarning) || die "the strict test suite failed"
 }
 
 # check_head (before the tag): HEAD is still release_rev, the commit of the release files (step 3), and that is the
-# pinned HEAD of step 1 or the commit of step 3 right on top of it. A commit of another process during the run (another
-# session, an agent with a shell) stops the release before anything is tagged or pushed.
+# pinned HEAD of step 1 or the commit of step 3 right on top of it; the working tree is still clean, apart from the
+# docs/distro-check.md that a dry run writes and does not commit. A commit of another process during the run (another
+# session, an agent with a shell), or a change of a script that runs from the working tree (release.sh, the build
+# scripts, container-common.sh), stops the release before anything is tagged or pushed.
 check_head() {
-    local head parent=""
+    local head parent="" status
     head=$(git -C "$repo" rev-parse --verify HEAD) || die "git rev-parse HEAD failed"
     [ "$head" = "$release_rev" ] || die "HEAD moved during the run: it is $head, the release files are of $release_rev"
     [ "$head" = "$pinned" ] || parent=$(git -C "$repo" rev-parse -q --verify "$head^") || true
     [ "$head" = "$pinned" ] || [ "$parent" = "$pinned" ] ||
         die "HEAD $head is neither the HEAD of step 1 ($pinned) nor the commit of step 3 on top of it"
+    status=$(git -C "$repo" status --porcelain) || die "git status failed"
+    [ -z "$status" ] || { [ -n "$dry" ] && [ "$status" = " M docs/distro-check.md" ]; } ||
+        die "the working tree changed during the run (git status):"$'\n'"$status"
 }

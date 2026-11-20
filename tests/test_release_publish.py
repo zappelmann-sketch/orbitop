@@ -145,8 +145,8 @@ def test_refuses_an_identity_that_only_the_gh_pages_worktree_gets(tmp_path, keys
 
 @pytest.mark.parametrize("local", [False, True], ids=["first", "local-gh-pages"])
 def test_dry_run_checks_the_pages_identity(tmp_path, keys, repo, local):
-    """Task 9: Der Trockenlauf prüft die Identität im Worktree von gh-pages wie der echte Lauf und ändert dabei keinen
-    Zweig, auch keinen lokalen gh-pages, den ein früherer Lauf ließ."""
+    """Plan 2026-11-19, Task 9: Der Trockenlauf prüft die Identität im Worktree von gh-pages wie der echte Lauf und
+    ändert dabei keinen Zweig, auch keinen lokalen gh-pages, den ein früherer Lauf ließ."""
     if local:
         git(repo["repo"], "branch", "gh-pages")
     refs = git(repo["repo"], "for-each-ref")
@@ -168,12 +168,17 @@ def test_first_release_replaces_a_leftover_local_gh_pages(tmp_path, keys, repo):
     assert "orbitop/__init__.py" not in git(remote, "ls-tree", "-r", "--name-only", "gh-pages")
 
 
+TRUE = ["1", "t", "T", "TRUE", "True"]  # die übrigen wahren Werte von pflag (strconv.ParseBool) neben "true"
+
+
 @pytest.mark.parametrize("args", [["--repo", "o/r", "--notes-from-tag"], ["--notes-from-tag", "--repo", "o/r"],
-                                  ["--notes-from-tag", "-R", "o/r"], ["--notes-from-tag=true", "--repo", "o/r"]],
-                         ids=["repo-first", "repo-after", "short", "equals"])
+                                  ["--notes-from-tag", "-R", "o/r"], ["--notes-from-tag=true", "--repo", "o/r"],
+                                  *[[f"--notes-from-tag={v}", "-R", "o/r"] for v in TRUE]],
+                         ids=["repo-first", "repo-after", "short", "equals", *[f"equals-{v}" for v in TRUE]])
 def test_gh_stub_refuses_notes_from_tag_with_repo(tmp_path, args):
-    """Task 9: Der Stellvertreter lehnt wie gh 2.104 --notes-from-tag mit --repo oder -R ab, in jeder Reihenfolge und
-    als --notes-from-tag=true; --notes-file mit --repo nicht (dort scheitert nur der fehlende Tag)."""
+    """Plan 2026-11-19, Task 9: Der Stellvertreter lehnt wie gh 2.104 --notes-from-tag mit --repo oder -R ab, in
+    jeder Reihenfolge und mit jedem wahren Wert; --notes-file mit --repo nicht (dort scheitert nur der fehlende
+    Tag)."""
     stub(tmp_path, "gh", GH)
     git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
     env = {**os.environ, "LOG_DIR": str(tmp_path), "REAL_GIT": REAL["git"], "REMOTE": str(tmp_path / "remote.git")}
@@ -182,3 +187,18 @@ def test_gh_stub_refuses_notes_from_tag_with_repo(tmp_path, args):
         r = subprocess.run([str(tmp_path / "gh"), "release", "create", "v1", "--verify-tag", *notes],
                            capture_output=True, text=True, env=env)
         assert r.returncode == 1 and (text in r.stderr) == refused, (notes, r.stderr)
+
+
+def test_source_archive_ignores_replace_refs_and_attribute_files(tmp_path, keys, repo):
+    """Audit M3 (Plan 2026-11-19, Task 9): Das Quellarchiv des Release (make_assets) enthält README.md, wie der
+    Commit sie hat, auch mit einem Ersatz für ihren Blob (refs/replace) und export-ignore in core.attributesFile."""
+    readme = (repo["repo"] / "README.md").read_bytes()
+    planted = subprocess.run(["git", "-C", str(repo["repo"]), "hash-object", "-w", "--stdin"], input=b"planted\n",
+                             capture_output=True, check=True).stdout.decode().strip()
+    git(repo["repo"], "replace", git(repo["repo"], "rev-parse", "HEAD:README.md").strip(), planted)
+    (tmp_path / "attributes").write_text("README.md export-ignore\n")
+    git(repo["repo"], "config", "core.attributesFile", str(tmp_path / "attributes"))
+    r, _ = run(tmp_path, repo, keys, VERSION)
+    assert r.returncode == 0, r.stderr
+    with tarfile.open(tmp_path / "assets" / f"orbitop-{VERSION}.tar.gz") as tar:
+        assert tar.extractfile(f"orbitop-{VERSION}/README.md").read() == readme

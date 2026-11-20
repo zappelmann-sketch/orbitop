@@ -5,7 +5,8 @@
 # "docker run --rm" per image (docs/distro-check.md). The steps run in scripts/matrix/inside.sh.
 # Usage: bash check-distros.sh --site SITE --site2 SITE2 [image …]
 #        SITE and SITE2 come from build-site.sh, SITE2 from packages built with --suffix (plan K6). Each container gets
-#        them read-only at /site and /site2 and the files of HEAD read-only at /src, nothing writable.
+#        them read-only at /site and /site2 and the files of the commit ORBITOP_REV (default HEAD) read-only at /src,
+#        nothing writable.
 #        Prints "KEY <fingerprint>" (the key both trees carry), "IMAGE <image>" before the log of each image and at the
 #        end "RESULT <image> <digest> pass|fail <step>" per image; exits 1 unless every image passed.
 set -euo pipefail
@@ -64,7 +65,7 @@ key=$(fingerprint "$site/orbitop-archive-keyring.asc") ||
 [ "$(fingerprint "$site2/orbitop-archive-keyring.asc" || true)" = "$key" ] ||
     die "--site2 must carry the same key as --site ($key)"
 echo "KEY $key"
-tracked_files  # a container sees only the files of HEAD, never local ones such as CLAUDE.md or .git
+tracked_files  # a container sees only the files of the commit ORBITOP_REV (default HEAD), never CLAUDE.md or .git
 results=()
 for image in "$@"; do
     echo "IMAGE $image"  # scripts/release/distro-check.py finds the log of each image by this line

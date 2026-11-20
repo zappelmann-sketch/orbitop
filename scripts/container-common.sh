@@ -3,8 +3,8 @@
 # Shared by scripts/build-packages.sh, scripts/build-site.sh, scripts/check-distros.sh and scripts/release.sh,
 # sourced right after set -euo pipefail: the images, option parsing, a work directory with the tracked files, the
 # disposable container whose output is checked, and the fingerprint of a key file.
-# Provides $repo, die, usage (prints $USAGE), options, fresh_out, workdir ($tmp), tracked_files, only_plain, container,
-# fingerprint.
+# Provides $repo, die, usage (prints $USAGE), options, fresh_out, workdir ($tmp), git_archive, tracked_files,
+# only_plain, container, fingerprint.
 # shellcheck shell=bash disable=SC2034  # the images are used by the scripts that source this file
 
 DEB_IMAGE=debian:trixie
@@ -42,11 +42,20 @@ workdir() {
         gpgconf --homedir "$tmp/gnupg" --remove-socketdir; } 2>/dev/null || true; rm -rf -- "$tmp"' EXIT
 }
 
-# tracked_files: $tmp/src holds the files of the commit ORBITOP_REV, or of HEAD without it (git archive), never local
-# ones such as CLAUDE.md. release.sh passes the HEAD of its step 1, so that a commit during the run changes no build.
+# git_archive ARG…: git archive in $repo, without refs/replace (git-replace(1)) and without core.attributesFile, whose
+# export-ignore and export-subst would change what it takes (git-archive(1), ATTRIBUTES); release.sh refuses a
+# non-empty info/attributes (check_tree).
+git_archive() { git -C "$repo" --no-replace-objects -c core.attributesFile=/dev/null archive "$@"; }
+
+# tracked_files: $tmp/src holds the files of the commit ORBITOP_REV, its full hash, or of HEAD without it, never local
+# ones such as CLAUDE.md. release.sh passes the HEAD of its step 1, so that a commit during the run changes no file a
+# build takes.
 tracked_files() {
+    local rev=${ORBITOP_REV:-}
+    [[ -z $rev || $rev =~ ^[0-9a-f]{40}([0-9a-f]{24})?$ ]] ||  # SHA-1 or SHA-256; never an option of git archive
+        die "ORBITOP_REV must be the full hash of a commit, not $rev"
     mkdir "$tmp/src"
-    git -C "$repo" archive "${ORBITOP_REV:-HEAD}" | tar -C "$tmp/src" -xf -
+    git_archive "${rev:-HEAD}" | tar -C "$tmp/src" -xf -
 }
 
 # only_plain DIR: DIR comes from a container (as root); host tools may touch it only if it holds nothing but regular
