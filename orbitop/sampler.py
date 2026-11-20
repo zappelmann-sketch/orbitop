@@ -217,6 +217,10 @@ class Sampler:
         """Intel-Grafik da: nur dann gehört perfmon in den Zustand der Freigabe (Klärung Q2)."""
         return any(g.info.vendor == "intel" for g in self._gpus)
 
+    def igt_missing(self) -> bool:
+        """hint.igt_missing gilt gerade: Vorbedingung des Knopfs „Installieren“ (B2.7)."""
+        return "hint.igt_missing" in self._tools.hints()
+
     def recheck_tools(self) -> None:
         """Nach Freigabe oder Installation (Q3), aus einem Auftrags-Thread; GpuTools sperrt selbst. Nur wenn sich
         etwas geändert hat: sonst ließe eine Seite mit „schon so“ die Intel-Leser immer wieder neu starten."""

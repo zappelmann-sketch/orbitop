@@ -86,6 +86,7 @@ def test_init_carries_counters_and_hidden_hints(rig, monkeypatch):
     sent = json.loads(rig.js[-1].removeprefix("window.orbitop.receive(").removesuffix(")"))
     assert sent["counters"] == {"marker": "on", "usable": "nohelper"} and seen == [True]
     assert sent["hidden_hints"] == ["hint.igt_missing"]
+    assert sent["install"] == {"usable": False, "command": "sudo apt install intel-gpu-tools"}  # ohne Paket kein Knopf
 
 
 def test_counters_message_starts_the_job_with_the_sampler(rig):
@@ -103,9 +104,13 @@ def test_hide_and_show_hints_reply_hints_state(rig, tmp_path):
     assert rig.log == []
 
 
-def test_install_tool_is_unavailable_and_does_not_quit(rig):  # der Knopf über PackageKit folgt (Task 8)
+def test_install_tool_starts_the_job_with_the_sampler_and_does_not_quit(rig):  # der Name kommt nie von der Seite
     rig.s._on_message(None, Value({"type": "install_tool", "package": "x"}))
-    assert rig.js == [receive({"type": "install_state", "result": "unavailable"})] and rig.log == []
+    [t] = rig.threads
+    assert (t.target, t.args[0], t.daemon) == (rig.s._jobs._install_thread, rig.s._sampler, True)
+    assert rig.js == [] and rig.log == []
+    t.args[1]()  # refresh nach dem Auftrag: init mit dem frischen Stand
+    assert rig.js == [f"window.orbitop.receive({INIT})"]
 
 
 @pytest.mark.parametrize("obj", [{"type": "terminate", "pid": True, "start": 1, "force": False}, {"type": "x"}, [1],

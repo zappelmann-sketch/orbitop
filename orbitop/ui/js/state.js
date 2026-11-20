@@ -14,6 +14,8 @@ export const state = {
   // Freigabe der Zähler: COUNTERS aus init oder counters_state, Auftrag läuft, letztes Ergebniswort, Ziel des offenen
   // Schritts (true: freigeben, false: sperren, null: zu); ausgeblendete Hinweise aus init oder hints_state
   counters: null, cntBusy: false, cntResult: null, cntWant: null, hidden: [],
+  // Knopf „Installieren“: install aus init ({usable, command}), Auftrag läuft, letztes Wort aus install_state
+  install: null, instBusy: false, instResult: null,
 };
 export const ui = { labels: [] };
 export const tiles = new Map(); // Kachel-id -> Elemente

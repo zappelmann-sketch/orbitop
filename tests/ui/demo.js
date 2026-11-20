@@ -6,8 +6,9 @@
 // aufgefüllt): So zeichnen die Diagramme am Ende inkrementell, für den Bildvergleich mit vollem Zeichnen.
 // ?cols=all blendet alle Spalten ein (Sichtprüfung, Messung).
 // ?counters=on|nohelper|manual setzt den Zustand der Freigabe (sonst der aus demo-data.js: aus), ?hints=igt_noperm,…
-// zeigt diese Hinweise in der Fußzeile. ?open=about öffnet „Über“, ?open=step dazu die Erklärung vor polkit; ohne
-// Brücke zu Python sendet die Demo nichts.
+// zeigt diese Hinweise in der Fußzeile (igt_missing mit dem Knopf „Installieren“, ?install=nopkg statt dessen mit dem
+// Befehl). ?open=about öffnet „Über“, ?open=step dazu die Erklärung vor polkit; ohne Brücke zu Python sendet die Demo
+// nichts.
 // #procs öffnet den Reiter „Prozesse“ und wählt den obersten Prozess (main.js).
 import "./demo-data.js";
 import { COLS } from "../../orbitop/ui/js/procs/columns.js";
@@ -45,6 +46,7 @@ const COUNTERS = {
   }
   if (Object.hasOwn(COUNTERS, params.get("counters"))) init.counters = COUNTERS[params.get("counters")];
   if (params.get("hints")) tick.hints = params.get("hints").split(",").map((k) => "hint." + k);
+  if (params.get("install") === "nopkg") init.install = { ...init.install, usable: false }; // Start ohne Paket
   if (params.get("cols") === "all") init.layout = { order: COLS.map((c) => c.id), hidden: [], widths: {}, split: 1.55 / 2.55 };
   window.orbitop.receive(init);
   const older = (v, k) => (v ? [...Array(Math.min(k, v.length)).fill(v[0]), ...v.slice(0, Math.max(0, v.length - k))] : v);

@@ -38,6 +38,7 @@ export function receive(msg) {
     renderAutostart();
     state.counters = msg.counters || null; // ein laufender Auftrag und sein Ergebnis bleiben über ein neues init
     state.hidden = Array.isArray(msg.hidden_hints) ? msg.hidden_hints : [];
+    state.install = msg.install || null; // wie counters: Auftrag und Ergebnis bleiben
     renderCounters();
     renderShowHints();
     renderFooter();
@@ -74,6 +75,10 @@ export function receive(msg) {
     state.cntResult = msg.result;
     renderCounters();
     renderFooter(); // Q4: die Textwahl hängt an usable
+  } else if (msg.type === "install_state") { // Antwort auf install_tool: ein festes Wort
+    state.instBusy = false;
+    state.instResult = msg.result;
+    renderFooter();
   } else if (msg.type === "hints_state") {
     state.hidden = Array.isArray(msg.hidden_hints) ? msg.hidden_hints : [];
     renderShowHints();

@@ -127,5 +127,7 @@
 .foot .hint { display: flex; gap: 10px; align-items: baseline; padding-left: 8px; border-left: 2px solid var(--amber);
               color: #cdbb98; }
 .foot .hint span { flex: 1; }
+.foot .hint .note { display: block; color: var(--ink); }
+.foot .install { flex: none; padding: 2px 12px; }
 .foot .hide { flex: none; color: var(--mut); text-decoration: underline; text-underline-offset: 2px; }
 .foot .hide:hover { color: var(--ink); }

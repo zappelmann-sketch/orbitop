@@ -99,7 +99,7 @@ def rig(monkeypatch, tmp_path, threads):
 
     from orbitop import jobs, shell
     from orbitop.layout import LayoutFile
-    from tests.shell_helpers import COUNTERS, FakeGLib, FakeView, FakeWorker
+    from tests.shell_helpers import COUNTERS, INSTALL, FakeGLib, FakeView, FakeWorker
     log = []
     glib = FakeGLib()
     monkeypatch.setattr(shell, "GLib", glib)  # vor Shell(): die Hülle baut ihre Jobs selbst, mit dieser Attrappe
@@ -115,6 +115,7 @@ def rig(monkeypatch, tmp_path, threads):
     # fester Zustand der Freigabe statt des Rechners, auf dem die Tests laufen
     monkeypatch.setattr(jobs.counters, "state", lambda intel: {k: v for k, v in COUNTERS.items() if k != "usable"})
     monkeypatch.setattr(jobs.actions, "counters_usable", lambda: COUNTERS["usable"])
+    monkeypatch.setattr(jobs.packagekit, "command", lambda: INSTALL["command"])  # nicht das os-release des Rechners
     return SimpleNamespace(s=s, log=log, glib=glib, threads=threads, js=s._view.js)
 
 
@@ -172,3 +173,18 @@ def no_real_pkexec(monkeypatch):
         assert "pkexec" not in str(args[0] if isinstance(args, (list, tuple)) else args), "echter pkexec-Aufruf"
         return real(args, *a, **kw)
     monkeypatch.setattr(subprocess, "Popen", guard)
+
+
+@pytest.fixture(autouse=True)
+def no_real_system_bus(monkeypatch):
+    """Kein Test erreicht das PackageKit des Rechners (Installation, Dialog): der System-Bus nur als Fake-Bus."""
+    try:
+        from gi.repository import Gio
+    except ImportError:
+        return
+    real = Gio.bus_get_sync
+
+    def guard(bus_type, *a, **kw):
+        assert bus_type != Gio.BusType.SYSTEM, "echter System-Bus"
+        return real(bus_type, *a, **kw)
+    monkeypatch.setattr(Gio, "bus_get_sync", guard)

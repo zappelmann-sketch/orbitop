@@ -172,6 +172,14 @@ def test_igt_missing_hint_names_the_own_process_fallback():  # ohne intel_gpu_to
     assert "eigene Prozesse" in json_of("de")["hint.igt_missing"]
 
 
+def test_install_results_have_texts():  # Q2: jedes Wort aus install_state; der Befehl kommt aus app.INSTALL_HINT
+    for lang in ("en", "de"):
+        texts = json_of(lang)
+        assert {f"install.{r}" for r in ("installed", "denied", "failed", "unavailable", "busy", "locked")} <= set(texts)
+        assert placeholders(texts["install.command"]) == {"command"}
+        assert texts["install.locked"] == texts["counters.locked"]  # B2.7: eine Sperre für beide
+
+
 def test_german_has_real_umlauts():
     de = json_of("de")
     assert de["tab.overview"] == "Übersicht"

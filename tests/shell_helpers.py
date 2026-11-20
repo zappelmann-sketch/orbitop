@@ -15,7 +15,9 @@ from orbitop.layout import COLUMNS, DEFAULT_HIDDEN
 
 UI = Path(shell.UI_DIR)
 COUNTERS = {"marker": "off", "manual_rule": False, "parts": [{"part": "rapl", "state": "none"}], "usable": "nohelper"}
-INIT = json.dumps({"type": "init", "layout": None, "autostart": None, "counters": COUNTERS, "hidden_hints": []})
+INSTALL = {"usable": False, "command": "sudo apt install intel-gpu-tools"}  # ohne Intel-Grafik und ohne Paket
+INIT = json.dumps({"type": "init", "layout": None, "autostart": None, "counters": COUNTERS, "hidden_hints": [],
+                   "install": INSTALL})
 L = {"order": list(COLUMNS), "hidden": list(DEFAULT_HIDDEN), "widths": {"cpu": 90}, "split": 0.6}
 
 
