@@ -5,12 +5,10 @@ from pathlib import Path
 
 import pytest
 
-from orbitop import sampler as sampler_mod
 from orbitop import tiles
-from orbitop.gpu import discover_gpus
 from orbitop.sampler import Sampler
 from orbitop.sensors import Battery, Fan, Temp
-from orbitop.system import Disk, NetDev
+from orbitop.system import Disk, Mem, NetDev
 from tests.roots import AMD, INTEL, VM
 from tests.sampler_helpers import OVERVIEW, NoTools, fake_clock, power_of, run, sens, tile
 
@@ -95,6 +93,21 @@ def test_battery_row_on_ac_and_discharging(patched):
     assert next(k for k in p["kv"] if k["k"] == "kv.battery")["v"] == [{"v": 80.0, "u": "%"}, {"v": 9.5, "u": "W"}]
     p = power_of(patched, pkg_w=5.0, batt=Battery(80.0, False, None))
     assert next(k for k in p["kv"] if k["k"] == "kv.battery")["v"] == [{"v": 80.0, "u": "%"}]
+
+
+def test_power_row_cpu_cores_only_with_rapl_core_zone(patched):
+    p = power_of(patched, rapl={"package-0": 12.0, "core": 3.0})
+    assert {"k": "kv.cpu_cores", "v": {"v": 3.0, "u": "W"}} in p["kv"]
+    assert not any(k["k"] == "kv.cpu_cores" for k in power_of(patched, rapl={"package-0": 12.0})["kv"])
+
+
+def test_mem_tile_from_plain_values_and_history():  # Schnittstelle: Werte und Verläufe hinein, Kachel heraus
+    t = tiles.mem_tile(Mem(total=8000, available=6000, used=2000, swap_total=0, swap_used=0), {"mem": [10.0, 25.0]})
+    assert t == {"id": "mem", "kind": "mem", "name": "", "main": {"v": 25.0, "u": "%"},
+                 "aside": {"v": 2000, "u": "B", "of": 8000}, "seg": 25.0, "threads": None, "devices": None,
+                 "series": [{"key": "series.used", "fill": True, "max": 100.0, "u": "%", "values": [10.0, 25.0]}],
+                 "kv": [{"k": "kv.available", "v": {"v": 6000, "u": "B"}}], "warn": True}
+    assert tiles.mem_tile(None, {}) is None
 
 
 # 3: aside-Entscheidungen nach dem Entwurf
@@ -189,18 +202,6 @@ def test_gpu_memory_has_total():
     kv = next(k for k in tile(run(AMD).snapshot(OVERVIEW), "gpu0")["kv"] if k["k"] == "kv.memory")["v"]
     assert kv["of"] == 8 * 1024 ** 3 and kv["v"] == 3 * 1024 ** 3
     assert {"k": "kv.memory", "v": {"k": "kv.shared_with_ram"}} in tile(run(INTEL).snapshot(OVERVIEW), "gpu0")["kv"]
-
-
-# 3b: GPU-Nummern zählen nur Karten mit Kachel
-def test_gpu_ids_skip_gpus_without_tile(monkeypatch):
-    monkeypatch.setattr(sampler_mod, "discover_gpus", lambda root: discover_gpus(root)[::-1])  # nvidia ohne Werte zuerst
-    snap = run(AMD).snapshot(OVERVIEW)
-    assert [t["id"] for t in snap["tiles"] if t["kind"] == "gpu"] == ["gpu0"]
-
-
-def test_dead_locale_key_removed():
-    from orbitop.i18n import load_texts
-    assert "tile.power_aside" not in load_texts("en") and "kv.battery_ac" not in load_texts("en")
 
 
 def test_warn_only_with_absolute_reference():

@@ -55,6 +55,53 @@ def patched(monkeypatch):
     return make
 
 
+@pytest.fixture
+def child():
+    p = subprocess.Popen(["sleep", "1000"])
+    yield p
+    p.kill()
+    p.wait()
+
+
+@pytest.fixture
+def foreign(tmp_path):
+    """Lebender fremder Prozess 4242 mit Startzeit 77; der Testbaum als root."""
+    from tests.actions_helpers import foreign_proc
+    foreign_proc(tmp_path, 4242, 77, "S")
+    return str(tmp_path)
+
+
+@pytest.fixture
+def rig(monkeypatch, tmp_path):
+    """Hülle ohne Fenster mit Attrappen für Worker, WebView, Thread und GLib; nur nach check_runtime() nutzbar."""
+    from types import SimpleNamespace
+
+    from orbitop import shell
+    from orbitop.layout import LayoutFile
+    from tests.shell_helpers import FakeGLib, FakeView, FakeWorker
+    log, threads = [], []
+
+    class Thread:
+        def __init__(self, target, args=(), daemon=None):
+            self.target, self.args, self.daemon = target, args, daemon
+
+        def start(self):
+            threads.append(self)
+
+    s = shell.Shell(False)
+    s._worker, s._view = FakeWorker(log), FakeView()
+    s._init_fields, s._layouts = {"type": "init"}, LayoutFile(str(tmp_path / "layout.json"))
+    s._sampler = SimpleNamespace(close=lambda: log.append("close"))
+    s._app = SimpleNamespace(quit=lambda: log.append("quit"))
+    # nie der echte Autostart-Ordner: set_enabled schriebe sonst nach ~/.config/autostart
+    monkeypatch.setattr(shell.autostart, "state", lambda env: None)
+    monkeypatch.setattr(shell.autostart, "set_enabled", lambda on, env: log.append(("autostart", on)))
+    glib = FakeGLib()
+    monkeypatch.setattr(shell, "GLib", glib)
+    monkeypatch.setattr(shell, "threading", SimpleNamespace(Thread=Thread))
+    return SimpleNamespace(s=s, log=log, glib=glib, threads=threads, js=s._view.js)
+
+
 @pytest.fixture(autouse=True)
 def no_real_pkexec(monkeypatch):
     """Ein echter pkexec-Start (Passwortdialog!) lässt jeden Test laut scheitern, auch über den Default-Runner."""

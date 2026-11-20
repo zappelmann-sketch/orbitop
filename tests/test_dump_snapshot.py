@@ -8,8 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from tests.procs_helpers import make_proc
 from tests.roots import INTEL
-from tests.test_procs import make_proc
 
 
 # dump-snapshot

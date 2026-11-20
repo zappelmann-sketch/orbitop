@@ -193,3 +193,8 @@ def test_kill_dialog_has_own_labels():
 def test_every_tile_kind_has_missing_text():
     from orbitop.sampler import KINDS
     assert {f"missing.{k}" for k in KINDS} <= set(json_of("en"))
+
+
+def test_dead_locale_key_removed():
+    from orbitop.i18n import load_texts
+    assert "tile.power_aside" not in load_texts("en") and "kv.battery_ac" not in load_texts("en")

@@ -10,9 +10,9 @@ from orbitop import sampler as sampler_mod
 from orbitop.sampler import Sampler
 from orbitop.gpu import discover_gpus
 from orbitop.gpu_tools import GpuTools
+from tests.procs_helpers import make_proc
 from tests.roots import AMD, ARM, INTEL, VM
 from tests.sampler_helpers import OVERVIEW, PROCS, NoTools, fake_clock, kinds, run, tile
-from tests.test_procs import make_proc
 
 
 def test_intel_laptop_eight_tiles():

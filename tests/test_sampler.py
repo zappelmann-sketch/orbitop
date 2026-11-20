@@ -7,12 +7,13 @@ from pathlib import Path
 import pytest
 
 from orbitop import sampler as sampler_mod
+from orbitop.gpu import discover_gpus
 from orbitop.sampler import Sampler
 from orbitop.sensors import Battery, Temp, read_sensors
 from orbitop.system import NetDev, NetReader
+from tests.procs_helpers import make_proc
 from tests.roots import AMD, ARM, INTEL, VM
 from tests.sampler_helpers import OVERVIEW, NoTools, fake_clock, kinds, power_of, run, sens, tile
-from tests.test_procs import make_proc
 
 
 def test_intel_package_power_from_tools_replaces_rapl_hint():
@@ -215,6 +216,13 @@ def test_rapl_hint_only_if_all_zones_unreadable(tree_copy):
     assert "hint.rapl_noperm" not in hints()
     (Path(root) / "sys/class/powercap/intel-rapl:0/energy_uj").unlink()
     assert "hint.rapl_noperm" in hints()
+
+
+# 3b: GPU-Nummern zählen nur Karten mit Kachel
+def test_gpu_ids_skip_gpus_without_tile(monkeypatch):
+    monkeypatch.setattr(sampler_mod, "discover_gpus", lambda root: discover_gpus(root)[::-1])  # nvidia ohne Werte zuerst
+    snap = run(AMD).snapshot(OVERVIEW)
+    assert [t["id"] for t in snap["tiles"] if t["kind"] == "gpu"] == ["gpu0"]
 
 
 # 9 (Minor): GPU-Kurve mischt nie Busy und Takt
