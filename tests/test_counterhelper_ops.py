@@ -35,16 +35,39 @@ def test_marker_is_created_exclusively_without_following_links(osl):  # R2.2: nu
     assert dict(osl.opens)["/etc/orbitop"] == os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC
 
 
+@pytest.mark.parametrize("word", counterhelper.WORDS)
+def test_marker_is_only_reached_through_the_checked_directory_fd(tmp_path, osl, word):  # R2.1, R2.2
+    if word != "on":
+        marker(tmp_path).touch()
+    main([word], osl)
+    near = [e for e in osl.at if e[1].endswith("counters-released")]
+    assert near and all(e[1:] == ("counters-released", "/etc/orbitop") for e in near), near
+
+
+def test_tool_and_energy_files_are_opened_without_blocking(osl):  # ein FIFO hielte sonst das Lock (M-5)
+    main(["on"], osl)
+    flags = dict(osl.opens)
+    for path in (TOOL, *ENERGY):
+        assert flags[path] == os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC, path
+
+
 def test_existing_marker_is_fine(tmp_path, osl):  # O_EXCL: EEXIST heißt schon an
     marker(tmp_path).touch()
     assert main(["on"], osl) == counterhelper.OK
     assert ("fsync", "/etc/orbitop") in osl.log and ("setxattr", TOOL, CAP) in osl.log
 
 
-def test_marker_symlink_is_never_followed(tmp_path, osl):
-    marker(tmp_path).symlink_to(tmp_path / "victim")
-    main(["on"], osl)
-    assert not (tmp_path / "victim").exists()
+@pytest.mark.parametrize("make", ["symlink", "directory", "foreign"])
+def test_on_refuses_a_marker_it_did_not_write(tmp_path, osl, make):  # wie sync: nur eine reguläre Datei von root
+    if make == "symlink":
+        marker(tmp_path).symlink_to(tmp_path / "victim")
+    elif make == "directory":
+        marker(tmp_path).mkdir()
+    else:
+        marker(tmp_path).touch()
+        osl.owners[MARKER] = 1000
+    assert main(["on"], osl) == counterhelper.UNSAFE
+    assert osl.writes() == [] and not (tmp_path / "victim").exists()
 
 
 def test_off_removes_marker_before_the_effects(tmp_path, osl):  # R1.4: kein Auslöser setzt nach einem Absturz neu
@@ -123,14 +146,12 @@ def unsafe(tmp_path, osl, make):
         osl.owners[TOOL] = 1000
     elif make == "foreign_bin":
         osl.owners["/usr/bin"] = 1000
-    elif make == "hardlink":
-        os.link(tool, tmp_path / "usr/bin/copy")
     elif make == "bin_symlink":  # /usr/bin selbst ein Verweis auf einen Ordner des Benutzers
         os.rename(tmp_path / "usr/bin", tmp_path / "usr/elsewhere")
         (tmp_path / "usr/bin").symlink_to("elsewhere")
 
 
-@pytest.mark.parametrize("make", ["group_writable", "other_writable_usr", "foreign_owner", "foreign_bin", "hardlink",
+@pytest.mark.parametrize("make", ["group_writable", "other_writable_usr", "foreign_owner", "foreign_bin",
                                   "bin_symlink"])
 @pytest.mark.parametrize("word", ["on", "off"])
 def test_unsafe_chain_writes_no_capability(tmp_path, osl, make, word):  # R1.1, R4.1, R4.6
@@ -139,6 +160,16 @@ def test_unsafe_chain_writes_no_capability(tmp_path, osl, make, word):  # R1.1, 
     assert main([word], osl) == counterhelper.UNSAFE
     assert not [e for e in osl.writes() if e[0].endswith("xattr")]
     assert {e[1] for e in osl.writes() if e[0] == "fchmod"} == set(ENERGY)  # RAPL hängt nicht davon ab
+
+
+def test_hard_link_blocks_setting_but_not_removing(tmp_path, osl):  # R4.6, R13: nlink == 1 nur beim Setzen
+    os.link(tmp_path / TOOL.lstrip("/"), tmp_path / "usr/bin/copy")
+    assert main(["on"], osl) == counterhelper.UNSAFE
+    assert main(["sync"], osl) == counterhelper.UNSAFE  # die Merkdatei steht, der Inode bekommt trotzdem nichts
+    assert not [e for e in osl.writes() if e[0] == "setxattr"]
+    osl.xattrs[TOOL] = {XATTR: CAP}  # etwa von Hand gesetzt, bevor jemand den Link anlegte
+    assert main(["off"], osl) == counterhelper.OK
+    assert osl.xattrs[TOOL] == {} and ("removexattr", TOOL) in osl.log
 
 
 def test_tool_symlink_gives_4_without_capability(tmp_path, osl):  # ELOOP: „nicht unterstützt“, wirkt nicht
@@ -163,8 +194,9 @@ def test_missing_tool_is_fine(tmp_path, osl):  # ENOENT: nicht installiert, die 
     assert set(modes(tmp_path).values()) == {0o444}
 
 
-@pytest.mark.parametrize("make", ["missing", "symlink", "file", "group_writable", "foreign", "foreign_etc"])
-def test_unsafe_marker_directory(tmp_path, osl, make):  # R2.1: nur ein root-eigenes, festes /etc/orbitop zählt
+@pytest.mark.parametrize("make", ["missing", "symlink", "file", "group_writable", "readable", "group_readable",
+                                  "foreign", "foreign_etc"])
+def test_unsafe_marker_directory(tmp_path, osl, make):  # R2.1; lesbar: jedes Konto könnte das Lock halten (I-1)
     d = tmp_path / "etc/orbitop"
     if make in ("missing", "symlink", "file"):
         d.rmdir()
@@ -174,7 +206,9 @@ def test_unsafe_marker_directory(tmp_path, osl, make):  # R2.1: nur ein root-eig
     elif make == "file":
         d.touch()
     elif make == "group_writable":
-        d.chmod(0o775)
+        d.chmod(0o731)
+    elif make in ("readable", "group_readable"):
+        d.chmod(0o755 if make == "readable" else 0o741)
     elif make == "foreign":
         osl.owners["/etc/orbitop"] = 1000
     elif make == "foreign_etc":
@@ -207,7 +241,7 @@ def test_read_only_sys_gives_4_and_still_sets_the_capability(osl):  # wie im Con
 @pytest.mark.parametrize("fixture, opened", [
     ("intel-laptop", ["intel-rapl:0", "intel-rapl:0:0", "intel-rapl:0:1", "intel-rapl:0:2", "intel-rapl:1"]),
     ("amd-desktop", ["intel-rapl:0"])])  # AMD Zen erscheint über intel_rapl_msr ebenfalls als intel-rapl:*
-def test_only_intel_rapl_zones_change(tmp_path, fixture, opened):  # R3.4: MMIO (und TPMI) bleiben zu
+def test_only_intel_rapl_zones_change(tmp_path, fixture, opened):  # R3.4: MMIO bleibt zu; TPMI heißt intel-rapl:*
     osl = make_tree(tmp_path, powercap=fixture)
     before = modes(tmp_path)
     assert main(["on"], osl) == counterhelper.OK

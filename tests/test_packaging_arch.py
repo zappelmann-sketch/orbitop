@@ -85,7 +85,7 @@ srcdir=$PWD/src pkgdir=$PWD/pkg
 mkdir "$srcdir" "$pkgdir"
 for s in "${source[@]}"; do case $s in *.tar) tar -C "$srcdir" -xf "$s" ;; *) cp -- "$s" "$srcdir/" ;; esac; done
 (cd "$srcdir" && package)
-tar -C "$pkgdir" -cf "$pkgname-$pkgver-$pkgrel-any.pkg.tar.zst" usr""",
+tar -C "$pkgdir" -cf "$pkgname-$pkgver-$pkgrel-any.pkg.tar.zst" etc usr""",
 }
 
 

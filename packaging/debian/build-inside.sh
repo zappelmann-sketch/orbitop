@@ -24,8 +24,11 @@ dpkg-buildpackage -b -us -uc
 # pkexec runs these files as root: no packaging tool may change them (dh_python3 once dropped "-I" from a shebang).
 for helper in killhelper counterhelper; do
     dpkg-deb --fsys-tarfile "$work"/orbitop_*_all.deb | tar -xO "./usr/lib/orbitop/$helper" |
-        cmp - "orbitop/$helper.py" || die "the packaged helper differs from orbitop/$helper.py"
+        cmp - "/src/orbitop/$helper.py" || die "the packaged helper differs from orbitop/$helper.py"
 done
+# Only root may open /etc/orbitop, where counterhelper takes its lock (packaging/install-tree.sh).
+mode=$(dpkg-deb --fsys-tarfile "$work"/orbitop_*_all.deb | tar -tvf - | awk '$NF == "./etc/orbitop/" { print $1 }')
+[ "$mode" = drwx--x--x ] || die "/etc/orbitop is '$mode' in the package, not drwx--x--x"
 
 # orbitop-apt-source: its own source tree with only its inputs, so that nothing of orbitop reaches it.
 apt=$work/orbitop-apt-source

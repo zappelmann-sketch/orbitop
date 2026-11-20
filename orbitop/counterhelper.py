@@ -58,8 +58,8 @@ class RealOS:
             return f.read()
 
 
-def _safe(st, kind) -> bool:
-    return kind(st.st_mode) and st.st_uid == 0 and not st.st_mode & 0o022
+def _safe(st, kind, bits=0o022) -> bool:
+    return kind(st.st_mode) and st.st_uid == 0 and not st.st_mode & bits
 
 
 def _chain(path: str, osl) -> bool:
@@ -85,14 +85,15 @@ def _init_userns(osl) -> bool:
 
 
 def _open_dir(osl):
-    """fd von /etc/orbitop, wenn es ein root-eigenes, nicht g/o-beschreibbares Verzeichnis in ebensolcher Kette ist;
-    sonst None."""
+    """fd von /etc/orbitop, wenn es ein root-eigenes Verzeichnis ohne Lese- und Schreibrecht für Gruppe und andere in
+    einer root-eigenen, nicht g/o-beschreibbaren Kette ist; sonst None. Ohne Leserecht kann kein anderes Konto den
+    Ordner öffnen und das Lock halten, mit dem es sonst jedes off verhinderte (Audit Task 2, I-1)."""
     try:
         fd = osl.open(_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError:
         return None
     try:
-        if _safe(osl.fstat(fd), stat.S_ISDIR) and _chain(_DIR, osl):
+        if _safe(osl.fstat(fd), stat.S_ISDIR, 0o066) and _chain(_DIR, osl):
             return fd
     except OSError:
         pass
@@ -114,16 +115,17 @@ def _lock(fd, osl) -> bool:
 
 
 def _perfmon(on: bool, osl) -> int:
-    """cap_perfmon=ep an TOOL setzen oder nehmen, nur am fd und nur nach der Kettenprüfung (R1.2, R4.1, R4.6)."""
-    try:
-        fd = osl.open(TOOL, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+    """cap_perfmon=ep an TOOL setzen oder nehmen, nur am fd und nur nach der Kettenprüfung (R1.2, R4.1). nlink == 1
+    gilt nur beim Setzen (R4.6): Nehmen senkt nur die Rechte genau dieses Inodes, auch über einen fremden Link (R13)."""
+    try:  # O_NONBLOCK: ein FIFO an diesem Pfad hielte das Lock sonst für immer
+        fd = osl.open(TOOL, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
     except FileNotFoundError:
         return OK  # nicht installiert: nichts freizugeben
     except OSError:
         return PARTIAL  # ELOOP: ein Symlink an diesem Pfad wird nie behandelt
     try:
         st = osl.fstat(fd)
-        if not (_safe(st, stat.S_ISREG) and st.st_nlink == 1 and _chain(os.path.dirname(TOOL), osl)):
+        if not (_safe(st, stat.S_ISREG) and _chain(os.path.dirname(TOOL), osl)) or (on and st.st_nlink != 1):
             return UNSAFE
         if on:
             osl.setxattr(fd, "security.capability", CAP)
@@ -145,7 +147,7 @@ def _rapl(on: bool, osl) -> int:
     code = OK
     for path in sorted(osl.glob(RAPL)):
         try:
-            fd = osl.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
+            fd = osl.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK | os.O_CLOEXEC)
         except OSError:
             code = PARTIAL
             continue
@@ -168,12 +170,22 @@ def apply(on: bool, osl) -> int:
     return max(_perfmon(on, osl), _rapl(on, osl))
 
 
+def _marker(dirfd, osl) -> bool:
+    """Die Merkdatei gilt nur als reguläre Datei von root (dieselbe Regel wie in der App, B2.2)."""
+    try:
+        st = osl.stat(_NAME, dir_fd=dirfd, follow_symlinks=False)
+    except FileNotFoundError:
+        return False
+    return stat.S_ISREG(st.st_mode) and st.st_uid == 0
+
+
 def _on(dirfd, osl) -> int:
     try:
         fd = osl.open(_NAME, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644,
                       dir_fd=dirfd)
     except FileExistsError:
-        pass
+        if not _marker(dirfd, osl):
+            return UNSAFE  # etwas anderes als die eigene Merkdatei: udev, sync und App läsen es verschieden
     else:
         try:
             osl.fsync(fd)
@@ -198,12 +210,8 @@ def _off(dirfd, osl) -> int:
 
 
 def _sync(dirfd, osl) -> int:
-    """Nur mit Merkdatei (reguläre Datei von root) wird angewendet; sync nimmt nie etwas zurück (E4)."""
-    try:
-        st = osl.stat(_NAME, dir_fd=dirfd, follow_symlinks=False)
-    except FileNotFoundError:
-        return OK
-    return apply(True, osl) if stat.S_ISREG(st.st_mode) and st.st_uid == 0 else OK
+    """Nur mit Merkdatei wird angewendet; sync nimmt nie etwas zurück (E4)."""
+    return apply(True, osl) if _marker(dirfd, osl) else OK
 
 
 def _run(word: str, osl) -> int:

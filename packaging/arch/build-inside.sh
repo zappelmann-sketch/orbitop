@@ -42,6 +42,9 @@ for helper in killhelper counterhelper; do
     bsdtar -xOf "$pkg" "usr/lib/orbitop/$helper" | cmp - "/src/orbitop/$helper.py" ||
         die "the packaged helper differs from orbitop/$helper.py"
 done
+# Only root may open /etc/orbitop, where counterhelper takes its lock (packaging/install-tree.sh).
+mode=$(bsdtar -tvf "$pkg" | awk '$NF == "etc/orbitop/" || $NF == "etc/orbitop" { print $1 }')
+[ "$mode" = drwx--x--x ] || die "/etc/orbitop is '$mode' in the package, not drwx--x--x"
 
 mkdir -p /out/arch /out/lint
 cp "$pkg" /out/arch/

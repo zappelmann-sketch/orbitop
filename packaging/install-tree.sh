@@ -31,8 +31,9 @@ install -D -m 0755 -- "$src/orbitop/counterhelper.py" "$dest/usr/lib/orbitop/cou
 install -D -m 0644 -- "$src/data/io.github.zappelmann-sketch.orbitop.policy" \
     "$share/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy"
 # The counter release: the directory of the marker file, which only counterhelper creates, and the rule that applies
-# the release at boot (security document 0.3.0, B2.2 and B2.3).
-install -d -m 0755 -- "$dest/etc/orbitop"
+# the release at boot (security document 0.3.0, B2.2 and B2.3). 0711: no other account can open the directory and
+# hold the helper's lock on it, which would block every "off".
+install -d -m 0711 -- "$dest/etc/orbitop"
 install -D -m 0644 -- "$src/data/70-orbitop-counters.rules" "$dest/usr/lib/udev/rules.d/70-orbitop-counters.rules"
 
 # Desktop integration and the inactive autostart template (K5).

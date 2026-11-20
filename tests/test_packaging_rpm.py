@@ -72,10 +72,16 @@ def test_rpm_requires_match_app_packages():  # beide Zweige des %if, Namen wie i
         assert values("orbitop.spec", "Requires", branch) == [
             "python3 >= 3.12", *app.PACKAGES[manager], *pkexec, "polkit"]
         assert values("orbitop.spec", "Suggests", branch) == ["igt-gpu-tools"]
+        assert "systemd-rpm-macros" in values("orbitop.spec", "BuildRequires", branch)  # %{_udevrulesdir}
         assert values("orbitop.spec", "BuildArch", branch) == ["noarch"]
     assert not pulled_orbitop((RPM / "orbitop.spec").read_text(encoding="utf-8"))  # K3, in jedem Zweig
     # Supplements: orbitop in orbitop-release ließe dnf die Quelle mit orbitop nachziehen
     assert not pulled_orbitop((RPM / "orbitop-release.spec").read_text(encoding="utf-8"), ("supplements", "enhances"))
+
+
+def test_build_script_installs_the_build_requirements():  # rpmbuild -bb bricht sonst ab
+    tools = re.search(r"^tools=\((.*)\)$", (RPM / "build-inside.sh").read_text(encoding="utf-8"), re.M)[1].split()
+    assert "systemd-rpm-macros" in tools
 
 
 def test_rpm_version_only_from_build():  # die Upstream-Version steht nur in orbitop/__init__.py
@@ -107,7 +113,8 @@ def test_spec_installs_the_common_tree():  # derselbe Baum wie das .deb, dazu nu
         "%license LICENSE", "%{_bindir}/orbitop", "%{_datadir}/orbitop/",
         # die root-Helfer einzeln: jede andere Datei in /usr/lib/orbitop bräche den Bau (nicht gepackt)
         "%dir %{_prefix}/lib/orbitop", "%{_prefix}/lib/orbitop/killhelper", "%{_prefix}/lib/orbitop/counterhelper",
-        "%dir %{_sysconfdir}/orbitop",  # B2.2: der Ordner der Merkdatei kommt aus dem Paket, die Merkdatei nie
+        # B2.2: der Ordner der Merkdatei kommt aus dem Paket, die Merkdatei nie; 0711, damit kein Konto das Lock hält
+        "%dir %attr(0711,root,root) %{_sysconfdir}/orbitop",
         "%{_udevrulesdir}/70-orbitop-counters.rules",
         "%{_datadir}/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy",
         "%{_datadir}/applications/io.github.zappelmann_sketch.orbitop.desktop",
@@ -171,6 +178,7 @@ ACCEPTED = ("orbitop.noarch: E: polkit-untracked-privilege (Badness: 10) io.gith
             " (auth_admin:auth_admin:auth_admin)")
 NEW = [f"orbitop.noarch: E: polkit-untracked-privilege (Badness: 10) io.github.zappelmann-sketch.orbitop.{a}"
        " (no:no:auth_admin)" for a in ("counters-release", "counters-lock")]
+DIRPERM = "orbitop.noarch: E: non-standard-dir-perm /etc/orbitop 711"  # B2.2: 0711, damit kein Konto das Lock hält
 SUMMARY = " 2 packages and 0 specfiles checked; 1 errors, 1 warnings, 10 filtered, 10 badness; has taken 0.2 s"
 
 
@@ -200,6 +208,14 @@ def test_lint_gate_accepts_exactly_the_three_actions(tmp_path):  # M-7: je Actio
         assert gate(tmp_path, "opensuse", NEW[0].replace("(no:no:", f"({weaker}:no:"), SUMMARY) == 1
     other = ACCEPTED.replace(".terminate", ".counters-other").replace("auth_admin:auth_admin:", "no:no:")
     assert gate(tmp_path, "opensuse", other, SUMMARY) == 1  # nur die drei Actions dieser .policy
+
+
+def test_lint_gate_accepts_only_the_mode_0711_of_etc_orbitop(tmp_path):  # beide Familien, nur dieser Ordner
+    assert gate(tmp_path, "fedora", DIRPERM, SUMMARY) == 0
+    assert gate(tmp_path, "opensuse", DIRPERM, ACCEPTED, *NEW, SUMMARY) == 0
+    for other in (DIRPERM.replace(" 711", " 777"), DIRPERM.replace(" 711", " 700"),
+                  DIRPERM.replace("/etc/orbitop", "/usr/lib/orbitop")):
+        assert gate(tmp_path, "fedora", other, SUMMARY) == 1, other
 
 
 def test_lint_gate_fails_on_large_reports(tmp_path):  # früher: grep -q endete früh, SIGPIPE ließ den Bau durch

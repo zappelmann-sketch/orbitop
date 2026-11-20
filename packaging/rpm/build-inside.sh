@@ -12,7 +12,7 @@ set -euo pipefail
 [ $# -eq 2 ] || die "usage: $0 VERSION RELEASE < KEY.pgp"
 version=$1 release=$2
 
-tools=(rpm-build desktop-file-utils rpmlint cpio gawk)
+tools=(rpm-build desktop-file-utils rpmlint cpio gawk systemd-rpm-macros)
 # shellcheck source=/dev/null  # os-release(5) of the image
 case "$(. /etc/os-release && echo "$ID")" in
     fedora)
@@ -58,6 +58,10 @@ for helper in killhelper counterhelper; do
         cpio -i --quiet --to-stdout "./usr/lib/orbitop/$helper" |
         cmp - "/src/orbitop/$helper.py" || die "the packaged helper differs from orbitop/$helper.py"
 done
+# Only root may open /etc/orbitop, where counterhelper takes its lock (%attr in the spec).
+mode=$(rpm -qp --qf '[%{FILEMODES:perms} %{FILENAMES}\n]' "$top/RPMS/noarch/orbitop-$version-$release.noarch.rpm" |
+    awk '$2 == "/etc/orbitop" { print $1 }')
+[ "$mode" = drwx--x--x ] || die "/etc/orbitop is '$mode' in the package, not drwx--x--x"
 
 mkdir -p "/out/rpm-$family" /out/lint
 cp "$top"/RPMS/noarch/*.rpm "/out/rpm-$family/"

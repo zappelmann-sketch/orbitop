@@ -54,6 +54,7 @@ def test_modes_independent_of_umask(tree):
             continue
         name = "/" + str(p.relative_to(tree))
         want = 0o755 if stat.S_ISDIR(st.st_mode) or name in executables else 0o644
+        want = 0o711 if name == "/etc/orbitop" else want  # B2.2: nur root darf ihn öffnen und das Lock halten
         assert stat.S_IMODE(st.st_mode) == want, name
 
 
@@ -70,6 +71,7 @@ def test_marker_directory_comes_empty_from_the_package(tree):  # B2.2: nur der H
     assert sorted(p.relative_to(tree).as_posix() for p in etc.rglob("*")) == ["etc/orbitop"]
     assert os.path.dirname(counterhelper.MARKER) == "/etc/orbitop"
     assert stat.S_ISDIR(os.lstat(etc / "orbitop").st_mode) and not os.listdir(etc / "orbitop")
+    assert stat.S_IMODE(os.lstat(etc / "orbitop").st_mode) == 0o711  # ohne g/o-Lesen kein fremdes flock (I-1)
 
 
 def test_data_files_identical(tree):  # Starter, Vorlage, polkit-Datei und Regel unverändert aus data/ und bin/

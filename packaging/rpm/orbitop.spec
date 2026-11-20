@@ -12,6 +12,8 @@ Source0:        %{name}-%{version}.tar
 BuildArch:      noarch
 BuildRequires:  /usr/bin/appstream-util
 BuildRequires:  /usr/bin/desktop-file-validate
+# the macro _udevrulesdir for the udev rule in the file list
+BuildRequires:  systemd-rpm-macros
 Requires:       python3 >= 3.12
 %if 0%{?suse_version}
 BuildRequires:  python-rpm-macros
@@ -61,7 +63,7 @@ appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github
 %dir %{_prefix}/lib/orbitop
 %{_prefix}/lib/orbitop/killhelper
 %{_prefix}/lib/orbitop/counterhelper
-%dir %{_sysconfdir}/orbitop
+%dir %attr(0711,root,root) %{_sysconfdir}/orbitop
 %{_udevrulesdir}/70-orbitop-counters.rules
 %{_datadir}/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy
 %{_datadir}/applications/io.github.zappelmann_sketch.orbitop.desktop

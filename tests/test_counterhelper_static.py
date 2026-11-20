@@ -27,23 +27,60 @@ def test_shebang():  # B2.1: unter -S lädt Python keine .pth-Datei aus site-pac
     assert HELPER.read_bytes().split(b"\n", 1)[0] == b"#!/usr/bin/python3 -IS"
 
 
+# Jedes Attribut, das der Helfer an einem Modul benutzt, dazu os.O_*: Systemaufrufe aus Python, kein exec, keine
+# Umgebung (B2.1). Eine Positivliste: was hier fehlt, fällt auf, auch execlp, getenvb oder posix_spawnp.
+USES = {
+    "os": {"close", "fchmod", "fstat", "fsync", "geteuid", "lstat", "open", "path", "removexattr", "setxattr", "stat",
+           "umask", "unlink"},
+    "os.path": {"dirname", "split"},
+    "errno": {"ENODATA"}, "fcntl": {"LOCK_EX", "LOCK_NB", "flock"}, "glob": {"glob"},
+    "stat": {"S_IMODE", "S_ISDIR", "S_ISREG"}, "struct": {"pack"}, "sys": {"argv", "exit", "stderr"},
+    "time": {"monotonic", "sleep"},
+}
+BANNED = {"getattr", "setattr", "delattr", "__import__", "importlib", "__builtins__", "eval", "exec", "compile",
+          "globals", "locals", "vars", "breakpoint"}
+
+
+def problems(source):
+    """Was gegen die Regeln des Helfers verstößt: ein Import außer `import x` aus ALLOWED (kein from, kein as), ein
+    Modul anders als in `modul.attr`, ein Attribut außerhalb von USES, ein Name aus BANNED."""
+    nodes = list(ast.walk(ast.parse(source)))
+    found, prefixes = [], set()
+    for n in nodes:
+        if isinstance(n, ast.ImportFrom):
+            found.append(f"from {n.module} import")
+        elif isinstance(n, ast.Import):
+            found += [f"import {a.name} as {a.asname}" for a in n.names if a.name not in ALLOWED or a.asname]
+        elif isinstance(n, ast.Attribute) and isinstance(n.value, ast.Name) and n.value.id in ALLOWED:
+            prefixes.add(id(n.value))
+            if n.attr not in USES[n.value.id] and not (n.value.id == "os" and n.attr.startswith("O_")):
+                found.append(f"{n.value.id}.{n.attr}")
+        elif isinstance(n, ast.Attribute) and ast.unparse(n.value) == "os.path" and n.attr not in USES["os.path"]:
+            found.append(f"os.path.{n.attr}")
+    for n in nodes:
+        if isinstance(n, ast.Name) and n.id in BANNED:
+            found.append(n.id)
+        elif isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load) and n.id in ALLOWED and id(n) not in prefixes:
+            found.append(f"{n.id} as a value")
+    return found
+
+
 def test_only_listed_standard_modules():
-    imported = set()
-    for node in ast.walk(tree()):
-        if isinstance(node, ast.Import):
-            imported |= {a.name for a in node.names}
-        elif isinstance(node, ast.ImportFrom):
-            imported.add("." * node.level + (node.module or ""))
-    assert imported == ALLOWED
-    assert imported <= sys.stdlib_module_names
+    imported = {a.name for n in ast.walk(tree()) if isinstance(n, ast.Import) for a in n.names}
+    assert imported == ALLOWED and imported <= sys.stdlib_module_names
 
 
-@pytest.mark.parametrize("name", ["subprocess", "system", "environ", "environb", "getenv", "putenv", "popen",
-                                  "execv", "execve", "spawnv", "fork", "posix_spawn", "eval", "exec", "__import__"])
-def test_never_starts_programs_or_reads_the_environment(name):
-    used = {n.id for n in ast.walk(tree()) if isinstance(n, ast.Name)}
-    used |= {n.attr for n in ast.walk(tree()) if isinstance(n, ast.Attribute)}
-    assert name not in used
+def test_only_listed_calls_no_programs_no_environment():
+    assert problems(HELPER.read_text(encoding="utf-8")) == []
+
+
+@pytest.mark.parametrize("snippet", [
+    "from os import system as s", "from os import environ", "import os as z", "import subprocess", "import importlib",
+    "os.execlp('x', 'x')", "os.execv('x', [])", "os.system('x')", "os.environ['A']", "os.getenvb(b'A')",
+    "os.posix_spawnp('x', [], {})", "os.fork()", "os.path.expanduser('~')", "sys.modules", "time.time()",
+    "getattr(os, 'system')", "__import__('os')", "eval('1')", "x = os", "f(os)"])
+def test_the_check_finds_forbidden_forms(snippet):  # Gegenprobe: die Positivliste lässt keine dieser Formen durch
+    assert problems(snippet)
 
 
 def test_main_only_when_started():  # Task 5/6 importieren MARKER: der Import selbst tut nichts

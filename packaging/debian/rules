@@ -14,3 +14,8 @@ override_dh_auto_install:
 # "#! /usr/bin/python3" without -IS. Byte-compiling in postinst and prerm stays (Python Policy 5.3).
 override_dh_python3:
 	dh_python3 --no-shebang-rewrite
+
+# dh_fixperms makes every directory 0755; /etc/orbitop stays 0711, so that only root can hold counterhelper's lock.
+override_dh_fixperms:
+	dh_fixperms
+	chmod 0711 debian/orbitop/etc/orbitop
