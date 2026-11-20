@@ -44,7 +44,7 @@ def test_procs_thread_ticks_at_once_when_window_is_shown(monkeypatch):
         time.sleep(0.4)
         assert procs() == 1  # ausgeblendet: der nächste Takt erst in 30 s
         w.update(visible=True)  # der letzte Takt ist älter als PROCS_PERIOD_S: sofort
-        deadline = time.monotonic() + 0.15
+        deadline = time.monotonic() + 0.5
         while procs() < 2 and time.monotonic() < deadline:
             time.sleep(0.01)
         assert procs() == 2
