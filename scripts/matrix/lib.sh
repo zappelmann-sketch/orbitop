@@ -38,21 +38,23 @@ forget() { written "$1" && rm -f -- "$STATE/written${1//\//_}" "$STATE/pristine$
 HICCUP='Curl error \(?(6|7|28|35|52|56)\b|Timeout exceeded when accessing'  # dnf, zypper
 HICCUP+="|Could not resolve host|Could(n't| not) connect to|Operation timed out|Operation too slow"  # libcurl
 HICCUP+="|Empty reply from server|Connection timed out|Temporary failure resolving|Could not resolve '"  # and apt
+HICCUP+='|Resolving timed out after|Connection timeout after'  # libcurl ("%s timed out after", "Resolving")
 HICCUP+='|Connection reset by peer|Temporary failure in name resolution'  # libc
 
-# logged FILE COMMAND…: COMMAND, its output live on stdout and in FILE; returns the exit code of COMMAND, with or
-# without set -e and pipefail.
+# logged FILE COMMAND…: COMMAND, its output live on stdout and in FILE, with or without set -e and pipefail. Returns
+# the exit code of COMMAND, or, if COMMAND succeeded, that of tee: without FILE, nothing may judge the output.
 logged() {
-    local rc=0
-    { "${@:2}" 2>&1 | tee -- "$1"; rc=${PIPESTATUS[0]}; } || true
-    return "$rc"
+    local status=()
+    { "${@:2}" 2>&1 | tee -- "$1"; status=("${PIPESTATUS[@]}"); } || true
+    [ "${status[0]}" -ne 0 ] || return "${status[1]}"
+    return "${status[0]}"
 }
 
-# held: a fingerprint of the installed packages (packages, from the file of the package manager); without stderr,
-# where pacman warns about sync databases that the first refresh has not fetched yet.
+# held: a fingerprint of the installed packages (packages, from the file of the package manager), never of an empty
+# list; without stderr, where pacman warns about sync databases that the first refresh has not fetched yet.
 held() {
     local list
-    list=$(packages 2> /dev/null) && sha256sum <<< "$list"
+    list=$(packages 2> /dev/null) && [ -n "$list" ] && sha256sum <<< "$list"
 }
 
 # net COMMAND…: COMMAND, for the commands that fetch from the mirrors. A run that fails, printed a network hiccup
@@ -66,6 +68,7 @@ net() {
         rc=0
         logged "$STATE/net.out" "$@" || rc=$?
         [ "$rc" -ne 0 ] || return 0
+        # grep fails with 2 if it cannot read the file: that is no hiccup either, so no retry.
         if [ "$run" -eq 3 ] || ! grep -qE -- "$HICCUP" "$STATE/net.out"; then return "$rc"; fi
         after=$(held) || after=""
         if [ -z "$before" ] || [ "$before" != "$after" ]; then
@@ -79,9 +82,10 @@ net() {
 
 # clean COMMAND…: COMMAND succeeds and prints no line that matches NOISE (warnings, notices, errors).
 clean() {
-    local rc=0 noise
+    local rc=0 noise found=0
     logged "$STATE/clean.out" "$@" || rc=$?
-    noise=$(grep -E -- "$NOISE" "$STATE/clean.out") || true
+    noise=$(grep -E -- "$NOISE" "$STATE/clean.out") || found=$?
+    [ "$found" -le 1 ] || { echo "NOISE unknown: cannot read $STATE/clean.out" && return 1; }  # 1: no match
     [ -z "$noise" ] || printf 'NOISE %s\n' "$noise"
     [ "$rc" -eq 0 ] && [ -z "$noise" ]
 }

@@ -90,23 +90,28 @@ How the check runs:
 - Network hiccups of the mirrors (`scripts/matrix/lib.sh`, `tests/test_matrix_retry.py`): each command that fetches
   from the mirrors runs under `net`, in the steps `refresh`, `install`, `tools` and `upgrade`, on Fedora and openSUSE
   also `keyring`. A run that exits with a status other than 0, printed a hiccup and left the installed packages as
-  they were (a hash of `dpkg-query -W`, `rpm -qa | sort` or `pacman -Q` before and after it) runs again after 10 s, up
-  to three runs; only the last one counts, and the log shows each repetition with a line `RETRY`, or `NO RETRY` when
-  the packages changed. `net` judges only the exit status and the hiccup. The index refreshes that must be clean
-  (`quiet`: apt in `install` and `upgrade`, every package manager in `remove` and `purge`) also count a line that
-  matches `NOISE` as a failed run. Any other failure counts at once: the expected refusal on `debian:bookworm` and
+  they were runs again after 10 s, up to three runs; only the last one counts, and the log shows each repetition with
+  a line `RETRY`. The packages are compared by a hash of a non-empty list from
+  `dpkg-query -W -f '${db:Status-Abbrev} ${binary:Package} ${Version}\n'` (with the status, so that a removal that
+  keeps the conffiles counts as a change), `rpm -qa | sort` or `pacman -Q`, before and after the run; if they changed,
+  or if there is no such list, the log shows `NO RETRY` and the run counts at once. `net` judges only the exit status
+  and the hiccup. The index refreshes that must be clean (`quiet`: apt in `install` and `upgrade`, every package
+  manager in `remove` and `purge`) also count a line that matches `NOISE` as a failed run. The output goes live into
+  the log and into a file in `STATE`, which `net` and `quiet` search; if that file cannot be written or read, the run
+  fails and is not repeated. Any other failure counts at once: the expected refusal on `debian:bookworm` and
   `ubuntu:22.04` stays one run, and the `tamper` step runs its refresh once. A `NOISE` line of an earlier run stays in
   the log, but the verdict comes from the last run: the sources are read-only, so a signature check gives the same
   result in every run. A hiccup is one of the messages the images print (read from the strings of librepo, libzypp,
   libalpm, libcurl, libapt-pkg and libc in the images, 2026-11-20): `Curl error` 6, 7, 28, 35, 52 or 56 (dnf with
   parentheses, zypper without), zypper's `Timeout exceeded when accessing`, the texts of libcurl after pacman's
-  `failed retrieving file` (`Could not resolve host`, `Could not connect to server`, `Operation timed out`,
-  `Operation too slow`, `Empty reply from server`, `Connection timed out`), apt's `Temporary failure resolving`,
-  `Could not resolve '…'` and `Could not connect to`, and the system's `Connection reset by peer` and
-  `Temporary failure in name resolution`. Not a hiccup: `Curl error 60` (a certificate) and `Failed to connect to`,
-  which systemd prints in the scripts of packages. Cause: on 2026-11-19 `mirrors.fedoraproject.org` reset the
-  connection ("Curl error (56)") in `remove` or `purge` of three runs, although dnf then loaded the index from another
-  mirror and exited 0.
+  `failed retrieving file` (`Could not resolve host`, `Could not connect to server`, before libcurl 8
+  `Couldn't connect to server`, `Operation timed out`, `Operation too slow`, `Empty reply from server`,
+  `Connection timed out after`, `Resolving timed out after`, `Connection timeout after`), apt's
+  `Temporary failure resolving`, `Could not resolve '…'`, `Could not connect to` and `Connection timed out`, and the
+  system's `Connection reset by peer` and `Temporary failure in name resolution`. Not a hiccup: `Curl error 60` (a
+  certificate) and `Failed to connect to`, which systemd prints in the scripts of packages. Cause: on 2026-11-19
+  `mirrors.fedoraproject.org` reset the connection ("Curl error (56)") in `remove` or `purge` of three runs, although
+  dnf then loaded the index from another mirror and exited 0.
 - `debian:bookworm` and `ubuntu:22.04` pass only as an expected refusal: exactly the step `install` fails, with apt's
   `orbitop : Depends: python3 (>= 3.12)`. The run ends there.
 - In the table, `Packages` is the version of orbitop that the `install` step installed and the one the `upgrade` step

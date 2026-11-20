@@ -4,6 +4,7 @@
 gescheiterten Lauf, der einen Aussetzer meldet und die Paketdatenbank nicht änderte; jeder andere Fehler zählt
 sofort, der Manipulationstest läuft einmal. Die Programme der Paketverwaltungen sind Shell-Funktionen, die pm
 aufrufen."""
+import os
 import shlex
 
 import pytest
@@ -61,6 +62,8 @@ MATCHES = {
                       "Could not connect to server",
     "pacman-couldnt": f"{FETCH}Couldn't connect to server",  # libcurl vor 8
     "pacman-timeout": f"{FETCH}Connection timed out after 10001 milliseconds",
+    "pacman-resolving": f"{FETCH}Resolving timed out after 10000 milliseconds",  # "%s timed out after" mit "Resolving"
+    "pacman-connect-timeout": f"{FETCH}Connection timeout after 10001 ms",
     "pacman-host": f"{FETCH}Could not resolve host: mirror.example.com",
     "pacman-reset": f"{FETCH}Recv failure: Connection reset by peer",
     "apt-resolving": f"{APT}Temporary failure resolving 'deb.example.com'",
@@ -93,7 +96,7 @@ def runs(tmp_path, command, *outputs, files=("dnf.sh",)):
     """COMMAND nach lib.sh und FILES mit pm (auch als Programme von FILES), dessen Lauf N outputs[N-1] = (Ausgabe, rc[,
     neue Pakete]) liefert; gibt (bestanden, Ausgabe, Zahl der Läufe von pm, Pausen) zurück."""
     state = tmp_path / "state"
-    state.mkdir(parents=True)
+    state.mkdir(parents=True, exist_ok=True)
     for name, line in {"packages": "bash 5.3", "orbitop.sources": f"URIs: {PAGES}apt",
                        "orbitop.repo": f"baseurl={PAGES}rpm/fedora", "pacman.conf": f"Server = {PAGES}arch/$arch",
                        "http.log": "GET /orbitop/apt/dists/stable/main/binary-all/by-hash/SHA512/0 HTTP/1.1"}.items():
@@ -182,11 +185,50 @@ def test_net_repeats_only_a_failed_run_with_a_hiccup(tmp_path, outputs, passed, 
 @pytest.mark.parametrize("prelude,outputs", [
     ("", [(CURL, 1, "orbitop 0.2.0-1"), ("", 0)]),  # der gescheiterte Lauf installierte schon ein Paket
     ("packages() { return 1; };", [(CURL, 1), ("", 0)]),  # ohne Fingerabdruck kein zweiter Lauf
-], ids=["packages-changed", "packages-unknown"])
+    ("packages() { :; };", [(CURL, 1), ("", 0)]),  # eine leere Liste ist kein Fingerabdruck
+], ids=["packages-changed", "packages-unknown", "packages-empty"])
 def test_hiccup_after_a_package_change_is_not_retried(tmp_path, prelude, outputs):
     ok, out, calls, slept = runs(tmp_path, f"{prelude} net pm", *outputs)
     assert not ok and calls == 1 and slept == [], out
     assert "NO RETRY: the installed packages changed or are unknown" in out
+
+
+# dpkg-query gibt STATE/dpkg nur mit dem Format von apt.sh aus, sonst nichts.
+DPKG = (r"""dpkg-query() { [ "$*" = '-W -f ${db:Status-Abbrev} ${binary:Package} ${Version}\n' ] &&"""
+        r""" cat "$STATE/dpkg"; };""")
+
+
+def test_apt_fingerprint_sees_a_status_change(tmp_path):
+    """apt remove behält die conffiles: Version gleich, Status ii → rc. Der Fingerabdruck ändert sich."""
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "dpkg").write_text("ii  bash 5.2.37-2\nii  orbitop 0.2.0-1\n")
+    command = f"""{DPKG} a=$(held) && sed -i 's/^ii  orbitop/rc  orbitop/' "$STATE/dpkg" && b=$(held) &&
+        [ -n "$a" ] && [ "$a" != "$b" ]"""
+    assert call(tmp_path, command, "apt.sh")[0]
+
+
+AS_ROOT = pytest.mark.skipif(os.geteuid() == 0, reason="root liest und schreibt auch ohne die Rechte der Datei")
+
+
+# Die Dateien des Protokolls: weder zu schreiben noch zu lesen (ein Verzeichnis), nur zu schreiben (grep scheitert),
+# nur zu lesen (tee scheitert, grep liest die alte, leere Datei).
+@pytest.mark.parametrize("blocked", ["directory", pytest.param(0o200, marks=AS_ROOT, id="write-only"),
+                                     pytest.param(0o400, marks=AS_ROOT, id="read-only")])
+def test_unreadable_log_fails_clean_and_net_does_not_retry(tmp_path, blocked):
+    """Ohne lesbare Kopie der Ausgabe wertet nichts sie als sauber: clean scheitert an einem W: mit Exit 0, net
+    wiederholt einen Aussetzer nicht."""
+    warning = "W: GPG error: file:/site/apt stable InRelease: NO_PUBKEY 0123456789ABCDEF"
+    for name, command, outputs in [("clean", "clean pm", [(warning, 0)]), ("net", "net pm", [(CURL, 1), ("", 0)])]:
+        state = tmp_path / name / "state"
+        state.mkdir(parents=True)
+        for log in ("clean.out", "net.out"):
+            if blocked == "directory":
+                (state / log).mkdir()
+            else:
+                (state / log).touch(mode=blocked)
+        ok, out, calls, slept = runs(tmp_path / name, command, *outputs, files=("apt.sh",))
+        assert not ok and calls == 1 and slept == [], out
 
 
 @pytest.mark.parametrize("pipefail", ["", "set -o pipefail;"])
