@@ -3,6 +3,9 @@
 """Erkennen von intel_gpu_top: Vorrang von /usr/bin in TOOL_PATH (B2.5) und GpuTools.recheck() ohne Neustart (Q3)."""
 import os
 import sys
+import threading
+import time
+from types import SimpleNamespace
 
 import pytest
 
@@ -119,3 +122,70 @@ def test_recheck_after_stop_starts_nothing(world):
     t.recheck()
     assert len(world["procs"]) == started and t.intel("card0") is None
     assert all(p.poll() is not None for p in world["procs"])
+
+
+# ---- recheck aus einem Auftrags-Thread, neben dem Mess-Thread; Ersatz-Leser, kein Kindprozess ----
+@pytest.fixture
+def fake_readers(monkeypatch):
+    """ToolReader ersetzt; live: gestartete und nicht beendete Leser, stopping: gesetzt beim ersten stop(),
+    slow: so lange dauert stop() (wie das Warten auf intel_gpu_top), tool: Pfad des Werkzeugs oder None."""
+    s = SimpleNamespace(live=set(), stopping=threading.Event(), slow=0.0, tool=IGT)
+
+    class Reader:
+        failed = False
+
+        def __init__(self, cmd, parse):
+            pass
+
+        def start(self):
+            s.live.add(self)
+
+        def latest(self, key=None):
+            return {"busy": 1.0} if self in s.live else None
+
+        def stop(self):
+            s.stopping.set()
+            time.sleep(s.slow)
+            s.live.discard(self)
+    monkeypatch.setattr(gpu_tools, "ToolReader", Reader)
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: s.tool if n == "intel_gpu_top" else None)
+    monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 0)  # root liest ohne Fähigkeit
+    return s
+
+
+def test_two_concurrent_rechecks_then_stop_leave_no_reader(fake_readers):
+    """Ein zweites recheck, während das erste noch alte Leser beendet, ließ einen Leser laufen, den stop() nie fand."""
+    fake_readers.slow = 0.2
+    t = GpuTools(gpus("intel"))
+    first = threading.Thread(target=t.recheck)
+    first.start()
+    assert fake_readers.stopping.wait(2)
+    second = threading.Thread(target=t.recheck)
+    second.start()
+    first.join(5)
+    second.join(5)
+    assert len(fake_readers.live) == 1
+    t.stop()
+    assert fake_readers.live == set()
+
+
+def test_recheck_while_the_sampler_reads(fake_readers):
+    t = GpuTools(gpus("intel"))
+    seen, errors, done = set(), [], threading.Event()
+
+    def sampler():
+        while not done.is_set():
+            try:
+                t.intel("card0")
+                seen.add(tuple(t.hints()))
+            except Exception as e:  # jeder Fehler im Mess-Thread zählt
+                errors.append(e)
+    reader = threading.Thread(target=sampler)
+    reader.start()
+    for i in range(40):
+        fake_readers.tool = IGT if i % 2 else None  # abwechselnd installiert und entfernt
+        t.recheck()
+    done.set()
+    reader.join(5)
+    t.stop()
+    assert errors == [] and seen <= {(), ("hint.igt_missing",)} and fake_readers.live == set()

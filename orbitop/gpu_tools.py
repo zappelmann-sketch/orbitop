@@ -183,10 +183,13 @@ def _nvidia_cmd(path: str) -> list[str]:
 
 
 class GpuTools:
-    """Leser für intel_gpu_top und nvidia-smi. recheck() läuft im Hauptthread, intel() und hints() im Sampler."""
+    """Leser für intel_gpu_top und nvidia-smi. recheck() läuft in einem Auftrags-Thread (jobs), intel() und hints()
+    im Mess-Thread."""
 
     def __init__(self, gpus):
         self._lock = threading.Lock()
+        # Zwei recheck() zugleich: beide nähmen leere Leser, und den vom ersten fände kein stop() mehr
+        self._recheck_lock = threading.Lock()
         self._stopped = False
         self._cards = [g.card for g in gpus if g.vendor == "intel" and _CARD.fullmatch(g.card)]
         self._igt_hints, self._intel = self._detect_intel()
@@ -216,14 +219,16 @@ class GpuTools:
         return [], readers
 
     def recheck(self) -> None:
-        """Nach Installieren oder Freigabe ohne Neustart (Q3): laufende Intel-Leser beenden, dann neu erkennen."""
-        with self._lock:
-            old, self._intel = self._intel, {}
-        for r in old.values():
-            r.stop()
-        with self._lock:
-            if not self._stopped:  # nach stop() startet kein Leser mehr
-                self._igt_hints, self._intel = self._detect_intel()
+        """Nach Installieren oder Freigabe ohne Neustart (Q3): laufende Intel-Leser beenden, dann neu erkennen.
+        Nie im Hauptthread: das Beenden wartet bis zu etwa 4 s je Leser."""
+        with self._recheck_lock:
+            with self._lock:
+                old, self._intel = self._intel, {}
+            for r in old.values():
+                r.stop()  # ohne self._lock: der Mess-Thread liest weiter, nur ohne Intel-Werte
+            with self._lock:
+                if not self._stopped:  # nach stop() startet kein Leser mehr
+                    self._igt_hints, self._intel = self._detect_intel()
 
     def intel(self, card: str) -> dict | None:
         with self._lock:
