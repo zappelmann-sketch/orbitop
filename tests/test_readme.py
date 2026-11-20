@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from orbitop import app
+from orbitop import app, counterhelper, counters, packagekit
 from tests.packaging_common import KEY_FILE
 from tests.site_stub import kill_agent
 
@@ -219,3 +219,59 @@ def test_uninstall_deletes_every_key_of_orbitop():  # Audit Task 7, F2: nach ein
         assert "orbitop-trusted" not in text
     for line in (RPM_KEYS, ARCH_KEYS, ARCH_CHECK):  # README = Matrix; die Matrix läuft als root, ohne sudo
         assert line.replace("sudo ", "") in joined, line
+
+
+# 0.3.0 (Spec C6, Security-Dokument B2.8, B2.9, E1, E2, E3): dieselben Abschnitte in beiden Sprachen
+COUNTERS = {"README.md": {"power": "## Graphics and power", "switch": "### Counter release",
+                          "manual": "### Without the package", "move": "### Moving from 0.2.0",
+                          "remove": "### The counter release on removal",
+                          "fedora": "On Fedora the package manager installs for admins without a password prompt "
+                                    "(rule of the distribution).", "downgrade": "before a downgrade to 0.2.0",
+                          "xdg": "is set to an absolute path"},
+            "README.de.md": {"power": "## Grafik und Leistung", "switch": "### Messzähler freigeben",
+                             "manual": "### Ohne Paket", "move": "### Umstieg von 0.2.0",
+                             "remove": "### Die Freigabe beim Entfernen",
+                             "fedora": "Auf Fedora installiert die Paketverwaltung für Admins ohne Passwortabfrage "
+                                       "(Regel der Distribution).", "downgrade": "Vor einem Downgrade auf 0.2.0",
+                             "xdg": "auf einen absoluten Pfad gesetzt"}}
+MIGRATION = "sudo rm -f /etc/udev/rules.d/70-orbitop-rapl.rules\nsudo setcap -r /usr/bin/intel_gpu_top\n"  # B2.9
+REMOTE = "sudo /usr/lib/orbitop/counterhelper on\nsudo /usr/lib/orbitop/counterhelper off\n"  # E2
+
+
+def section(text, heading):
+    """Der Abschnitt ab heading bis zur nächsten Überschrift derselben oder einer höheren Ebene."""
+    level = len(heading.split(" ")[0])
+    start = text.index(f"\n{heading}\n") + 1
+    ends = [text.find(f"\n{'#' * n} ", start + len(heading)) for n in range(2, level + 1)]
+    return text[start:min([e for e in ends if e >= 0] or [len(text)])]
+
+
+@pytest.mark.parametrize("name", COUNTERS)
+def test_readmes_describe_the_counter_release(name):
+    text, w = (EN if name == "README.md" else DE), COUNTERS[name]
+    power = section(text, w["power"])
+    for key in ("switch", "manual", "move"):
+        assert f"\n{w[key]}\n" in power, (name, key)
+    assert code_blocks(section(text, w["switch"])) == [REMOTE]
+    assert counterhelper.MARKER in section(text, w["switch"]) and counters.MANUAL_RULE in section(text, w["manual"])
+    assert code_blocks(section(text, w["move"])) == [MIGRATION]
+    assert w["fedora"] in section(text, "### Intel")
+    removal = section(text, w["remove"])
+    assert code_blocks(removal) == ["sudo setcap -r /usr/bin/intel_gpu_top\n"], name  # R14
+    assert w["downgrade"] in removal  # R7
+    assert "counterhelper off" in removal and "Debian Policy 10.7.3" in removal  # B2.8, E1
+    assert w["xdg"] in text
+
+
+@pytest.mark.parametrize("name", COUNTERS)
+def test_manual_release_only_for_starts_without_package(name):  # C6: die Befehle von Hand nur für Starts ohne Paket
+    text = EN if name == "README.md" else DE
+    manual = section(text, COUNTERS[name]["manual"])
+    for command in ("setcap cap_perfmon=ep", "| sudo tee /etc/udev/rules.d/70-orbitop-rapl.rules"):
+        assert text.count(command) == manual.count(command) == 1, command
+
+
+def test_readmes_show_the_fallback_command_of_the_hint():  # der Befehl, den der Hinweis ohne PackageKit zeigt
+    for manager in packagekit.NAMES:
+        command = f"`{packagekit.command(manager)}`"
+        assert command in section(EN, "### Intel") and command in section(DE, "### Intel"), manager

@@ -284,6 +284,23 @@ From the run of 2026-11-18 (orbitop 0.1.0, throwaway key) unless a note names an
   `joint_upgrade` fails on Fedora already with `rpm -U` of both files: no file trigger runs there (I-1). Not covered in
   the containers: the RAPL read bits and the udev rule at boot (Docker masks the zones and runs no udev); they belong
   to the hardware test.
-- **Not covered:** the window itself (no display in the containers), the kill helper through `pkexec`, the upgrade
-  of a distribution release (Ubuntu disables third-party sources then), and the package source over HTTPS from Pages
-  itself (plan 2026-11-18, Task 10).
+- **Install button** (PackageKit), probe on 2026-11-20 in disposable containers, not a step of the matrix (plan 2,
+  Task 8; PackageKit ran without systemd as in probe P6 of the security document): Ubuntu 26.04 (PackageKit 1.3.4,
+  apt), Ubuntu 24.04 (1.2.8, apt), Fedora 45 (1.4.0, dnf5) and openSUSE Tumbleweed (1.4.0, zypp). On all four,
+  `Resolve` found the fixed name (on Ubuntu 26.04 `igt-gpu-tools` and the metapackage `intel-gpu-tools`, of which the
+  flow takes `igt-gpu-tools`), the simulation reported only info 12 (installing), and the installation as root ended
+  in `installed`. A user without a session and agent got `denied`. Two findings went into the security document
+  (residual risks R18 and R19):
+  - `ONLY_TRUSTED` is enforced only by the apt backend: an unsigned package from a repository without signature
+    checks was refused on both Ubuntu releases (info 23 in the simulation, error 50), but installed on Fedora from a
+    repository with `gpgcheck=0` and on openSUSE from one added with `--no-gpgcheck`. A repository that requires
+    signatures refused it there too (Fedora error 16; openSUSE did not load it, `unavailable`).
+  - zypp does not support `Cancel` (`NotSupported`): an installation that is running when orbitop quits goes on to
+    its end. apt and dnf5 cancel it, and nothing is installed.
+
+  Not checked there: Arch, where PackageKit is not installed by default and the hint shows the command, and the way
+  without a password on Fedora, which needs an active local session (logind); the rule file was found with `rpm -qf`.
+- **Not covered:** the window itself (no display in the containers), the kill helper and the counter release through
+  `pkexec` and polkit (the step `counters` calls the helper as root), the RAPL read bits and the udev rule at boot
+  (above), the upgrade of a distribution release (Ubuntu disables third-party sources then), and the package source
+  over HTTPS from Pages itself (plan 2026-11-18, Task 10).

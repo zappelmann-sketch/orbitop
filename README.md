@@ -10,7 +10,7 @@ orbitop shows CPU, GPU, memory, power, temperatures, fans, network and storage a
 
 orbitop is a GTK 4 window with a WebKitGTK 6.0 view, written in Python with the standard library and PyGObject only. It runs on any hardware: a sensor that is missing is listed as "not available" instead of causing an error. The interface is in English and German and follows the system language.
 
-**Status:** version 0.2.0. orbitop comes as a package for Ubuntu, Debian, Fedora, openSUSE and Arch Linux from its own signed package source. New versions arrive with the regular system update; orbitop itself never goes online.
+**Status:** version 0.3.0. orbitop comes as a package for Ubuntu, Debian, Fedora, openSUSE and Arch Linux from its own signed package source. New versions arrive with the regular system update; orbitop itself never goes online.
 
 ## Features
 
@@ -26,7 +26,7 @@ orbitop is a GTK 4 window with a WebKitGTK 6.0 view, written in Python with the 
 - A right-click on a column header opens the column menu: show or hide columns, move a column left or right, restore the defaults. On the keyboard, the Menu key or Shift+F10 on a header opens the same menu.
 - Drag a header to move the column, drag its right edge to change the width (Alt+Left and Alt+Right on the keyboard). If the columns are wider than the list, the list scrolls sideways.
 - A divider between the list and the details can be dragged, or moved with the arrow keys.
-- Column order, hidden columns, widths and the divider position are saved in `~/.config/orbitop/layout.json` (under `$XDG_CONFIG_HOME` if that is set) and survive a restart.
+- Column order, hidden columns, widths and the divider position are saved in `~/.config/orbitop/layout.json` and survive a restart. If `$XDG_CONFIG_HOME` is set to an absolute path, orbitop uses it instead of `~/.config` for all its files; a relative value is ignored, as the XDG Base Directory Specification asks.
 - Search in names and arguments, filters "All", "Mine only" and "Flagged" (every state except working and waiting). A click on a header sorts by that column.
 - The details of the selected process show its command line, its CPU history over 5 minutes, RAM, read and write rate, threads, context switches and start time, and for a zombie its parent process.
 
@@ -40,7 +40,7 @@ The process tab classifies each process: working, waiting, constant load, stoppe
 - Right before the signal, orbitop checks PID and start time again, so a reused PID never hits a different process.
 - Your own processes get the signal directly. Processes of other users are terminated only through `pkexec` and the root-owned helper of the package, `/usr/lib/orbitop/killhelper`; polkit asks for the admin password every time. PID 1 and kernel threads cannot be terminated.
 
-Closing the window only hides it. orbitop keeps reading the process list in the background, so the states are already known when you open the window again. Ctrl+Q or "Quit orbitop" in the About dialog ends it. The About dialog also holds the switch "Start at login" (see [Start and autostart](#start-and-autostart)).
+Closing the window only hides it. orbitop keeps reading the process list in the background, so the states are already known when you open the window again. Ctrl+Q or "Quit orbitop" in the About dialog ends it. The settings in the About dialog hold the switches "Start at login" (see [Start and autostart](#start-and-autostart)) and "Release counters" (see [Counter release](#counter-release)), and "Show hidden hints again": every hint at the bottom of the window has a "Hide", and a hint about a new situation, such as "not installed" instead of "may not read", appears even after the old one was hidden.
 
 ## Screenshots
 
@@ -67,7 +67,7 @@ orbitop is installed for the whole machine from its own package source on GitHub
 | openSUSE Tumbleweed | |
 <!-- supported:end -->
 
-Checked on every release with `scripts/check-distros.sh` in disposable Docker containers: the first installation as below, the test suite, `orbitop --version`, the update to a newer version, uninstall and purge without leftovers, and a changed package index, which the package manager must refuse. The containers have no display, so the window itself and the helper through `pkexec` were not part of the check. Details are in [`docs/distro-check.md`](docs/distro-check.md).
+Checked on every release with `scripts/check-distros.sh` in disposable Docker containers: the first installation as below, the test suite, `orbitop --version`, the update to a newer version, uninstall and purge without leftovers, a changed package index, which the package manager must refuse, and the counter release as root: the helper on and off, the package triggers when the Intel GPU tools come or go, the update from 0.2.0, and the removal. The containers have no display and no polkit, so the window itself and the helpers through `pkexec` were not part of the check. Details are in [`docs/distro-check.md`](docs/distro-check.md).
 
 Not supported: Debian 12 (Python 3.11) and Ubuntu 22.04 (Python 3.10). orbitop needs Python 3.12 or newer, so apt refuses to install it there. Derived distributions use the steps of their base. On other distributions, orbitop can run from source (see [Run from source](#run-from-source)); it is not tested there.
 
@@ -243,7 +243,7 @@ Load, memory, temperature, power and clock come from `nvidia-smi`, which comes w
 
 ### Intel
 
-Without any tool, orbitop shows the Intel graphics usage of your own processes. The load of all processes and the package power come from `intel_gpu_top` in the Intel GPU tools. The packages only suggest them, so install them yourself:
+Without any tool, orbitop shows the Intel graphics usage of your own processes. The load of all processes and the package power come from `intel_gpu_top` in the Intel GPU tools. The packages only suggest them. On a machine with Intel graphics, the hint "intel_gpu_top is not installed" has a button "Install": it installs the package of your distribution through PackageKit, with the password prompt of the package manager. On Fedora the package manager installs for admins without a password prompt (rule of the distribution). Without PackageKit, without the installed package of orbitop, or if the installation fails, the hint shows the command instead. Quitting orbitop cancels a running installation, except on openSUSE, where PackageKit cannot cancel it and it goes on to its end. You can also install them yourself:
 
 | Distribution | Command |
 |---|---|
@@ -253,11 +253,40 @@ Without any tool, orbitop shows the Intel graphics usage of your own processes. 
 | openSUSE | `sudo zypper install intel-gpu-tools` |
 | Arch Linux | `sudo pacman -S intel-gpu-tools` |
 
-`intel_gpu_top` reads the counters of all processes only with the permission below. Without it, orbitop keeps showing your own processes and a hint.
+The command in the hint names the package that every release of your distribution has: on Debian and Ubuntu `intel-gpu-tools`, which on Ubuntu 26.04 is a metapackage that brings `igt-gpu-tools`.
 
-### Intel GPU counters for all processes (until 0.3.0)
+`intel_gpu_top` reads the counters of all processes only with the counter release below. Without it, orbitop keeps showing your own processes and a hint.
 
-The command below gives `/usr/bin/intel_gpu_top` the file capability `cap_perfmon`. Risk: every local account can then run it and read the GPU counters and the RAPL package power. The kernel restricts these because they allow power side-channel attacks (Platypus, CVE-2020-8694). Turn it on only if you accept that for every account on the machine. orbitop never does this on its own; version 0.3.0 replaces these commands with a switch that asks for the admin password.
+### Counter release
+
+The kernel lets only root read two kinds of counters that orbitop shows: the GPU counters, which `intel_gpu_top` reads with the file capability `cap_perfmon`, and the RAPL energy counters (`/sys/class/powercap/intel-rapl:*`), from which orbitop takes the CPU package power. Without them, the package power comes from `intel_gpu_top` if it has `cap_perfmon`. The switch "Release counters" in the settings of the About dialog (the info button in the header) releases both for every account on the machine and locks them again. It switches only what the machine has: the GPU counters with Intel graphics and an installed `intel_gpu_top`, the energy counters where there are RAPL zones (Intel and AMD). The switch is off until an admin turns it on; no installation, update or reinstall turns it on.
+
+Risk: with the switch on, every local account and every sandbox that sees `/sys`, such as a Flatpak app, can read the energy counters, and `intel_gpu_top` runs for every account with `CAP_PERFMON`, so it reads the GPU counters and the package power. The kernel restricts these counters because they allow power side-channel attacks: the Platypus attack (CVE-2020-8694) used them to break KASLR and to recover keys from the kernel and from SGX enclaves. Turn the switch on only if you accept that for every account on the machine.
+
+Before the password, orbitop explains this, and you confirm with "Release". Then polkit asks for the admin password, every time, for "Lock" as well. polkit asks only in a local, active session; in any other session, such as SSH, orbitop shows "Not done – switching works only in a local, active session and with the admin password". An admin in a remote session switches with these commands, the same helper that the switch starts:
+
+```sh
+sudo /usr/lib/orbitop/counterhelper on
+sudo /usr/lib/orbitop/counterhelper off
+```
+
+"On" is a rule for the whole machine, kept in the empty file `/etc/orbitop/counters-released`. What comes later is released as well: when the Intel GPU tools are installed, reinstalled or updated, orbitop's package scripts give the new `intel_gpu_top` the capability, and at boot the udev rule `/usr/lib/udev/rules.d/70-orbitop-counters.rules` makes the energy counters readable. Without that file, neither does anything. "Off" deletes the file first, then takes the capability off `/usr/bin/intel_gpu_top` and makes the energy counters readable only for root again, as the kernel sets them. An update of orbitop keeps the switch as it is.
+
+Below the switch, one line per part says whether it is in effect:
+
+- "in effect": released.
+- "intel_gpu_top is not installed" or "no energy counters": the switch is on, but the machine lacks this part. It is released as soon as it arrives.
+- "not in effect – switch off and on again": the switch is on, but the release is missing, for example after an admin masked the udev rule. Switching off and on applies it again.
+- "released by hand": the switch is off, but a capability or a udev rule set by hand releases this part (see [Moving from 0.2.0](#moving-from-020)).
+- "not released": the switch is off, and so is the part.
+
+Two results need a closer look. "Not released: unsafe location or environment" means that the helper refused to release: `/etc/orbitop` is not a directory of root with the mode `drwx--x--x` (0711) from the package, a directory above it or above `/usr/bin/intel_gpu_top` is writable for other accounts, or orbitop runs in a user namespace such as a rootless container. Locking still works then. If an admin made `/etc/orbitop` readable for others, `sudo chmod 0711 /etc/orbitop` restores it. "Only partly in effect" means that one part failed with an error of the system, for example on a read-only `/usr` or because `/usr/bin/intel_gpu_top` is a symbolic link; the lines below the switch show which part.
+
+### Without the package
+
+From a checkout without the installed package ([Run from source](#run-from-source)), the switch is locked, and the hints point here. These commands release the counters by hand. The risk is the same as with the switch, and orbitop never runs them on its own. With the package installed, use the switch instead.
+
+The command below gives `/usr/bin/intel_gpu_top` the file capability `cap_perfmon`:
 
 ```sh
 sudo setcap cap_perfmon=ep /usr/bin/intel_gpu_top
@@ -269,9 +298,7 @@ sudo setcap cap_perfmon=ep /usr/bin/intel_gpu_top
 sudo setcap -r /usr/bin/intel_gpu_top
 ```
 
-### CPU package power (until 0.3.0)
-
-orbitop reads the CPU package power from the RAPL energy counters (`/sys/class/powercap/intel-rapl:*`), which the kernel lets only root read. Without them, the package power comes from `intel_gpu_top` if it has `cap_perfmon` (above). This udev rule makes the counters readable. Risk: every local account and every Flatpak app can then read them, which allows power side-channel attacks (Platypus, CVE-2020-8694).
+This udev rule makes the energy counters readable:
 
 ```sh
 echo 'ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"' | sudo tee /etc/udev/rules.d/70-orbitop-rapl.rules
@@ -285,9 +312,32 @@ Undo: remove the rule, then restart the machine.
 sudo rm /etc/udev/rules.d/70-orbitop-rapl.rules
 ```
 
+### Moving from 0.2.0
+
+The README of 0.2.0 had you set the capability and the udev rule above by hand. The update to 0.3.0 changes neither: it releases nothing, and a capability set by hand stays. orbitop then shows the switch as off and the parts as "released by hand". To let the switch decide, remove both, then turn the switch on:
+
+```sh
+sudo rm -f /etc/udev/rules.d/70-orbitop-rapl.rules
+sudo setcap -r /usr/bin/intel_gpu_top
+```
+
+Without these commands, turning the switch on and off also takes the capability set by hand away, but the rule stays: the helper never deletes a file that an admin created, and the rule releases the energy counters again at every boot. orbitop then says so below the switch. The package's own rule has another name, so neither rule hides the other.
+
 ## Uninstall
 
 First start orbitop from the application menu so that its window appears (an instance started at login may be running hidden), then quit it with Ctrl+Q.
+
+### The counter release on removal
+
+Removing orbitop turns the [counter release](#counter-release) off, on every distribution and already on `remove`, not only on purge: the package runs `counterhelper off`, which deletes `/etc/orbitop/counters-released`, takes the capability off `/usr/bin/intel_gpu_top`, also one set by hand, and makes the energy counters readable only for root. A udev rule of your own under `/etc/udev/rules.d/` stays. Installing orbitop again releases nothing until an admin turns the switch on. On Debian and Ubuntu, deleting the marker on `remove` deviates from Debian Policy 10.7.3, which keeps configuration files until the purge; a marker that stayed would release the counters again on the next installation, without asking the admin (`/usr/share/doc/orbitop/README.Debian`).
+
+If the helper cannot run during the removal, the package manager prints `orbitop: counter release not revoked` (Debian, Ubuntu) or an error of the shell about `/usr/lib/orbitop/counterhelper` (Fedora, openSUSE, Arch). The marker goes all the same, but the capability stays on `intel_gpu_top`, and the energy counters stay readable until the next restart. Then remove the capability and restart the machine:
+
+```sh
+sudo setcap -r /usr/bin/intel_gpu_top
+```
+
+Turn the switch off before a downgrade to 0.2.0. 0.2.0 does not know the marker: it stays after the downgrade, together with the capability on `intel_gpu_top`, and a later update to 0.3.0 releases the counters again without asking. The package source offers no older version.
 
 ### Ubuntu and Debian
 
@@ -347,14 +397,14 @@ sudo pacman -Sc
 
 ### Your own files
 
-The packages never touch files in home directories. orbitop keeps the column layout in `~/.config/orbitop/` and, with the switch on, an autostart entry. To remove both:
+The packages never touch files in home directories. orbitop keeps the column layout and the hidden hints in `~/.config/orbitop/` and, with the switch "Start at login" on, an autostart entry. To remove them:
 
 ```sh
 rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/orbitop"
 rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
 ```
 
-An autostart for all users is removed as under [For all users](#for-all-users), a permission from [Graphics and power](#graphics-and-power) as described there.
+An autostart for all users is removed as under [For all users](#for-all-users), a release set by hand as under [Moving from 0.2.0](#moving-from-020).
 
 ## Moving from 0.1.0
 
@@ -377,7 +427,7 @@ rm -f ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
 sudo rm -r /usr/local/libexec/orbitop
 ```
 
-The old launcher has the same name as the one of the package and would hide it. Keep the capability `cap_perfmon` and the RAPL rule as they are: they are the same as in [Graphics and power](#graphics-and-power), and 0.3.0 replaces both with a switch. Afterwards you can delete the directory of 0.1.0.
+The old launcher has the same name as the one of the package and would hide it. The capability `cap_perfmon` and the RAPL rule are the same as in 0.2.0: remove them as under [Moving from 0.2.0](#moving-from-020) and use the switch "Release counters" instead. Afterwards you can delete the directory of 0.1.0.
 
 Then install the package as under [Installation](#installation), and turn on "Start at login" in the About dialog if the autostart was on before. On Ubuntu and Debian, `apt policy orbitop` then shows the package source.
 
@@ -391,7 +441,7 @@ cd orbitop
 bin/orbitop
 ```
 
-Without the installed package, two things do not work: terminating processes of other users needs the root-owned helper of the package (orbitop shows a hint instead and asks for no password), and the switch "Start at login" stays locked unless the command `orbitop` is installed. At start, orbitop checks the Python version, PyGObject, GTK 4 and WebKitGTK 6.0. If something is missing, it names the package of your distribution and the command to install it; on an unknown distribution it uses the Debian names. For the tests, see [Tests](#tests).
+Without the installed package, some things do not work: terminating processes of other users needs the root-owned helper of the package (orbitop shows a hint instead and asks for no password); the switch "Release counters" stays locked, and the hints point to the commands under [Without the package](#without-the-package); the button "Install" is missing, and the hint shows the command instead; and the switch "Start at login" stays locked unless the command `orbitop` is installed. At start, orbitop checks the Python version, PyGObject, GTK 4 and WebKitGTK 6.0. If something is missing, it names the package of your distribution and the command to install it; on an unknown distribution it uses the Debian names. For the tests, see [Tests](#tests).
 
 ### Package names
 
@@ -440,13 +490,17 @@ The packages of orbitop depend on the same runtime packages and on polkit.
 
 ### Security model
 
-- The page talks to Python only through `parse_message` in `orbitop/messages.py`. It accepts the messages `ready`, `view`, `layout`, `terminate`, `autostart` and `quit`, checks every value for type and range, drops unknown keys and limits the size to 4096 characters. Anything else is ignored.
+- The page talks to Python only through `parse_message` in `orbitop/messages.py`. It accepts the messages `ready`, `view`, `layout`, `terminate`, `autostart`, `counters`, `install_tool`, `hide_hint`, `show_hints` and `quit`, checks every value for type and range, drops unknown keys and limits the size to 4096 characters. Anything else is ignored. No message carries a path, a package name or free text; the page gets back only fixed words.
 - Process names, command lines and users reach the page only as text (`textContent`), never as HTML.
 - orbitop opens no port and makes no network connections. Updates come only through the package manager.
 - Terminating a process of another user runs `pkexec /usr/lib/orbitop/killhelper <pid> <start time> <signal>`. The polkit action `io.github.zappelmann-sketch.orbitop.terminate` applies only to this program (`org.freedesktop.policykit.exec.path`) and asks for the admin password every time (`auth_admin`); the dialog shows PID, start time and signal. Before that, orbitop checks with `lstat` that the helper is a regular file and not a symlink, and that it and every directory up to `/` belong to root and are not writable by group or others. If not, it shows a hint and asks for no password. It also starts the helper only through the setuid `pkexec` of polkit: `/usr/bin/pkexec` must be a regular, root-owned ELF program with the setuid bit, in the same kind of directory chain. Otherwise, for example with `run0-wrappers` on openSUSE, terminating other users' processes is not available and orbitop says so.
 - The helper opens a pidfd before it checks PID and start time, so the signal reaches exactly the checked process. It refuses PID 1 and kernel threads.
+- The switch "Release counters" runs `pkexec /usr/lib/orbitop/counterhelper on` or `off`, after the same checks of the helper and of `pkexec` as above. Each word has its own polkit action, `io.github.zappelmann-sketch.orbitop.counters-release` and `io.github.zappelmann-sketch.orbitop.counters-lock` (`org.freedesktop.policykit.exec.argv1`), with `auth_admin` in a local, active session and `no` in any other. The helper knows only `on`, `off` and `sync`, takes no path and reads no environment, starts no other program, and writes only the marker, the capability on `/usr/bin/intel_gpu_top` and the read bits of `energy_uj` in the zones `intel-rapl:*`. The package scripts call only `sync`, which does nothing without the marker, and `off` on removal; none calls `on`. The design and the remaining risks are in the [security document of 0.3.0](docs/superpowers/specs/2026-11-19-orbitop-0.3.0-security-runde.md) (German).
+- One job at a time for "Terminate", "Release counters" and "Install". After a cancelled or refused password prompt, "Release counters" and "Install" wait 10 s, after a second one 60 s, after a third until orbitop restarts.
+- The button "Install" talks to PackageKit 1.x on the system bus through Gio, with the fixed package name of the distribution, only signed packages (`ONLY_TRUSTED`) and a simulation first that may only install or update; it never removes, reinstalls or downgrades a package. Only while the hint "intel_gpu_top is not installed" is shown, and at most one successful installation per run. On apt, `ONLY_TRUSTED` refuses an unsigned package in any case; on dnf and zypper it follows the setting of the repository, and only root can add one that skips the check.
 - The switch "Start at login" writes or removes only its own entry in the user's autostart directory, atomically; the page sends only on or off, never a path.
-- `intel_gpu_top` and `nvidia-smi` are started with argument lists, never through a shell, and only from the fixed path `/usr/local/bin:/usr/bin:/bin`.
+- Hidden hints are kept per user in `~/.config/orbitop/hints.json`, only their keys.
+- `intel_gpu_top` and `nvidia-smi` are started with argument lists, never through a shell, and only from the fixed path `/usr/bin:/bin:/usr/local/bin`: the counter release applies only to `/usr/bin/intel_gpu_top`.
 
 ### Tests
 
@@ -475,13 +529,17 @@ shell.py            GTK 4 window, WebKitGTK 6.0 view, orbitop://ui/
    |  window.orbitop.receive(msg)
    v
 orbitop/ui/js/      page as ES modules from main.js, chart.js draws the charts
-   |  postMessage: ready, view, layout, terminate, autostart, quit
+   |  postMessage: ready, view, layout, terminate, autostart, counters, install_tool, hide_hint, show_hints, quit
    v
 messages.py parse_message
-   |-- layout    -> layout.py    -> ~/.config/orbitop/layout.json
-   |-- autostart -> autostart.py -> ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
-   '-- terminate -> actions.py   -> own process: signal
-                                 -> other user: pkexec /usr/lib/orbitop/killhelper
+   |-- layout       -> layout.py     -> ~/.config/orbitop/layout.json
+   |-- autostart    -> autostart.py  -> ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
+   |-- hide_hint    -> hints.py      -> ~/.config/orbitop/hints.json
+   |-- terminate    -> jobs.py, gate.py -> actions.py -> own process: signal
+   |                                                -> other user: pkexec /usr/lib/orbitop/killhelper
+   |-- counters     -> jobs.py, gate.py -> actions.py -> pkexec /usr/lib/orbitop/counterhelper on|off
+   '-- install_tool -> jobs.py, gate.py -> packagekit.py -> PackageKit (system bus)
+counters.py reads the state of the release without root: marker, capability, mode of energy_uj
 ```
 
 ## Resource use

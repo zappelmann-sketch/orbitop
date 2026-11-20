@@ -10,7 +10,7 @@ orbitop zeigt CPU, GPU, Arbeitsspeicher, Leistung, Temperaturen, Lüfter, Netzwe
 
 orbitop ist ein GTK-4-Fenster mit einer WebKitGTK-6.0-Ansicht, geschrieben in Python, nur mit der Standardbibliothek und PyGObject. Es läuft auf jeder Hardware: Ein fehlender Sensor erscheint als „nicht vorhanden“ und führt zu keinem Fehler. Die Oberfläche gibt es auf Deutsch und Englisch, sie folgt der Systemsprache.
 
-**Stand:** Version 0.2.0. orbitop gibt es als Paket für Ubuntu, Debian, Fedora, openSUSE und Arch Linux aus einer eigenen, signierten Paketquelle. Neue Versionen kommen mit dem normalen System-Update; orbitop selbst geht nie ins Internet.
+**Stand:** Version 0.3.0. orbitop gibt es als Paket für Ubuntu, Debian, Fedora, openSUSE und Arch Linux aus einer eigenen, signierten Paketquelle. Neue Versionen kommen mit dem normalen System-Update; orbitop selbst geht nie ins Internet.
 
 ## Funktionen
 
@@ -26,7 +26,7 @@ orbitop ist ein GTK-4-Fenster mit einer WebKitGTK-6.0-Ansicht, geschrieben in Py
 - Ein Rechtsklick auf einen Spaltenkopf öffnet das Spaltenmenü: Spalten ein- und ausblenden, eine Spalte nach links oder rechts verschieben, den Standard wiederherstellen. Per Tastatur öffnet die Menütaste oder Umschalt+F10 auf einem Kopf dasselbe Menü.
 - Einen Kopf ziehen verschiebt die Spalte, seinen rechten Rand ziehen ändert die Breite (per Tastatur Alt+Links und Alt+Rechts). Sind die Spalten breiter als die Liste, scrollt die Liste waagerecht.
 - Der Trenner zwischen Liste und Detailbereich lässt sich ziehen oder mit den Pfeiltasten verschieben.
-- Reihenfolge, ausgeblendete Spalten, Breiten und die Position des Trenners stehen in `~/.config/orbitop/layout.json` (unter `$XDG_CONFIG_HOME`, wenn das gesetzt ist) und überstehen einen Neustart.
+- Reihenfolge, ausgeblendete Spalten, Breiten und die Position des Trenners stehen in `~/.config/orbitop/layout.json` und überstehen einen Neustart. Ist `$XDG_CONFIG_HOME` auf einen absoluten Pfad gesetzt, nimmt orbitop ihn für alle seine Dateien statt `~/.config`; einen relativen Wert übergeht es, wie es die XDG Base Directory Specification verlangt.
 - Suche in Namen und Argumenten, Filter „Alle“, „Nur meine“ und „Auffällige“ (jeder Zustand außer „arbeitet“ und „wartet“). Ein Klick auf einen Kopf sortiert nach dieser Spalte.
 - Der Detailbereich zeigt zum gewählten Prozess die Befehlszeile, den CPU-Verlauf der letzten 5 Minuten, RAM, Lese- und Schreibrate, Threads, Kontextwechsel und Startzeit, bei Zombies dazu den Elternprozess.
 
@@ -40,7 +40,7 @@ Der Prozess-Reiter stuft jeden Prozess ein: arbeitet, wartet, Dauerlast, angehal
 - Unmittelbar vor dem Signal prüft orbitop PID und Startzeit erneut. So trifft eine neu vergebene PID nie einen anderen Prozess.
 - Eigene Prozesse bekommen das Signal direkt. Prozesse anderer Benutzer beendet orbitop nur über `pkexec` und den root-eigenen Helfer aus dem Paket, `/usr/lib/orbitop/killhelper`; polkit fragt jedes Mal nach dem Admin-Passwort. PID 1 und Kernel-Threads lassen sich nicht beenden.
 
-Das Schließen des Fensters blendet es nur aus. orbitop liest die Prozessliste im Hintergrund weiter, damit die Zustände beim nächsten Öffnen schon feststehen. Strg+Q oder „orbitop beenden“ im Dialog „Über“ beendet es. Im Dialog „Über“ liegt auch der Schalter „Beim Anmelden starten“ (siehe [Start und Autostart](#start-und-autostart)).
+Das Schließen des Fensters blendet es nur aus. orbitop liest die Prozessliste im Hintergrund weiter, damit die Zustände beim nächsten Öffnen schon feststehen. Strg+Q oder „orbitop beenden“ im Dialog „Über“ beendet es. Die Einstellungen im Dialog „Über“ enthalten die Schalter „Beim Anmelden starten“ (siehe [Start und Autostart](#start-und-autostart)) und „Messzähler freigeben“ (siehe [Messzähler freigeben](#messzähler-freigeben)) sowie „Ausgeblendete Hinweise wieder zeigen“: Jeder Hinweis unten im Fenster hat ein „Ausblenden“, und ein Hinweis zu einer neuen Lage, etwa „nicht installiert“ statt „darf nicht lesen“, erscheint auch, nachdem der alte ausgeblendet wurde.
 
 ## Screenshots
 
@@ -67,7 +67,7 @@ orbitop wird für den ganzen Rechner installiert, aus seiner eigenen Paketquelle
 | openSUSE Tumbleweed | |
 <!-- supported:end -->
 
-Bei jedem Release geprüft mit `scripts/check-distros.sh` in wegwerfbaren Docker-Containern: die erste Installation wie unten, die Testsuite, `orbitop --version`, das Update auf eine neuere Version, Deinstallation und Purge ohne Reste und ein veränderter Paketindex, den die Paketverwaltung ablehnen muss. Die Container haben keinen Bildschirm, deshalb gehörten das Fenster selbst und der Helfer über `pkexec` nicht zur Prüfung. Einzelheiten stehen in [`docs/distro-check.md`](docs/distro-check.md).
+Bei jedem Release geprüft mit `scripts/check-distros.sh` in wegwerfbaren Docker-Containern: die erste Installation wie unten, die Testsuite, `orbitop --version`, das Update auf eine neuere Version, Deinstallation und Purge ohne Reste, ein veränderter Paketindex, den die Paketverwaltung ablehnen muss, und die Freigabe der Messzähler als root: der Helfer an und aus, die Paket-Auslöser, wenn die Intel-GPU-Werkzeuge kommen oder gehen, das Update von 0.2.0 und das Entfernen. Die Container haben keinen Bildschirm und kein polkit, deshalb gehörten das Fenster selbst und die Helfer über `pkexec` nicht zur Prüfung. Einzelheiten stehen in [`docs/distro-check.md`](docs/distro-check.md).
 
 Nicht unterstützt: Debian 12 (Python 3.11) und Ubuntu 22.04 (Python 3.10). orbitop braucht Python 3.12 oder neuer, deshalb lehnt apt die Installation dort ab. Abgeleitete Distributionen nehmen die Schritte ihrer Basis. Auf anderen Distributionen lässt sich orbitop aus dem Quellcode starten (siehe [Aus dem Quellcode starten](#aus-dem-quellcode-starten)); dort ist es nicht geprüft.
 
@@ -243,7 +243,7 @@ Last, Speicher, Temperatur, Leistung und Takt kommen von `nvidia-smi`. Das Progr
 
 ### Intel
 
-Ohne Werkzeug zeigt orbitop die Auslastung der Intel-Grafik durch eigene Prozesse. Die Last aller Prozesse und die Paketleistung kommen von `intel_gpu_top` aus den Intel-GPU-Werkzeugen. Die Pakete schlagen sie nur vor, deshalb installieren Sie sie selbst:
+Ohne Werkzeug zeigt orbitop die Auslastung der Intel-Grafik durch eigene Prozesse. Die Last aller Prozesse und die Paketleistung kommen von `intel_gpu_top` aus den Intel-GPU-Werkzeugen. Die Pakete schlagen sie nur vor. Auf einem Rechner mit Intel-Grafik hat der Hinweis „intel_gpu_top ist nicht installiert“ einen Knopf „Installieren“: Er installiert das Paket der Distribution über PackageKit, mit der Passwortabfrage der Paketverwaltung. Auf Fedora installiert die Paketverwaltung für Admins ohne Passwortabfrage (Regel der Distribution). Ohne PackageKit, ohne installiertes Paket von orbitop oder wenn die Installation scheitert, zeigt der Hinweis stattdessen den Befehl. Beenden von orbitop bricht eine laufende Installation ab, außer auf openSUSE: Dort kann PackageKit sie nicht abbrechen, und sie läuft zu Ende. Sie können die Werkzeuge auch selbst installieren:
 
 | Distribution | Befehl |
 |---|---|
@@ -253,11 +253,40 @@ Ohne Werkzeug zeigt orbitop die Auslastung der Intel-Grafik durch eigene Prozess
 | openSUSE | `sudo zypper install intel-gpu-tools` |
 | Arch Linux | `sudo pacman -S intel-gpu-tools` |
 
-Die Zähler aller Prozesse liest `intel_gpu_top` nur mit der Freigabe unten. Ohne sie zeigt orbitop weiter die eigenen Prozesse und einen Hinweis.
+Der Befehl im Hinweis nennt das Paket, das jede Version Ihrer Distribution hat: unter Debian und Ubuntu `intel-gpu-tools`, unter Ubuntu 26.04 ein Metapaket, das `igt-gpu-tools` mitbringt.
 
-### Intel-GPU-Zähler für alle Prozesse (bis 0.3.0)
+Die Zähler aller Prozesse liest `intel_gpu_top` nur mit der Freigabe der Messzähler unten. Ohne sie zeigt orbitop weiter die eigenen Prozesse und einen Hinweis.
 
-Der folgende Befehl gibt `/usr/bin/intel_gpu_top` die Datei-Fähigkeit `cap_perfmon`. Risiko: Danach kann jedes lokale Konto das Programm starten und die GPU-Zähler und die RAPL-Paketleistung lesen. Der Kernel sperrt diese Werte, weil sie Seitenkanalangriffe über den Stromverbrauch erlauben (Platypus, CVE-2020-8694). Schalten Sie das nur ein, wenn Sie das für jedes Konto auf dem Rechner hinnehmen. orbitop tut das nie von sich aus; Version 0.3.0 ersetzt diese Befehle durch einen Schalter, der nach dem Admin-Passwort fragt.
+### Messzähler freigeben
+
+Zwei Arten von Zählern, die orbitop zeigt, lässt der Kernel nur root lesen: die Grafik-Zähler, die `intel_gpu_top` mit der Datei-Fähigkeit `cap_perfmon` liest, und die RAPL-Energiezähler (`/sys/class/powercap/intel-rapl:*`), aus denen orbitop die Leistung des CPU-Pakets nimmt. Ohne sie kommt die Paketleistung von `intel_gpu_top`, wenn es `cap_perfmon` hat. Der Schalter „Messzähler freigeben“ in den Einstellungen im Dialog „Über“ (der Info-Knopf in der Kopfleiste) gibt beide für jedes Konto auf dem Rechner frei und sperrt sie wieder. Er schaltet nur, was der Rechner hat: die Grafik-Zähler bei Intel-Grafik mit installiertem `intel_gpu_top`, die Energiezähler, wo es RAPL-Zonen gibt (Intel und AMD). Der Schalter ist aus, bis ein Admin ihn einschaltet; keine Installation, kein Update und keine Neuinstallation schaltet ihn ein.
+
+Risiko: Ist der Schalter an, kann jedes lokale Konto und jede Sandbox, die `/sys` sieht, etwa eine Flatpak-App, die Energiezähler lesen, und `intel_gpu_top` läuft für jedes Konto mit `CAP_PERFMON`, liest also die Grafik-Zähler und die Paketleistung. Der Kernel sperrt diese Zähler, weil sie Seitenkanalangriffe über den Stromverbrauch erlauben: Der Platypus-Angriff (CVE-2020-8694) hat damit KASLR gebrochen und Schlüssel aus dem Kernel und aus SGX-Enklaven gewonnen. Schalten Sie ihn nur ein, wenn Sie das für jedes Konto auf dem Rechner hinnehmen.
+
+Vor dem Passwort erklärt orbitop das, und Sie bestätigen mit „Freigeben“. Dann fragt polkit nach dem Admin-Passwort, jedes Mal, auch für „Sperren“. polkit fragt nur in einer lokalen, aktiven Sitzung; in jeder anderen Sitzung, etwa über SSH, zeigt orbitop „Nicht ausgeführt – Umschalten geht nur in einer lokalen, aktiven Sitzung und mit dem Admin-Passwort.“ Ein Admin in einer entfernten Sitzung schaltet mit diesen Befehlen, demselben Helfer, den der Schalter startet:
+
+```sh
+sudo /usr/lib/orbitop/counterhelper on
+sudo /usr/lib/orbitop/counterhelper off
+```
+
+„An“ ist eine Regel für den ganzen Rechner und steht in der leeren Datei `/etc/orbitop/counters-released`. Was später dazukommt, wird mit freigegeben: Werden die Intel-GPU-Werkzeuge installiert, neu installiert oder aktualisiert, geben die Paket-Skripte von orbitop dem neuen `intel_gpu_top` die Fähigkeit, und beim Start macht die udev-Regel `/usr/lib/udev/rules.d/70-orbitop-counters.rules` die Energiezähler lesbar. Ohne diese Datei tun beide nichts. „Aus“ löscht zuerst die Datei, nimmt dann die Fähigkeit von `/usr/bin/intel_gpu_top` und macht die Energiezähler wieder nur für root lesbar, so wie der Kernel sie anlegt. Ein Update von orbitop lässt den Schalter, wie er ist.
+
+Unter dem Schalter sagt je Teil eine Zeile, ob er wirkt:
+
+- „wirkt“: freigegeben.
+- „intel_gpu_top ist nicht installiert“ oder „keine Energiezähler“: Der Schalter ist an, aber dem Rechner fehlt dieser Teil. Er wird freigegeben, sobald er da ist.
+- „wirkt nicht – Schalter aus- und einschalten“: Der Schalter ist an, aber die Freigabe fehlt, etwa nachdem ein Admin die udev-Regel maskiert hat. Aus- und Einschalten setzt sie neu.
+- „von Hand freigegeben“: Der Schalter ist aus, aber eine von Hand gesetzte Fähigkeit oder udev-Regel gibt diesen Teil frei (siehe [Umstieg von 0.2.0](#umstieg-von-020)).
+- „gesperrt“: Der Schalter ist aus, der Teil auch.
+
+Zwei Ergebnisse brauchen einen genaueren Blick. „Nicht freigegeben: unsicherer Ort oder unsichere Umgebung“ heißt, dass der Helfer die Freigabe abgelehnt hat: `/etc/orbitop` ist kein Verzeichnis von root mit dem Modus `drwx--x--x` (0711) aus dem Paket, ein Verzeichnis darüber oder über `/usr/bin/intel_gpu_top` ist für andere Konten beschreibbar, oder orbitop läuft in einem User-Namespace wie einem Container ohne root. Sperren geht dann weiterhin. Hat ein Admin `/etc/orbitop` für andere lesbar gemacht, stellt `sudo chmod 0711 /etc/orbitop` es wieder her. „Nur teilweise gewirkt“ heißt, dass ein Teil mit einem Fehler des Systems scheiterte, etwa bei einem schreibgeschützten `/usr` oder weil `/usr/bin/intel_gpu_top` ein symbolischer Link ist; die Zeilen unter dem Schalter zeigen, welcher Teil.
+
+### Ohne Paket
+
+Aus einem Checkout ohne installiertes Paket ([Aus dem Quellcode starten](#aus-dem-quellcode-starten)) ist der Schalter gesperrt, und die Hinweise verweisen hierher. Diese Befehle geben die Zähler von Hand frei. Das Risiko ist dasselbe wie beim Schalter, und orbitop führt sie nie von sich aus aus. Mit installiertem Paket nehmen Sie stattdessen den Schalter.
+
+Der folgende Befehl gibt `/usr/bin/intel_gpu_top` die Datei-Fähigkeit `cap_perfmon`:
 
 ```sh
 sudo setcap cap_perfmon=ep /usr/bin/intel_gpu_top
@@ -269,9 +298,7 @@ sudo setcap cap_perfmon=ep /usr/bin/intel_gpu_top
 sudo setcap -r /usr/bin/intel_gpu_top
 ```
 
-### Leistung des CPU-Pakets (bis 0.3.0)
-
-orbitop liest die Leistung des CPU-Pakets aus den RAPL-Energiezählern (`/sys/class/powercap/intel-rapl:*`), die der Kernel nur root lesen lässt. Ohne sie kommt die Paketleistung von `intel_gpu_top`, wenn es `cap_perfmon` hat (oben). Diese udev-Regel macht die Zähler lesbar. Risiko: Dann kann jedes lokale Konto und jede Flatpak-App sie lesen, und das erlaubt Seitenkanalangriffe über den Stromverbrauch (Platypus, CVE-2020-8694).
+Diese udev-Regel macht die Energiezähler lesbar:
 
 ```sh
 echo 'ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"' | sudo tee /etc/udev/rules.d/70-orbitop-rapl.rules
@@ -285,9 +312,32 @@ Rücknahme: die Regel löschen, dann den Rechner neu starten.
 sudo rm /etc/udev/rules.d/70-orbitop-rapl.rules
 ```
 
+### Umstieg von 0.2.0
+
+Nach der README von 0.2.0 haben Sie die Fähigkeit und die udev-Regel oben von Hand gesetzt. Das Update auf 0.3.0 ändert daran nichts: Es gibt nichts frei, und eine von Hand gesetzte Fähigkeit bleibt. orbitop zeigt den Schalter dann als aus und die Teile als „von Hand freigegeben“. Damit der Schalter entscheidet, entfernen Sie beides und schalten dann den Schalter ein:
+
+```sh
+sudo rm -f /etc/udev/rules.d/70-orbitop-rapl.rules
+sudo setcap -r /usr/bin/intel_gpu_top
+```
+
+Ohne diese Befehle nimmt Ein- und Ausschalten die von Hand gesetzte Fähigkeit zwar auch weg, die Regel aber bleibt: Der Helfer löscht nie eine Datei, die ein Admin angelegt hat, und die Regel gibt die Energiezähler bei jedem Start wieder frei. orbitop sagt das dann unter dem Schalter. Die Regel des Pakets heißt anders, deshalb verdeckt keine der beiden Regeln die andere.
+
 ## Deinstallation
 
 Erst orbitop aus dem Anwendungsmenü starten, damit das Fenster erscheint (eine beim Anmelden gestartete Instanz läuft eventuell ausgeblendet), dann mit Strg+Q beenden.
+
+### Die Freigabe beim Entfernen
+
+Das Entfernen von orbitop schaltet die [Freigabe der Messzähler](#messzähler-freigeben) aus, auf jeder Distribution und schon bei `remove`, nicht erst beim Purge: Das Paket ruft `counterhelper off`, und das löscht `/etc/orbitop/counters-released`, nimmt die Fähigkeit von `/usr/bin/intel_gpu_top`, auch eine von Hand gesetzte, und macht die Energiezähler wieder nur für root lesbar. Eine eigene udev-Regel unter `/etc/udev/rules.d/` bleibt. Eine neue Installation von orbitop gibt nichts frei, bis ein Admin den Schalter einschaltet. Unter Debian und Ubuntu weicht das Löschen der Merkdatei schon bei `remove` von Debian Policy 10.7.3 ab, nach der Konfigurationsdateien bis zum Purge bleiben; eine Merkdatei, die bliebe, gäbe die Zähler bei der nächsten Installation wieder frei, ohne den Admin zu fragen (`/usr/share/doc/orbitop/README.Debian`).
+
+Kann der Helfer beim Entfernen nicht laufen, meldet die Paketverwaltung `orbitop: counter release not revoked` (Debian, Ubuntu) oder einen Fehler der Shell zu `/usr/lib/orbitop/counterhelper` (Fedora, openSUSE, Arch). Die Merkdatei verschwindet trotzdem, aber die Fähigkeit bleibt auf `intel_gpu_top`, und die Energiezähler bleiben bis zum nächsten Neustart lesbar. Dann die Fähigkeit entfernen und den Rechner neu starten:
+
+```sh
+sudo setcap -r /usr/bin/intel_gpu_top
+```
+
+Vor einem Downgrade auf 0.2.0 den Schalter ausschalten. 0.2.0 kennt die Merkdatei nicht: Sie bleibt nach dem Downgrade liegen, zusammen mit der Fähigkeit auf `intel_gpu_top`, und ein späteres Update auf 0.3.0 gibt die Zähler ohne Rückfrage wieder frei. Die Paketquelle bietet keine ältere Version an.
 
 ### Ubuntu und Debian
 
@@ -347,14 +397,14 @@ sudo pacman -Sc
 
 ### Eigene Dateien
 
-Die Pakete fassen nie Dateien in Home-Verzeichnissen an. orbitop legt das Spaltenlayout in `~/.config/orbitop/` ab und, bei eingeschaltetem Schalter, einen Autostart-Eintrag. Beides entfernen:
+Die Pakete fassen nie Dateien in Home-Verzeichnissen an. orbitop legt das Spaltenlayout und die ausgeblendeten Hinweise in `~/.config/orbitop/` ab und, bei eingeschaltetem Schalter „Beim Anmelden starten“, einen Autostart-Eintrag. Alles entfernen:
 
 ```sh
 rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/orbitop"
 rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
 ```
 
-Einen Autostart für alle Benutzer entfernen Sie wie unter [Für alle Benutzer](#für-alle-benutzer), eine Freigabe aus [Grafik und Leistung](#grafik-und-leistung) wie dort beschrieben.
+Einen Autostart für alle Benutzer entfernen Sie wie unter [Für alle Benutzer](#für-alle-benutzer), eine von Hand gesetzte Freigabe wie unter [Umstieg von 0.2.0](#umstieg-von-020).
 
 ## Umstieg von 0.1.0
 
@@ -377,7 +427,7 @@ rm -f ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
 sudo rm -r /usr/local/libexec/orbitop
 ```
 
-Der alte Starter heißt wie der des Pakets und würde ihn verdecken. Die Fähigkeit `cap_perfmon` und die RAPL-Regel bleiben, wie sie sind: Sie entsprechen denen in [Grafik und Leistung](#grafik-und-leistung), und 0.3.0 ersetzt beide durch einen Schalter. Danach können Sie das Verzeichnis von 0.1.0 löschen.
+Der alte Starter heißt wie der des Pakets und würde ihn verdecken. Die Fähigkeit `cap_perfmon` und die RAPL-Regel sind dieselben wie in 0.2.0: Entfernen Sie sie wie unter [Umstieg von 0.2.0](#umstieg-von-020) und nehmen Sie stattdessen den Schalter „Messzähler freigeben“. Danach können Sie das Verzeichnis von 0.1.0 löschen.
 
 Dann das Paket wie unter [Installation](#installation) installieren und im Dialog „Über“ „Beim Anmelden starten“ einschalten, wenn der Autostart vorher an war. Unter Ubuntu und Debian zeigt `apt policy orbitop` danach die Paketquelle.
 
@@ -391,7 +441,7 @@ cd orbitop
 bin/orbitop
 ```
 
-Ohne installiertes Paket gehen zwei Dinge nicht: Prozesse anderer Benutzer zu beenden braucht den root-eigenen Helfer aus dem Paket (orbitop zeigt stattdessen einen Hinweis und fragt nach keinem Passwort), und der Schalter „Beim Anmelden starten“ bleibt gesperrt, solange der Befehl `orbitop` nicht installiert ist. Beim Start prüft orbitop die Python-Version, PyGObject, GTK 4 und WebKitGTK 6.0. Fehlt etwas, nennt es das Paket der laufenden Distribution und den Befehl zum Installieren; bei einer unbekannten Distribution nimmt es die Debian-Namen. Zu den Tests siehe [Tests](#tests).
+Ohne installiertes Paket geht einiges nicht: Prozesse anderer Benutzer zu beenden braucht den root-eigenen Helfer aus dem Paket (orbitop zeigt stattdessen einen Hinweis und fragt nach keinem Passwort); der Schalter „Messzähler freigeben“ bleibt gesperrt, und die Hinweise verweisen auf die Befehle unter [Ohne Paket](#ohne-paket); der Knopf „Installieren“ fehlt, und der Hinweis zeigt stattdessen den Befehl; und der Schalter „Beim Anmelden starten“ bleibt gesperrt, solange der Befehl `orbitop` nicht installiert ist. Beim Start prüft orbitop die Python-Version, PyGObject, GTK 4 und WebKitGTK 6.0. Fehlt etwas, nennt es das Paket der laufenden Distribution und den Befehl zum Installieren; bei einer unbekannten Distribution nimmt es die Debian-Namen. Zu den Tests siehe [Tests](#tests).
 
 ### Paketnamen
 
@@ -440,13 +490,17 @@ Die Pakete von orbitop hängen von denselben Laufzeitpaketen und von polkit ab.
 
 ### Sicherheitsmodell
 
-- Die Seite spricht mit Python nur über `parse_message` in `orbitop/messages.py`. Die Schleuse nimmt die Nachrichten `ready`, `view`, `layout`, `terminate`, `autostart` und `quit` an, prüft jeden Wert auf Typ und Wertebereich, verwirft unbekannte Schlüssel und begrenzt die Größe auf 4096 Zeichen. Alles andere wird verworfen.
+- Die Seite spricht mit Python nur über `parse_message` in `orbitop/messages.py`. Die Schleuse nimmt die Nachrichten `ready`, `view`, `layout`, `terminate`, `autostart`, `counters`, `install_tool`, `hide_hint`, `show_hints` und `quit` an, prüft jeden Wert auf Typ und Wertebereich, verwirft unbekannte Schlüssel und begrenzt die Größe auf 4096 Zeichen. Alles andere wird verworfen. Keine Nachricht trägt einen Pfad, einen Paketnamen oder freien Text; die Seite bekommt nur feste Wörter zurück.
 - Prozessnamen, Befehlszeilen und Benutzer kommen nur als Text (`textContent`) in die Seite, nie als HTML.
 - orbitop öffnet keinen Port und baut keine Netzwerkverbindung auf. Updates kommen nur über die Paketverwaltung.
 - Einen Prozess eines anderen Benutzers beendet orbitop mit `pkexec /usr/lib/orbitop/killhelper <pid> <startzeit> <signal>`. Die polkit-Action `io.github.zappelmann-sketch.orbitop.terminate` gilt nur für dieses Programm (`org.freedesktop.policykit.exec.path`) und fragt jedes Mal nach dem Admin-Passwort (`auth_admin`); der Dialog zeigt PID, Startzeit und Signal. Vorher prüft orbitop per `lstat`, dass der Helfer eine reguläre Datei und kein Symlink ist und dass er und jedes Verzeichnis bis `/` root gehören und für Gruppe und andere nicht beschreibbar sind. Sonst zeigt es einen Hinweis und fragt nach keinem Passwort. Den Helfer startet es außerdem nur über das setuid-`pkexec` von polkit: `/usr/bin/pkexec` muss ein reguläres, root-eigenes ELF-Programm mit setuid-Bit in einer ebensolchen Verzeichniskette sein. Sonst, etwa mit `run0-wrappers` unter openSUSE, ist das Beenden fremder Prozesse nicht verfügbar, und orbitop sagt das.
 - Der Helfer öffnet ein pidfd, bevor er PID und Startzeit prüft. So erreicht das Signal genau den geprüften Prozess. PID 1 und Kernel-Threads lehnt er ab.
+- Der Schalter „Messzähler freigeben“ ruft `pkexec /usr/lib/orbitop/counterhelper on` oder `off` auf, nach denselben Prüfungen des Helfers und von `pkexec` wie oben. Jedes Wort hat eine eigene polkit-Action, `io.github.zappelmann-sketch.orbitop.counters-release` und `io.github.zappelmann-sketch.orbitop.counters-lock` (`org.freedesktop.policykit.exec.argv1`), mit `auth_admin` in einer lokalen, aktiven Sitzung und `no` in jeder anderen. Der Helfer kennt nur `on`, `off` und `sync`, nimmt keinen Pfad, liest keine Umgebung, startet kein anderes Programm und schreibt nur die Merkdatei, die Fähigkeit an `/usr/bin/intel_gpu_top` und die Lesebits von `energy_uj` in den Zonen `intel-rapl:*`. Die Paket-Skripte rufen nur `sync`, das ohne Merkdatei nichts tut, und beim Entfernen `off`; keines ruft `on`. Bauweise und Restrisiken stehen im [Security-Dokument von 0.3.0](docs/superpowers/specs/2026-11-19-orbitop-0.3.0-security-runde.md).
+- Es läuft immer nur ein Auftrag zugleich für „Beenden“, „Messzähler freigeben“ und „Installieren“. Nach einem abgebrochenen oder abgelehnten Passwortdialog warten „Messzähler freigeben“ und „Installieren“ 10 s, nach einem zweiten 60 s, nach einem dritten bis zum Neustart von orbitop.
+- Der Knopf „Installieren“ spricht PackageKit 1.x über den System-Bus per Gio an, mit dem festen Paketnamen der Distribution, nur signierten Paketen (`ONLY_TRUSTED`) und vorher einer Simulation, die nur installieren oder aktualisieren darf; er entfernt, ersetzt oder stuft nie ein Paket zurück. Nur solange der Hinweis „intel_gpu_top ist nicht installiert“ steht, und höchstens eine erfolgreiche Installation je Lauf. Unter apt lehnt `ONLY_TRUSTED` ein unsigniertes Paket in jedem Fall ab; unter dnf und zypper folgt es der Einstellung der Paketquelle, und eine Quelle ohne Prüfung kann nur root einrichten.
 - Der Schalter „Beim Anmelden starten“ schreibt oder löscht nur seinen eigenen Eintrag im Autostart-Ordner des Benutzers, atomar; die Seite meldet nur an oder aus, nie einen Pfad.
-- `intel_gpu_top` und `nvidia-smi` startet orbitop mit Argumentlisten, nie über eine Shell, und nur aus dem festen Pfad `/usr/local/bin:/usr/bin:/bin`.
+- Ausgeblendete Hinweise merkt sich orbitop je Benutzer in `~/.config/orbitop/hints.json`, nur ihre Kennungen.
+- `intel_gpu_top` und `nvidia-smi` startet orbitop mit Argumentlisten, nie über eine Shell, und nur aus dem festen Pfad `/usr/bin:/bin:/usr/local/bin`: Die Freigabe gilt nur für `/usr/bin/intel_gpu_top`.
 
 ### Tests
 
@@ -475,13 +529,17 @@ shell.py            GTK 4 window, WebKitGTK 6.0 view, orbitop://ui/
    |  window.orbitop.receive(msg)
    v
 orbitop/ui/js/      page as ES modules from main.js, chart.js draws the charts
-   |  postMessage: ready, view, layout, terminate, autostart, quit
+   |  postMessage: ready, view, layout, terminate, autostart, counters, install_tool, hide_hint, show_hints, quit
    v
 messages.py parse_message
-   |-- layout    -> layout.py    -> ~/.config/orbitop/layout.json
-   |-- autostart -> autostart.py -> ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
-   '-- terminate -> actions.py   -> own process: signal
-                                 -> other user: pkexec /usr/lib/orbitop/killhelper
+   |-- layout       -> layout.py     -> ~/.config/orbitop/layout.json
+   |-- autostart    -> autostart.py  -> ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
+   |-- hide_hint    -> hints.py      -> ~/.config/orbitop/hints.json
+   |-- terminate    -> jobs.py, gate.py -> actions.py -> own process: signal
+   |                                                -> other user: pkexec /usr/lib/orbitop/killhelper
+   |-- counters     -> jobs.py, gate.py -> actions.py -> pkexec /usr/lib/orbitop/counterhelper on|off
+   '-- install_tool -> jobs.py, gate.py -> packagekit.py -> PackageKit (system bus)
+counters.py reads the state of the release without root: marker, capability, mode of energy_uj
 ```
 
 ## Eigenlast
