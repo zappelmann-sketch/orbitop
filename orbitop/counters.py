@@ -18,11 +18,11 @@ _V2, _V3 = 0x02000000, 0x03000000
 
 # Messung je Teil -> Anzeige je Merkdatei (Tabelle B2.5). Messung: "missing" (Werkzeug oder Zonen fehlen), "works"
 # (genau die Wirkung des Helfers), "other" (eine Wirkung, die der Helfer nie setzt: cap_sys_admin, ein Teil der
-# Zonen), "none". Bei "unclear" (aus, Zustand unklar) zeigt der Teil ehrlich, was wirkt; "broken" setzt eine
-# gültige Merkdatei voraus und "missing" eine Freigabe, die es nicht gibt.
+# Zonen), "none". "missing" gilt bei jeder Merkdatei: die Seite zeigt, warum der Schalter hier nicht wirkte (Q2, C1).
+# Bei "unclear" (aus, Zustand unklar) zeigt der Teil ehrlich, was wirkt; "broken" setzt eine gültige Merkdatei voraus.
 _SHOW = {"on": {"missing": "missing", "works": "works", "other": "broken", "none": "broken"},
-         "off": {"missing": "none", "works": "manual", "other": "manual", "none": "none"},
-         "unclear": {"missing": "none", "works": "works", "other": "manual", "none": "none"}}
+         "off": {"missing": "missing", "works": "manual", "other": "manual", "none": "none"},
+         "unclear": {"missing": "missing", "works": "works", "other": "manual", "none": "none"}}
 
 
 def _permitted(path: str, getxattr) -> int:

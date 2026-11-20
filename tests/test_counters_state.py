@@ -88,7 +88,7 @@ def _tool(root, kind):
     (False, "sysadmin", "manual"),     # für „von Hand“ zählt zusätzlich Bit 21
     (False, "nocap", "none"),
     (False, "foreign_v3", "none"),
-    (False, "missing", "none"),
+    (False, "missing", "missing"),    # „nicht installiert“ auch bei aus: der Schalter wirkte hier nicht (Q2, C1)
     (False, "symlink", "none"),
 ])
 def test_state_table_perfmon(root, marker, kind, want):
@@ -117,12 +117,16 @@ def test_state_table_rapl(root, marker, modes, want):
     assert part(read(root), "rapl") == want
 
 
-@pytest.mark.parametrize("marker,want", [(True, "missing"), (False, "none")])
-def test_rapl_without_zones(tmp_path, marker, want):
+@pytest.mark.parametrize("marker", ["on", "off", "unclear"])
+def test_rapl_without_zones_is_missing(tmp_path, marker):
+    """Q2: rapl steht immer in parts, ohne Zonen mit missing („keine Energiezähler“), bei jeder Merkdatei."""
     make_tree(tmp_path, zones=())
-    if marker:
+    if marker != "off":
         release(tmp_path)
-    assert part(read(tmp_path), "rapl") == want
+    if marker == "unclear":
+        at(tmp_path, MARKER).parent.chmod(0o755)
+    got = read(tmp_path)
+    assert got["marker"] == marker and part(got, "rapl") == "missing"
 
 
 def test_only_intel_rapl_zones_count(tmp_path):
@@ -225,11 +229,12 @@ def test_unclear_shows_the_measured_effect(root, cap, modes, want):
     assert got["marker"] == "unclear" and {p["state"] for p in got["parts"]} == {want}
 
 
-def test_unclear_never_reports_missing_or_broken(root):
+def test_unclear_reports_missing_but_never_broken(root):
+    """Fehlt das Werkzeug, heißt es auch bei unklarer Merkdatei missing; Zonen ohne Wirkung sind none, nie broken."""
     release(root)
     at(root, MARKER).parent.chmod(0o777)
     at(root, TOOL).unlink()
-    assert [p["state"] for p in read(root)["parts"]] == ["none", "none"]
+    assert [p["state"] for p in read(root)["parts"]] == ["missing", "none"]
 
 
 # ---- Handregel der README 0.2.0 (B2.9) ----
