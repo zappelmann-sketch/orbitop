@@ -77,9 +77,10 @@ def test_procs_tick_every_4_s_when_hidden_and_fresh_when_shown(shown_at, after):
 
 
 def test_hidden_procs_period_keeps_rates_valid():
-    from orbitop import app, system
+    from orbitop import app, procs, system
     # sonst gälten ausgeblendet alle Raten als ungültig
     assert app.PROCS_PERIOD_S < app.PROCS_PERIOD_HIDDEN_S < system.MAX_DT
+    assert procs.STEP_S == app.PROCS_PERIOD_S  # ein Verlaufspunkt je sichtbarem Prozess-Takt
 
 
 def test_worker_skips_missed_slots_instead_of_bursting():

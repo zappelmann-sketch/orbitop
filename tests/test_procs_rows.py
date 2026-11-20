@@ -16,6 +16,21 @@ def test_history_caps_at_150_and_spark_at_30():
     assert len(t.rows(400)[0]["spark"]) == 30
 
 
+def test_hidden_4_s_ticks_keep_one_history_point_per_2_s():
+    """Ausgeblendet (Prozess-Takt 4 s) zählt jeder Wert doppelt: „Letzte 60 s“ und die 5-min-Kurve bleiben wahr."""
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    t.update({(10, 1): raw(ticks=0)}, 0.0)
+    for i in range(1, 4):  # sichtbar: alle 2 s, 10 % CPU
+        t.update({(10, 1): raw(ticks=i * CLK // 5)}, i * 2.0)
+    before = len(t.detail(10, 1, 6.0)["history"])
+    for i in range(1, 6):  # ausgeblendet: alle 4 s, 50 % CPU
+        t.update({(10, 1): raw(ticks=3 * CLK // 5 + i * 2 * CLK)}, 6.0 + i * 4.0)
+    hist = t.detail(10, 1, 26.0)["history"]
+    assert before == 4 and len(hist) == before + 2 * 5
+    assert (len(hist) - 1) * 2.0 == 26.0  # ein Punkt je 2 s seit dem ersten Takt
+    assert hist[before:] == pytest.approx([50.0] * 10)  # Treppe für die ausgeblendete Zeit
+
+
 def test_pid_reuse_gets_fresh_history_and_dead_removed():
     t = ProcTable(clk_tck=CLK, uid=1000)
     t.update({(10, 1): raw(start=1), (11, 1): raw(pid=11)}, 0)
