@@ -96,9 +96,11 @@ How the check runs:
   keeps the conffiles counts as a change), `rpm -qa | sort` or `pacman -Q`, before and after the run; if they changed,
   or if there is no such list, the log shows `NO RETRY` and the run counts at once. `net` judges only the exit status
   and the hiccup. The index refreshes that must be clean (`quiet`: apt in `install` and `upgrade`, every package
-  manager in `remove` and `purge`) also count a line that matches `NOISE` as a failed run. The output goes live into
-  the log and into a file in `STATE`, which `net` and `quiet` search; if that file cannot be written or read, the run
-  fails and is not repeated. Any other failure counts at once: the expected refusal on `debian:bookworm` and
+  manager in `remove` and `purge`) also count a line that matches `NOISE` as a failed run; without `NOISE` they fail.
+  Each run first removes the copy of the previous run's output in `STATE` (if it cannot, the run fails without
+  starting), then writes its output live into the log and into a new copy, which `net` and `quiet` search as text,
+  also when it holds a NUL byte; if the new copy cannot be written or read, the run fails and is not repeated. Any
+  other failure counts at once: the expected refusal on `debian:bookworm` and
   `ubuntu:22.04` stays one run, and the `tamper` step runs its refresh once. A `NOISE` line of an earlier run stays in
   the log, but the verdict comes from the last run: the sources are read-only, so a signature check gives the same
   result in every run. A hiccup is one of the messages the images print (read from the strings of librepo, libzypp,

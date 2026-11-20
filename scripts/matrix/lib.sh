@@ -65,11 +65,12 @@ net() {
     local rc run before after
     for run in 1 2 3; do
         before=$(held) || before=""
+        rm -f -- "$STATE/net.out" || return 1  # no copy of an earlier run may decide
         rc=0
         logged "$STATE/net.out" "$@" || rc=$?
         [ "$rc" -ne 0 ] || return 0
-        # grep fails with 2 if it cannot read the file: that is no hiccup either, so no retry.
-        if [ "$run" -eq 3 ] || ! grep -qE -- "$HICCUP" "$STATE/net.out"; then return "$rc"; fi
+        # -a: text even with a NUL byte. grep fails with 2 if it cannot read the file: no hiccup either, so no retry.
+        if [ "$run" -eq 3 ] || ! grep -aqE -- "$HICCUP" "$STATE/net.out"; then return "$rc"; fi
         after=$(held) || after=""
         if [ -z "$before" ] || [ "$before" != "$after" ]; then
             echo "NO RETRY: the installed packages changed or are unknown"
@@ -83,8 +84,10 @@ net() {
 # clean COMMAND…: COMMAND succeeds and prints no line that matches NOISE (warnings, notices, errors).
 clean() {
     local rc=0 noise found=0
+    [ -n "${NOISE:-}" ] || { echo "NOISE is not set: nothing can judge the output" && return 1; }
+    rm -f -- "$STATE/clean.out" || return 1  # no copy of an earlier run may decide
     logged "$STATE/clean.out" "$@" || rc=$?
-    noise=$(grep -E -- "$NOISE" "$STATE/clean.out") || found=$?
+    noise=$(grep -aE -- "$NOISE" "$STATE/clean.out") || found=$?  # -a: text even with a NUL byte
     [ "$found" -le 1 ] || { echo "NOISE unknown: cannot read $STATE/clean.out" && return 1; }  # 1: no match
     [ -z "$noise" ] || printf 'NOISE %s\n' "$noise"
     [ "$rc" -eq 0 ] && [ -z "$noise" ]

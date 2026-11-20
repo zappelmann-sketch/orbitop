@@ -211,24 +211,63 @@ def test_apt_fingerprint_sees_a_status_change(tmp_path):
 AS_ROOT = pytest.mark.skipif(os.geteuid() == 0, reason="root liest und schreibt auch ohne die Rechte der Datei")
 
 
-# Die Dateien des Protokolls: weder zu schreiben noch zu lesen (ein Verzeichnis), nur zu schreiben (grep scheitert),
-# nur zu lesen (tee scheitert, grep liest die alte, leere Datei).
-@pytest.mark.parametrize("blocked", ["directory", pytest.param(0o200, marks=AS_ROOT, id="write-only"),
-                                     pytest.param(0o400, marks=AS_ROOT, id="read-only")])
-def test_unreadable_log_fails_clean_and_net_does_not_retry(tmp_path, blocked):
-    """Ohne lesbare Kopie der Ausgabe wertet nichts sie als sauber: clean scheitert an einem W: mit Exit 0, net
-    wiederholt einen Aussetzer nicht."""
-    warning = "W: GPG error: file:/site/apt stable InRelease: NO_PUBKEY 0123456789ABCDEF"
-    for name, command, outputs in [("clean", "clean pm", [(warning, 0)]), ("net", "net pm", [(CURL, 1), ("", 0)])]:
-        state = tmp_path / name / "state"
-        state.mkdir(parents=True)
-        for log in ("clean.out", "net.out"):
-            if blocked == "directory":
-                (state / log).mkdir()
-            else:
-                (state / log).touch(mode=blocked)
-        ok, out, calls, slept = runs(tmp_path / name, command, *outputs, files=("apt.sh",))
-        assert not ok and calls == 1 and slept == [], out
+WARNING = "W: GPG error: file:/site/apt stable InRelease: NO_PUBKEY 0123456789ABCDEF"  # apt update endet mit 0
+
+
+@pytest.mark.parametrize("command", ["clean pm", "net pm"])
+def test_a_capture_file_that_cannot_be_removed_stops_the_run(tmp_path, command):
+    """Jeder Lauf entfernt zuerst die Kopie der Ausgabe des vorigen; geht das nicht (hier ein Verzeichnis), läuft der
+    Befehl gar nicht."""
+    state = tmp_path / "state"
+    state.mkdir()
+    for log in ("clean.out", "net.out"):
+        (state / log).mkdir()
+    ok, out, calls, slept = runs(tmp_path, command, (WARNING, 0), files=("apt.sh",))
+    assert not ok and calls == 0 and slept == [], out
+
+
+@pytest.mark.parametrize("rc,status", [(0, 1), (3, 3)], ids=["command-ok", "command-failed"])
+def test_logged_fails_when_tee_cannot_write(tmp_path, rc, status):  # ohne die Kopie wertet niemand die Ausgabe
+    ok, out, calls, _ = runs(tmp_path, f'logged "$STATE/missing/out" pm; [ "$?" -eq {status} ]', ("Hit:1", rc))
+    assert ok and calls == 1, out
+
+
+@AS_ROOT
+@pytest.mark.parametrize("command,log,output", [("clean pm", "clean.out", (WARNING, 0)),
+                                                ("net pm", "net.out", (CURL, 1))], ids=["clean", "net"])
+def test_unreadable_capture_fails_clean_and_net_does_not_retry(tmp_path, command, log, output):
+    """Der Befehl nimmt seiner Kopie das Leserecht: grep scheitert mit 2. clean scheitert dann, net wiederholt nicht."""
+    unreadable = (f'pm() {{ echo >> "$STATE/calls"; cat "$STATE/out.1"; chmod 200 "$STATE/{log}";'
+                  ' return "$(cat "$STATE/rc.1")"; };')
+    ok, out, calls, slept = runs(tmp_path, f"{unreadable} {command}", output, ("", 0), files=("apt.sh",))
+    assert not ok and calls == 1 and slept == [], out
+
+
+@AS_ROOT
+def test_a_stale_capture_file_never_decides(tmp_path):
+    """Die Kopie eines früheren Laufs mit einem Aussetzer, die tee nicht überschreiben kann: Ein Fehler des Pakets im
+    neuen Lauf wird trotzdem nicht wiederholt."""
+    state = tmp_path / "state"
+    state.mkdir()
+    (state / "net.out").write_text(CURL + "\n")
+    (state / "net.out").chmod(0o400)
+    ok, out, calls, slept = runs(tmp_path, "net pm", ("Error: Unable to find a match: orbitop", 1), ("", 0))
+    assert not ok and calls == 1 and slept == [], out
+
+
+@pytest.mark.parametrize("command,output,passed,count", [
+    ("clean pm", (f"{WARNING}\n\0binary", 0), False, 1),  # GNU grep sähe sonst nur "binary file matches"
+    ("net pm", (f"{CURL}\n\0binary", 1), True, 2),
+], ids=["clean-warning", "net-hiccup"])
+def test_a_nul_byte_does_not_hide_the_output(tmp_path, command, output, passed, count):
+    ok, out, calls, _ = runs(tmp_path, command, output, ("", 0), files=("apt.sh",))
+    assert ok is passed and calls == count, out
+
+
+@pytest.mark.parametrize("unset", ["unset NOISE", "NOISE="])
+def test_clean_fails_without_noise(tmp_path, unset):  # ein leeres Muster träfe jede Zeile, eine leere Ausgabe keine
+    ok, out, _, _ = runs(tmp_path, f"( {unset}; clean pm )", ("", 0), files=("apt.sh",))
+    assert not ok, out
 
 
 @pytest.mark.parametrize("pipefail", ["", "set -o pipefail;"])
