@@ -194,9 +194,8 @@ def test_missing_tool_is_fine(tmp_path, osl):  # ENOENT: nicht installiert, die 
     assert set(modes(tmp_path).values()) == {0o444}
 
 
-@pytest.mark.parametrize("make", ["missing", "symlink", "file", "group_writable", "readable", "group_readable",
-                                  "foreign", "foreign_etc"])
-def test_unsafe_marker_directory(tmp_path, osl, make):  # R2.1; lesbar: jedes Konto könnte das Lock halten (I-1)
+@pytest.mark.parametrize("make", ["missing", "symlink", "file", "group_writable", "foreign", "foreign_etc"])
+def test_unsafe_marker_directory(tmp_path, osl, make):  # R2.1: nur ein root-eigenes, festes /etc/orbitop zählt
     d = tmp_path / "etc/orbitop"
     if make in ("missing", "symlink", "file"):
         d.rmdir()
@@ -207,8 +206,6 @@ def test_unsafe_marker_directory(tmp_path, osl, make):  # R2.1; lesbar: jedes Ko
         d.touch()
     elif make == "group_writable":
         d.chmod(0o731)
-    elif make in ("readable", "group_readable"):
-        d.chmod(0o755 if make == "readable" else 0o741)
     elif make == "foreign":
         osl.owners["/etc/orbitop"] = 1000
     elif make == "foreign_etc":
@@ -219,6 +216,31 @@ def test_unsafe_marker_directory(tmp_path, osl, make):  # R2.1; lesbar: jedes Ko
     assert osl.writes() == []
     assert main(["off"], osl) == counterhelper.UNSAFE  # nimmt die Wirkungen trotzdem zurück
     assert osl.writes() == [("removexattr", TOOL), *[("fchmod", p, 0o400) for p in ENERGY]]
+
+
+def test_off_leaves_the_marker_in_a_writable_directory(tmp_path, osl):  # fremd beschreibbar: nur die Wirkungen
+    marker(tmp_path).touch()
+    (tmp_path / "etc/orbitop").chmod(0o733)
+    osl.xattrs[TOOL] = {XATTR: CAP}
+    assert main(["off"], osl) == counterhelper.UNSAFE
+    assert marker(tmp_path).exists() and osl.xattrs[TOOL] == {}
+
+
+@pytest.mark.parametrize("mode", [0o755, 0o741, 0o714], ids=oct)
+def test_weak_directory_only_allows_off(tmp_path, osl, mode):  # lesbar: jedes Konto könnte das Lock halten (I-1)
+    marker(tmp_path).touch()
+    (tmp_path / "etc/orbitop").chmod(mode)
+    osl.xattrs[TOOL] = {XATTR: CAP}
+
+    def no_lock(*_):
+        pytest.fail("flock in a weak directory")
+    osl.flock = no_lock
+    assert main(["on"], osl) == counterhelper.UNSAFE
+    assert main(["sync"], osl) == counterhelper.UNSAFE
+    assert osl.writes() == []
+    assert main(["off"], osl) == counterhelper.UNSAFE  # ohne Lock: on und sync wenden hier nie an (R1.5)
+    assert not marker(tmp_path).exists() and osl.xattrs[TOOL] == {}
+    assert osl.log[:2] == [("unlink", MARKER), ("fsync", "/etc/orbitop")]
 
 
 @pytest.mark.parametrize("start, on, off", [(stat.S_IFREG | 0o400, 0o444, 0o400), (0o600, 0o644, 0o600),

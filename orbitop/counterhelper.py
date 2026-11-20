@@ -58,8 +58,8 @@ class RealOS:
             return f.read()
 
 
-def _safe(st, kind, bits=0o022) -> bool:
-    return kind(st.st_mode) and st.st_uid == 0 and not st.st_mode & bits
+def _safe(st, kind) -> bool:
+    return kind(st.st_mode) and st.st_uid == 0 and not st.st_mode & 0o022
 
 
 def _chain(path: str, osl) -> bool:
@@ -85,16 +85,17 @@ def _init_userns(osl) -> bool:
 
 
 def _open_dir(osl):
-    """fd von /etc/orbitop, wenn es ein root-eigenes Verzeichnis ohne Lese- und Schreibrecht für Gruppe und andere in
-    einer root-eigenen, nicht g/o-beschreibbaren Kette ist; sonst None. Ohne Leserecht kann kein anderes Konto den
-    Ordner öffnen und das Lock halten, mit dem es sonst jedes off verhinderte (Audit Task 2, I-1)."""
+    """(fd, weak) für /etc/orbitop, wenn es ein root-eigenes, nicht g/o-beschreibbares Verzeichnis in ebensolcher
+    Kette ist, sonst None. weak: Gruppe oder andere dürfen es lesen, also öffnen und das Lock halten, mit dem sie sonst
+    jedes off verhinderten (Audit Task 2, I-1)."""
     try:
         fd = osl.open(_DIR, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW | os.O_CLOEXEC)
     except OSError:
         return None
     try:
-        if _safe(osl.fstat(fd), stat.S_ISDIR, 0o066) and _chain(_DIR, osl):
-            return fd
+        st = osl.fstat(fd)
+        if _safe(st, stat.S_ISDIR) and _chain(_DIR, osl):
+            return fd, bool(st.st_mode & 0o044)
     except OSError:
         pass
     osl.close(fd)
@@ -217,10 +218,13 @@ def _sync(dirfd, osl) -> int:
 def _run(word: str, osl) -> int:
     if word != "off" and not _init_userns(osl):
         return UNSAFE if word == "on" else OK  # eine Fähigkeit aus einem User-Namespace wirkt auf dem Host nicht
-    dirfd = _open_dir(osl)
-    if dirfd is None:
+    opened = _open_dir(osl)
+    if opened is None:
         return max(UNSAFE, apply(False, osl)) if word == "off" else UNSAFE
+    dirfd, weak = opened
     try:
+        if weak:  # nur off, ohne Lock: on und sync wenden hier nie an, kein sync kann danach neu setzen (R1.5)
+            return max(UNSAFE, _off(dirfd, osl)) if word == "off" else UNSAFE
         if not _lock(dirfd, osl):
             return FAILED
         return {"on": _on, "off": _off, "sync": _sync}[word](dirfd, osl)
