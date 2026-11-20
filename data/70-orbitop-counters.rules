@@ -1,0 +1,5 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# orbitop: the RAPL energy counters readable for every account at boot, only while the admin has released them with
+# "counterhelper on" (marker file). Named unlike the README's manual rule 70-orbitop-rapl.rules, which would replace it.
+ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", TEST=="/etc/orbitop/counters-released", RUN+="/usr/bin/chmod go+r /sys%p/energy_uj"

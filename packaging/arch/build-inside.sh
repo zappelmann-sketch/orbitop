@@ -37,9 +37,11 @@ pacman -S --noconfirm --needed --asdeps "${depends[@]}" >/dev/null
 as_builder makepkg --noconfirm
 pkg=$work/orbitop-$version-$pkgrel-any.pkg.tar.zst
 
-# pkexec runs this file as root: no packaging tool may change it.
-bsdtar -xOf "$pkg" usr/lib/orbitop/killhelper | cmp - /src/orbitop/killhelper.py ||
-    die "the packaged helper differs from orbitop/killhelper.py"
+# pkexec runs these files as root: no packaging tool may change them.
+for helper in killhelper counterhelper; do
+    bsdtar -xOf "$pkg" "usr/lib/orbitop/$helper" | cmp - "/src/orbitop/$helper.py" ||
+        die "the packaged helper differs from orbitop/$helper.py"
+done
 
 mkdir -p /out/arch /out/lint
 cp "$pkg" /out/arch/

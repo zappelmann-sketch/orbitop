@@ -52,10 +52,12 @@ rpmbuild() {
 rpmbuild --define "orbitop_version $version" --define "orbitop_release $release" "$top/SPECS/orbitop.spec"
 rpmbuild --define "keyring_version $keyring" "$top/SPECS/orbitop-release.spec"
 
-# pkexec runs this file as root: no packaging tool may change it (Fedora mangles shebangs after %install).
-rpm2cpio "$top/RPMS/noarch/orbitop-$version-$release.noarch.rpm" |
-    cpio -i --quiet --to-stdout ./usr/lib/orbitop/killhelper |
-    cmp - /src/orbitop/killhelper.py || die "the packaged helper differs from orbitop/killhelper.py"
+# pkexec runs these files as root: no packaging tool may change them (Fedora mangles shebangs after %install).
+for helper in killhelper counterhelper; do
+    rpm2cpio "$top/RPMS/noarch/orbitop-$version-$release.noarch.rpm" |
+        cpio -i --quiet --to-stdout "./usr/lib/orbitop/$helper" |
+        cmp - "/src/orbitop/$helper.py" || die "the packaged helper differs from orbitop/$helper.py"
+done
 
 mkdir -p "/out/rpm-$family" /out/lint
 cp "$top"/RPMS/noarch/*.rpm "/out/rpm-$family/"

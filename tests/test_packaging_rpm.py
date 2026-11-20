@@ -5,6 +5,7 @@ import configparser
 import hashlib
 import re
 import subprocess
+import xml.etree.ElementTree as ET
 
 import pytest
 
@@ -103,7 +104,11 @@ def test_spec_installs_the_common_tree():  # derselbe Baum wie das .deb, dazu nu
     assert "bash packaging/install-tree.sh %{buildroot}\n" in spec
     files = spec.split("\n%files\n", 1)[1].split("\n\n", 1)[0].splitlines()
     assert files == [
-        "%license LICENSE", "%{_bindir}/orbitop", "%{_datadir}/orbitop/", "%{_prefix}/lib/orbitop/",
+        "%license LICENSE", "%{_bindir}/orbitop", "%{_datadir}/orbitop/",
+        # die root-Helfer einzeln: jede andere Datei in /usr/lib/orbitop bräche den Bau (nicht gepackt)
+        "%dir %{_prefix}/lib/orbitop", "%{_prefix}/lib/orbitop/killhelper", "%{_prefix}/lib/orbitop/counterhelper",
+        "%dir %{_sysconfdir}/orbitop",  # B2.2: der Ordner der Merkdatei kommt aus dem Paket, die Merkdatei nie
+        "%{_udevrulesdir}/70-orbitop-counters.rules",
         "%{_datadir}/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy",
         "%{_datadir}/applications/io.github.zappelmann_sketch.orbitop.desktop",
         "%{_datadir}/icons/hicolor/scalable/apps/io.github.zappelmann_sketch.orbitop.svg",
@@ -153,8 +158,19 @@ def test_release_inputs_pinned():  # gleiche Version, gleiche Bytes
     assert RELEASE_INPUTS.get(version) == digest
 
 
+def untracked():
+    """Die Zeilen polkit-untracked-privilege, die rpmlint von openSUSE für die Actions der .policy schreibt:
+    Action-ID und Vorgaben any:inactive:active."""
+    root = ET.parse(ROOT / "data" / "io.github.zappelmann-sketch.orbitop.policy").getroot()
+    return [f"orbitop.noarch: E: polkit-untracked-privilege (Badness: 10) {a.get('id')} ("
+            + ":".join(a.find(f"defaults/allow_{k}").text for k in ("any", "inactive", "active")) + ")"
+            for a in root.findall("action")]
+
+
 ACCEPTED = ("orbitop.noarch: E: polkit-untracked-privilege (Badness: 10) io.github.zappelmann-sketch.orbitop.terminate"
             " (auth_admin:auth_admin:auth_admin)")
+NEW = [f"orbitop.noarch: E: polkit-untracked-privilege (Badness: 10) io.github.zappelmann-sketch.orbitop.{a}"
+       " (no:no:auth_admin)" for a in ("counters-release", "counters-lock")]
 SUMMARY = " 2 packages and 0 specfiles checked; 1 errors, 1 warnings, 10 filtered, 10 badness; has taken 0.2 s"
 
 
@@ -172,6 +188,18 @@ def test_lint_gate_accepts_only_the_polkit_line_on_opensuse(tmp_path):
     weaker = ACCEPTED.replace("auth_admin:auth_admin:auth_admin", "yes:yes:yes")
     assert gate(tmp_path, "opensuse", weaker, SUMMARY) == 1
     assert gate(tmp_path, "opensuse", ACCEPTED) == 1  # ohne Abschlusszeile: rpmlint ist abgebrochen
+
+
+def test_lint_gate_accepts_exactly_the_three_actions(tmp_path):  # M-7: je Action ihre Vorgaben, sonst nichts
+    assert untracked() == [ACCEPTED, *NEW]
+    assert gate(tmp_path, "opensuse", *NEW, ACCEPTED, SUMMARY) == 0
+    assert gate(tmp_path, "fedora", *NEW, SUMMARY) == 1
+    for weaker in ("auth_admin_keep", "yes", "auth_self"):
+        for line in NEW:
+            assert gate(tmp_path, "opensuse", line.replace("(no:no:auth_admin)", f"(no:no:{weaker})"), SUMMARY) == 1
+        assert gate(tmp_path, "opensuse", NEW[0].replace("(no:no:", f"({weaker}:no:"), SUMMARY) == 1
+    other = ACCEPTED.replace(".terminate", ".counters-other").replace("auth_admin:auth_admin:", "no:no:")
+    assert gate(tmp_path, "opensuse", other, SUMMARY) == 1  # nur die drei Actions dieser .policy
 
 
 def test_lint_gate_fails_on_large_reports(tmp_path):  # früher: grep -q endete früh, SIGPIPE ließ den Bau durch

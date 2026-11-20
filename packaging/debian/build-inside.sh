@@ -21,9 +21,11 @@ cd "$work/orbitop"
 cp -a packaging/debian debian
 python3 -I packaging/changelog.py debian data/io.github.zappelmann_sketch.orbitop.metainfo.xml "$1" > debian/changelog
 dpkg-buildpackage -b -us -uc
-# pkexec runs this file as root: no packaging tool may change it (dh_python3 once dropped "-I" from its shebang).
-dpkg-deb --fsys-tarfile "$work"/orbitop_*_all.deb | tar -xO ./usr/lib/orbitop/killhelper |
-    cmp - orbitop/killhelper.py || die "the packaged helper differs from orbitop/killhelper.py"
+# pkexec runs these files as root: no packaging tool may change them (dh_python3 once dropped "-I" from a shebang).
+for helper in killhelper counterhelper; do
+    dpkg-deb --fsys-tarfile "$work"/orbitop_*_all.deb | tar -xO "./usr/lib/orbitop/$helper" |
+        cmp - "orbitop/$helper.py" || die "the packaged helper differs from orbitop/$helper.py"
+done
 
 # orbitop-apt-source: its own source tree with only its inputs, so that nothing of orbitop reaches it.
 apt=$work/orbitop-apt-source

@@ -58,7 +58,11 @@ appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github
 %license LICENSE
 %{_bindir}/orbitop
 %{_datadir}/orbitop/
-%{_prefix}/lib/orbitop/
+%dir %{_prefix}/lib/orbitop
+%{_prefix}/lib/orbitop/killhelper
+%{_prefix}/lib/orbitop/counterhelper
+%dir %{_sysconfdir}/orbitop
+%{_udevrulesdir}/70-orbitop-counters.rules
 %{_datadir}/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy
 %{_datadir}/applications/io.github.zappelmann_sketch.orbitop.desktop
 %{_datadir}/icons/hicolor/scalable/apps/io.github.zappelmann_sketch.orbitop.svg

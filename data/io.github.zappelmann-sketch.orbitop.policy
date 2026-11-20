@@ -16,4 +16,31 @@
     </defaults>
     <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/orbitop/killhelper</annotate>
   </action>
+  <!-- E2: only local, active sessions; exec.argv1 picks the action by the helper's first word (B2.1) -->
+  <action id="io.github.zappelmann-sketch.orbitop.counters-release">
+    <description>Release the GPU and energy counters for all accounts</description>
+    <description xml:lang="de">Grafik- und Energiezähler für alle Konten freigeben</description>
+    <message>Every account on this computer will be able to read the GPU and energy counters. Risk: power side channels (Platypus, CVE-2020-8694).</message>
+    <message xml:lang="de">Jedes Konto auf diesem Rechner kann dann die Grafik- und Energiezähler lesen. Risiko: Seitenkanal über den Stromverbrauch (Platypus, CVE-2020-8694).</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/orbitop/counterhelper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">on</annotate>
+  </action>
+  <action id="io.github.zappelmann-sketch.orbitop.counters-lock">
+    <description>Lock the GPU and energy counters again</description>
+    <description xml:lang="de">Grafik- und Energiezähler wieder sperren</description>
+    <message>Lock the GPU and energy counters again</message>
+    <message xml:lang="de">Grafik- und Energiezähler wieder sperren</message>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>auth_admin</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/lib/orbitop/counterhelper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">off</annotate>
+  </action>
 </policyconfig>

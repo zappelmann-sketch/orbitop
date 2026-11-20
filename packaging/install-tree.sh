@@ -25,10 +25,15 @@ done < <(cd -- "$src" && find orbitop -name __pycache__ -prune -o -type f -print
 install -d -m 0755 -- "$dest/usr/bin"
 ln -sfn ../share/orbitop/bin/orbitop "$dest/usr/bin/orbitop"
 
-# The root helper, started directly by pkexec (K1), and its polkit action.
+# The root helpers, started directly by pkexec (K1), and their polkit actions.
 install -D -m 0755 -- "$src/orbitop/killhelper.py" "$dest/usr/lib/orbitop/killhelper"
+install -D -m 0755 -- "$src/orbitop/counterhelper.py" "$dest/usr/lib/orbitop/counterhelper"
 install -D -m 0644 -- "$src/data/io.github.zappelmann-sketch.orbitop.policy" \
     "$share/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy"
+# The counter release: the directory of the marker file, which only counterhelper creates, and the rule that applies
+# the release at boot (security document 0.3.0, B2.2 and B2.3).
+install -d -m 0755 -- "$dest/etc/orbitop"
+install -D -m 0644 -- "$src/data/70-orbitop-counters.rules" "$dest/usr/lib/udev/rules.d/70-orbitop-counters.rules"
 
 # Desktop integration and the inactive autostart template (K5).
 install -D -m 0644 -- "$src/data/$app.desktop" "$share/applications/$app.desktop"

@@ -8,10 +8,12 @@ import sys
 
 import pytest
 
-from orbitop import __version__
+from orbitop import __version__, counterhelper
 from tests.packaging_common import APP, PKG, ROOT
 
 SHARE = "/usr/share/orbitop/"
+RULE = "/usr/lib/udev/rules.d/70-orbitop-counters.rules"  # B2.3: unter /usr/lib, nie unter /etc/udev
+HELPERS = {"/usr/lib/orbitop/killhelper": "killhelper.py", "/usr/lib/orbitop/counterhelper": "counterhelper.py"}
 
 
 @pytest.fixture(scope="module")
@@ -31,7 +33,8 @@ def test_install_tree_file_list(tree):
                   if p.is_file() and "__pycache__" not in p.parts)
     assert listing(tree) == sorted([
         "/usr/bin/orbitop",
-        "/usr/lib/orbitop/killhelper",
+        *HELPERS,
+        RULE,
         f"/usr/share/applications/{APP}.desktop",
         f"/usr/share/icons/hicolor/scalable/apps/{APP}.svg",
         f"/usr/share/metainfo/{APP}.metainfo.xml",
@@ -44,7 +47,7 @@ def test_install_tree_file_list(tree):
 
 
 def test_modes_independent_of_umask(tree):
-    executables = {"/usr/lib/orbitop/killhelper", SHARE + "bin/orbitop", SHARE + "orbitop/killhelper.py"}
+    executables = {*HELPERS, SHARE + "bin/orbitop", *(SHARE + "orbitop/" + h for h in HELPERS.values())}
     for p in tree.rglob("*"):
         st = os.lstat(p)
         if stat.S_ISLNK(st.st_mode):
@@ -54,17 +57,26 @@ def test_modes_independent_of_umask(tree):
         assert stat.S_IMODE(st.st_mode) == want, name
 
 
-def test_helper_copy_identical_and_executable(tree):
-    helper = tree / "usr/lib/orbitop/killhelper"
-    assert helper.read_bytes() == (ROOT / "orbitop" / "killhelper.py").read_bytes()
-    assert stat.S_IMODE(os.lstat(helper).st_mode) == 0o755
-    assert helper.read_text().startswith("#!/usr/bin/python3 -IS\n")  # pkexec startet ihn direkt (K1)
+def test_helper_copies_identical_and_executable(tree):
+    for installed, source in HELPERS.items():
+        helper = tree / installed.lstrip("/")
+        assert helper.read_bytes() == (ROOT / "orbitop" / source).read_bytes(), source
+        assert stat.S_IMODE(os.lstat(helper).st_mode) == 0o755
+        assert helper.read_text().startswith("#!/usr/bin/python3 -IS\n")  # pkexec startet ihn direkt (K1)
 
 
-def test_data_files_identical(tree):  # Starter, Vorlage und polkit-Datei unverändert aus data/ und bin/
+def test_marker_directory_comes_empty_from_the_package(tree):  # B2.2: nur der Helfer legt die Merkdatei an
+    etc = tree / "etc"
+    assert sorted(p.relative_to(tree).as_posix() for p in etc.rglob("*")) == ["etc/orbitop"]
+    assert os.path.dirname(counterhelper.MARKER) == "/etc/orbitop"
+    assert stat.S_ISDIR(os.lstat(etc / "orbitop").st_mode) and not os.listdir(etc / "orbitop")
+
+
+def test_data_files_identical(tree):  # Starter, Vorlage, polkit-Datei und Regel unverändert aus data/ und bin/
     for src, dst in (("bin/orbitop", SHARE + "bin/orbitop"), ("data/autostart.desktop", SHARE + "autostart.desktop"),
                      ("data/io.github.zappelmann-sketch.orbitop.policy",
-                      "/usr/share/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy")):
+                      "/usr/share/polkit-1/actions/io.github.zappelmann-sketch.orbitop.policy"),
+                     ("data/70-orbitop-counters.rules", RULE)):
         assert (tree / dst.lstrip("/")).read_bytes() == (ROOT / src).read_bytes(), src
 
 
