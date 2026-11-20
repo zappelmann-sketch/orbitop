@@ -17,8 +17,9 @@ _COUNTERHELPER = "/usr/lib/orbitop/counterhelper"  # je Wort eine eigene polkit-
 # Absolute Pfade: kein PATH- oder venv-Einfluss auf das, was als root läuft.
 PKEXEC = "/usr/bin/pkexec"
 _RESULT = {0: "sent", 3: "mismatch", 4: "gone", 5: "zombie", 6: "kernel", 126: "denied", 127: "denied"}
-# Vom Exit-Code der Freigabe zählt nur Abbruch (126) und Ablehnung (127); den Rest zeigt der frisch gelesene Zustand
-_COUNTERS = {126: "cancelled", 127: "denied"}
+# Je Exit-Code der Freigabe ein festes Wort (B2.1; 3 = Ort oder Umgebung unsicher, 4 = nur teilweise); was wirkt,
+# zeigt der frisch gelesene Zustand. Als Ablehnung zählen nur 126 und 127 (jobs._outcome)
+_COUNTERS = {0: "ok", 1: "error", 2: "error", 3: "unsafe", 4: "partial", 126: "cancelled", 127: "denied"}
 
 
 def _own(pid: int, root: str) -> bool | None:
@@ -91,10 +92,7 @@ def counters(on: bool, root="/", run=subprocess.run, lstat=os.lstat, opener=os.o
         return "cancelled"
     except (OSError, subprocess.SubprocessError):  # auch PermissionError: kill() am Helfer, der schon als root läuft
         return "error"
-    if r.returncode in _COUNTERS:
-        return _COUNTERS[r.returncode]
-    # ok nur für die Exit-Codes 0–4 des Helfers; alles andere, auch der Tod durch ein Signal, scheitert geschlossen
-    return "ok" if 0 <= r.returncode <= 4 else "error"
+    return _COUNTERS.get(r.returncode, "error")  # auch der Tod durch ein Signal: scheitert geschlossen
 
 
 def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, lstat=os.lstat, opener=os.open) -> str:

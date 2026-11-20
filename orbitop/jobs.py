@@ -110,7 +110,9 @@ class Jobs:
             result = actions.counters(on, run=run)
         except Exception:  # sonst bliebe das Tor für immer zu
             result = "error"
-        if result == "ok":  # auch „schon so“: die Merkdatei kann von außen gekommen sein (sudo counterhelper, sync)
+        # auch „schon so“ (die Merkdatei kann von außen gekommen sein: sudo counterhelper, sync) und nach den Exit-Codes
+        # 1–4: der Helfer lief und kann einen Teil geändert haben
+        if result == "ok" or any(c in (1, 2, 3, 4) for c in codes):
             # intel_gpu_top mit der neuen Fähigkeit ohne Neustart (Q3); kann Sekunden dauern, daher hier im Thread
             with contextlib.suppress(Exception):  # dann erkennt erst der Neustart neu; das Tor muss frei werden
                 tools.recheck_tools()

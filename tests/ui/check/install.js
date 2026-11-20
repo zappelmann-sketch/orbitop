@@ -63,16 +63,25 @@ function checkJob(from) {
   btn().click();
   eq(sent(from).join(), '{"type":"install_tool"}', "Klick sendet genau ein install_tool");
   eq(view() + "/" + (document.activeElement === btn()), "-|/true", "während des Auftrags gesperrt, Fokus bleibt");
+  const live = $(".live");
+  eq(live.getAttribute("role") + "/" + live.textContent + "/" + !$(".foot").contains(live), "status//true",
+     "Ansage: bleibende Statusregion außerhalb der neu gebauten Fußzeile, während des Auftrags leer");
   btn().click();
   hints("igt_missing");
   initWith(USABLE); // init (Fenster wieder gezeigt, Stand nach dem Auftrag) gibt den Knopf nicht frei
   btn().click();
   eq(sent(from).length + "/" + view(), "1/-|", "läuft: kein zweites install_tool");
   answer("denied");
-  eq(view(), "+|install.denied", "abgelehnt: Text, Knopf wieder frei");
+  eq(view() + "/" + $(".live").textContent + "/" + (live === $(".live")), "+|install.denied/install.denied/true",
+     "abgelehnt: Text, Knopf wieder frei, angesagt in derselben Region");
   btn().click();
+  eq($(".live").textContent, "", "neuer Auftrag leert die Ansage, so wird das nächste Wort wieder angesagt");
   answer("busy");
   eq(sent(from).length + "/" + view(), "2/+|install.busy", "busy: Text, Knopf frei (Python wartet)");
+  btn().focus();
+  answer("failed"); // danach gibt es keinen Knopf mehr
+  eq((btn() === null) + "/" + (document.activeElement === $(".foot .hint .hide")), "true/true",
+     "Punkt 7: Knopf weg nach dem Ergebnis, Fokus auf Ausblenden desselben Hinweises, nie body");
 }
 
 function checkResults() {
@@ -85,6 +94,7 @@ function checkResults() {
     hints("igt_missing");
     answer(result); // die Wörter selbst; Klick und Sperre prüft checkJob
     eq(view(), want, "Ergebnis " + result);
+    eq($(".live").textContent, want.split("|")[1].split(" Befehl")[0], "angesagt: " + result);
   }
   initWith(USABLE); // locked bleibt bis zum Neustart, auch über ein neues init
   eq(view(), "0|install.locked", "locked bleibt");

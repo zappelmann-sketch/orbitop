@@ -9,7 +9,8 @@ import { fill, text } from "./format.js";
 import { post } from "./post.js";
 import { state, ui } from "./state.js";
 
-const RESULTS = ["cancelled", "denied", "busy", "locked", "nohelper", "error"]; // ok: kein Text, es gilt der Zustand
+// ok: kein Text, es gilt der Zustand; unsafe und partial: Exit 3 und 4 des Helfers (B2.1)
+const RESULTS = ["cancelled", "denied", "busy", "locked", "nohelper", "error", "unsafe", "partial"];
 const PARTS = { perfmon: "settings.part_perfmon", rapl: "settings.part_rapl" };
 const MISSING = { perfmon: "settings.state_missing_perfmon", rapl: "settings.state_missing_rapl" };
 const STATES = { works: "settings.state_works", broken: "settings.state_broken", manual: "settings.state_manual",
@@ -20,17 +21,19 @@ export function buildSettings(parent) {
   ui.cnt = label(button("switch counters", parent, openStep), "settings.counters");
   ui.cnt.setAttribute("role", "switch");
   label(el("p", "s", parent), "settings.counters_hint").id = "counters-hint";
+  ui.cntResult = el("p", "s result", parent); // über den Zeilen: partial verweist auf sie
+  ui.cntResult.setAttribute("role", "status");
   ui.cntLines = el("div", "lines s", parent);
   ui.cntLines.id = "counters-lines";
   ui.cnt.setAttribute("aria-describedby", "counters-hint counters-lines");
   ui.cntStep = el("div", "step", parent);
   ui.cntStep.hidden = true;
   ui.cntStepText = el("p", "", ui.cntStep);
+  ui.cntStepText.id = "counters-step-text";
   const btns = el("div", "btns", ui.cntStep);
   ui.cntNo = label(button("btn plain", btns, () => closeStep(true)), "confirm.cancel");
   ui.cntGo = button("btn term", btns, stepConfirmed);
-  ui.cntResult = el("p", "s result", parent);
-  ui.cntResult.setAttribute("role", "status");
+  for (const b of [ui.cntNo, ui.cntGo]) b.setAttribute("aria-describedby", ui.cntStepText.id); // Fokus sagt das Risiko an
   ui.showHints = label(button("btn plain show", parent, showHints), "settings.show_hints");
   renderCounters();
   renderShowHints();
@@ -42,7 +45,9 @@ export function renderCounters() {
   const c = state.counters && typeof state.counters === "object" ? state.counters : {};
   const usable = c.usable === "yes" || c.usable === "nopkexec" ? c.usable : "nohelper"; // fehlt es: wie ohne Paket
   ui.cnt.setAttribute("aria-checked", String(c.marker === "on"));
-  ui.cnt.setAttribute("aria-disabled", String(usable !== "yes" || state.cntBusy || state.cntResult === "locked"));
+  const off = usable !== "yes" || state.cntBusy || state.cntResult === "locked";
+  ui.cnt.setAttribute("aria-disabled", String(off));
+  if (off && state.cntWant !== null) closeStep(ui.cntStep.contains(document.activeElement)); // etwa init ohne Paket
   const lines = usable === "yes" ? [] : [text(LOCKED[usable])];
   if (c.marker === "unclear") lines.push(text("settings.counters_unclear"));
   for (const p of Array.isArray(c.parts) ? c.parts : []) {
@@ -61,7 +66,9 @@ export function renderCounters() {
 function openStep() {
   if (ui.cnt.getAttribute("aria-disabled") === "true") return;
   state.cntWant = !(state.counters && state.counters.marker === "on");
-  setText(ui.cntStepText, text(state.cntWant ? "settings.release_text" : "settings.lock_text"));
+  // B2.9: eine eigene udev-Regel gibt RAPL beim nächsten Start wieder frei, „Sperren“ ist dann nicht endgültig
+  const lock = state.counters.manual_rule === true ? "settings.lock_text_rule" : "settings.lock_text";
+  setText(ui.cntStepText, text(state.cntWant ? "settings.release_text" : lock));
   setText(ui.cntGo, text(state.cntWant ? "settings.release" : "settings.lock"));
   ui.cntStep.hidden = false;
   ui.cntNo.focus(); // wie die Rückfrage: „Abbrechen“, nie die Bestätigung

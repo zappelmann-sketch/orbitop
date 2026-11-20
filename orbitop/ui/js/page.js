@@ -4,6 +4,7 @@
 import { buildProcs, renderProcs } from "./procs/view.js";
 import { ask, buildDialogs, openDialog } from "./dialogs.js";
 import { button, el, label, svg } from "./dom.js";
+import { buildFooter } from "./footer.js";
 import { hdrInfo } from "./header.js";
 import { post } from "./post.js";
 import { calls, state, ui } from "./state.js";
@@ -29,7 +30,7 @@ export function build() {
   ui.grid = el("div", "grid", ui.overview);
   ui.procs = el("section", "procs", body);
   buildProcs(ask);
-  ui.footer = el("footer", "foot", body);
+  buildFooter(body);
   buildDialogs();
   showTab("overview");
 }

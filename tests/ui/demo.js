@@ -5,10 +5,11 @@
 // ?replay=N spielt vorher N Takte ein, deren Verläufe je einen Schritt zurückliegen (links mit dem ältesten Wert
 // aufgefüllt): So zeichnen die Diagramme am Ende inkrementell, für den Bildvergleich mit vollem Zeichnen.
 // ?cols=all blendet alle Spalten ein (Sichtprüfung, Messung).
-// ?counters=on|nohelper|manual setzt den Zustand der Freigabe (sonst der aus demo-data.js: aus), ?hints=igt_noperm,…
+// ?counters=on|nohelper|manual|partial|unclear|rule setzt den Zustand der Freigabe (sonst der aus demo-data.js: aus),
+// ?result=unsafe|partial|… spielt danach ein counters_state mit diesem Wort ein, ?hints=igt_noperm,…
 // zeigt diese Hinweise in der Fußzeile (igt_missing mit dem Knopf „Installieren“, ?install=nopkg statt dessen mit dem
 // Befehl). ?open=about öffnet „Über“, ?open=step dazu die Erklärung vor polkit; ohne Brücke zu Python sendet die Demo
-// nichts.
+// nichts. ?focus=hide setzt den Fokus auf das erste „Ausblenden“ und spielt dessen hints_state ein.
 // #procs öffnet den Reiter „Prozesse“ und wählt den obersten Prozess (main.js).
 import "./demo-data.js";
 import { COLS } from "../../orbitop/ui/js/procs/columns.js";
@@ -19,6 +20,9 @@ const COUNTERS = {
   on: { marker: "on", usable: "yes", manual_rule: false, parts: parts("works", "works") },
   nohelper: { marker: "off", usable: "nohelper", manual_rule: false, parts: parts("none", "none") },
   manual: { marker: "off", usable: "yes", manual_rule: true, parts: parts("missing", "manual") },
+  partial: { marker: "on", usable: "yes", manual_rule: false, parts: parts("works", "broken") },
+  unclear: { marker: "unclear", usable: "yes", manual_rule: false, parts: parts("none", "none") },
+  rule: { marker: "on", usable: "yes", manual_rule: true, parts: parts("works", "works") },
 };
 
 (() => {
@@ -57,6 +61,12 @@ const COUNTERS = {
       detail: tick.detail && { ...tick.detail, history: older(tick.detail.history, k) } });
   }
   window.orbitop.receive(tick);
+  const result = params.get("result");
+  if (result) window.orbitop.receive({ type: "counters_state", counters: init.counters, result });
+  if (params.get("focus") === "hide" && tick.hints.length) {
+    document.querySelector(".foot .hide").focus();
+    window.orbitop.receive({ type: "hints_state", hidden_hints: [tick.hints[0]] });
+  }
   if (params.get("open")) document.querySelector(".info").click();
   if (params.get("open") === "step") document.querySelector("dialog.about .counters").click();
 })();

@@ -131,3 +131,4 @@
 .foot .install { flex: none; padding: 2px 12px; }
 .foot .hide { flex: none; color: var(--mut); text-decoration: underline; text-underline-offset: 2px; }
 .foot .hide:hover { color: var(--ink); }
+.live { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

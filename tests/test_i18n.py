@@ -119,7 +119,8 @@ def test_no_text_names_the_stage_1_scripts():  # Spec 6.5: sie entfallen, die Hi
 
 def test_counters_results_have_texts():  # Q2: jedes Ergebniswort außer ok hat einen Text; B2.7: der Text der Sperre
     for lang in ("en", "de"):
-        assert {f"counters.{r}" for r in ("cancelled", "denied", "busy", "locked", "nohelper", "error")} <= set(
+        assert {f"counters.{r}" for r in ("cancelled", "denied", "busy", "locked", "nohelper", "error", "unsafe",
+                                          "partial")} <= set(
             json_of(lang))
     assert json_of("de")["counters.locked"] == "zu oft abgelehnt – orbitop neu starten"
     assert "restart orbitop" in json_of("en")["counters.locked"]
@@ -165,6 +166,21 @@ def test_counters_switch_texts():  # C1, B2.5, B2.9, E5: Wortlaut der Spec und d
     assert de["settings.state_missing_perfmon"] == "intel_gpu_top ist nicht installiert"
     assert de["settings.state_missing_rapl"] == "keine Energiezähler"
     assert de["settings.state_manual"] == "von Hand freigegeben"
+    assert "/etc/orbitop" in de["counters.unsafe"] and "/etc/orbitop" in en["counters.unsafe"]  # Fix 1, Punkt 1
+    assert "darunter" in de["counters.partial"] and "below" in en["counters.partial"]
+
+
+def test_lock_text_names_the_manual_rule():  # Fix 1, M-4: „Sperren“ klingt nicht endgültig, wenn die Handregel bleibt
+    for lang, rule in (("de", "udev-Regel"), ("en", "udev rule")):
+        d = json_of(lang)
+        assert rule in d["settings.lock_text_rule"] and "README" in d["settings.lock_text_rule"]
+        assert rule not in d["settings.lock_text"]
+
+
+def test_english_lock_words_are_distinct():  # Fix 1, M-4: Knopf „Lock“, Zustand und Sperre nach Ablehnungen
+    en = json_of("en")
+    assert en["settings.lock"] == "Lock"
+    assert "lock" not in en["settings.state_none"].lower() and "lock" not in en["counters.locked"].lower()
 
 
 def test_igt_missing_hint_names_the_own_process_fallback():  # ohne intel_gpu_top zeigt die Kachel fdinfo eigener Prozesse

@@ -156,12 +156,13 @@ def test_signal_death_counts_as_refusal(crig):  # S-1: fail closed; die Seite si
     assert crig.tools.rechecks == 0
 
 
-@pytest.mark.parametrize("rc", [5, 120, 255])
-def test_unknown_exit_code_neither_resets_nor_counts(crig, rc):  # Q-2: nur die Exit-Codes 0–4 des Helfers sind ok
+@pytest.mark.parametrize("rc,word", [(1, "error"), (2, "error"), (3, "unsafe"), (4, "partial"), (5, "error"),
+                                     (120, "error"), (255, "error")])
+def test_failed_exit_code_neither_resets_nor_counts(crig, rc, word):  # nur 0 setzt zurück, nur 126/127 zählen (B2.1)
     crig.rc = 126
     assert ask(crig) == ["cancelled"]
     crig.now, crig.rc = 10.0, rc
-    assert ask(crig) == ["error"] and ask(crig) == ["error"]  # keine Wartezeit dazwischen
+    assert ask(crig) == [word] and ask(crig) == [word]  # keine Wartezeit dazwischen
     crig.rc = 126
     assert ask(crig) == ["cancelled"]
     crig.now = 69.9
@@ -205,9 +206,12 @@ def test_reply_carries_a_fresh_state_read_after_the_job(crig):
     assert crig.reads == [True] and json.loads(crig.sent[-1])["counters"] == {"read": 1}
 
 
-@pytest.mark.parametrize("rc,on,rechecks", [(0, True, 1), (4, True, 1), (126, True, 0), (OSError(), True, 0),
-                                            (0, False, 1)], ids=["ok", "partial", "cancelled", "error", "already-so"])
-def test_recheck_only_after_ok_and_in_the_thread(crig, rc, on, rechecks):  # Q3, Q-1: auch nach „schon so“
+@pytest.mark.parametrize("rc,on,rechecks", [(0, True, 1), (1, True, 1), (2, True, 1), (3, True, 1), (4, True, 1),
+                                            (126, True, 0), (OSError(), True, 0), (-15, True, 0), (0, False, 1)],
+                         ids=["ok", "error", "usage", "unsafe", "partial", "cancelled", "oserror", "signal",
+                              "already-so"])
+def test_recheck_after_the_helper_ran_and_in_the_thread(crig, rc, on, rechecks):  # Q3, Q-1: auch nach „schon so“
+    # Exit 1–4: der Helfer lief und kann einen Teil geändert haben, wie bisher neu erkennen (nur bei Änderung)
     crig.rc = rc
     crig.j.counters(on, crig.tools)
     t = crig.threads.pop()

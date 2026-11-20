@@ -65,10 +65,12 @@ def test_on_must_be_bool(tree, on):
     assert call(tree, on) == ("error", [])
 
 
-# ---- Ergebnis: vom Exit-Code zählt nur 126 und 127, den Rest zeigt der frisch gelesene Zustand (B2.1) ----
-# -15: pkexec von einem Signal beendet; 5, 120, 255: kein Exit-Code des Helfers (Q-2), also fail closed
-@pytest.mark.parametrize("rc,want", [(0, "ok"), (1, "ok"), (3, "ok"), (4, "ok"), (126, "cancelled"),
-                                     (127, "denied"), (-15, "error"), (5, "error"), (120, "error"), (255, "error")])
+# ---- Ergebnis: ein festes Wort je Exit-Code des Helfers (B2.1, Entscheidung Controller Task 7 Fix 1); was wirkt,
+# zeigt der frisch gelesene Zustand. -15: pkexec von einem Signal beendet; 5, 120, 255: kein Exit-Code des Helfers
+# (Q-2), also fail closed
+@pytest.mark.parametrize("rc,want", [(0, "ok"), (1, "error"), (2, "error"), (3, "unsafe"), (4, "partial"),
+                                     (126, "cancelled"), (127, "denied"), (-15, "error"), (5, "error"), (120, "error"),
+                                     (255, "error")])
 def test_exit_codes(tree, rc, want):
     assert call(tree, True, rc=rc)[0] == want
 

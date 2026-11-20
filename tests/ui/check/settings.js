@@ -47,6 +47,7 @@ function checkCounters() {
   eq(s.getAttribute("aria-describedby"), "counters-hint counters-lines", "Text und Zeilen beschreiben den Schalter");
   eq(swState() + "|" + lines(), "false/false|" + part("perfmon", "none") + "|" + part("rapl", "none"), "aus: je Teil eine Zeile");
   eq(step.hidden + "/" + result.hidden, "true/true", "Schritt und Ergebnis anfangs verborgen");
+  eq(result.nextElementSibling === $("#counters-lines"), true, "Ergebnis direkt über den Zeilen je Teil");
 
   // ---- Erklärung und „Freigeben“ vor dem Senden ----
   s.focus();
@@ -55,6 +56,8 @@ function checkCounters() {
   eq(step.querySelector("p").textContent + "/" + go.textContent + "/" + no.textContent,
      "settings.release_text/settings.release/confirm.cancel", "Erklärung zum Risiko mit „Freigeben“");
   eq(document.activeElement === no, true, "Fokus auf Abbrechen, nie auf Freigeben");
+  eq([no, go].map((b) => $("#" + b.getAttribute("aria-describedby"))?.textContent).join("/"),
+     "settings.release_text/settings.release_text", "M-1: beide Knöpfe nennen die Erklärung (aria-describedby)");
   eq(step.compareDocumentPosition(s) & Node.DOCUMENT_POSITION_PRECEDING ? "unter" : "über", "unter", "Erklärung unter dem Schalter");
   no.click();
   eq(sent(from).length + "/" + step.hidden + "/" + (document.activeElement === s), "0/true/true",
@@ -89,7 +92,8 @@ function checkCounters() {
 
   // ---- Ergebniswörter: feste Texte, Unbekanntes als Fehler, nie als HTML ----
   for (const [code, want] of [["cancelled", "counters.cancelled"], ["denied", "counters.denied"], ["busy", "counters.busy"],
-                              ["nohelper", "counters.nohelper"], ["error", "counters.error"], ["constructor", "counters.error"],
+                              ["nohelper", "counters.nohelper"], ["error", "counters.error"], ["unsafe", "counters.unsafe"],
+                              ["partial", "counters.partial"], ["constructor", "counters.error"],
                               ['<img src=x onerror="window.pwned=1">', "counters.error"]]) {
     state(C("on", "yes", WORKS), code);
     eq(result.hidden + "/" + result.textContent + "/" + swState(), "false/" + want + "/true/false", "Ergebnis " + code);
@@ -97,6 +101,10 @@ function checkCounters() {
   eq(result.getAttribute("role"), "status", "Ergebnis wird angesagt");
   state(C("on", "yes", WORKS), "ok");
   eq(result.hidden, true, "ok nimmt die alte Meldung weg");
+  state(C("on", "yes", WORKS, true), "ok");
+  s.click();
+  eq(step.querySelector("p").textContent, "settings.lock_text_rule", "M-4: Sperren bei Handregel nennt sie und die README");
+  no.click();
   s.click();
   $("dialog.about .in > .btns .btn.plain").click(); // Dialog zu: der Schritt ist beim nächsten Öffnen nicht mehr offen
   $(".info").click();
@@ -133,6 +141,13 @@ function checkStateTable() {
 function checkLockedSwitch() {
   // ---- Start ohne Paket (Review Focus 5) und pkexec, das nicht von polkit ist (E5): gesperrt mit Grund ----
   const from = posted.length;
+  initWith({ counters: C("off", "yes", NONE), hidden_hints: [] });
+  sw().click();
+  const opened = !$("dialog.about .step").hidden;
+  initWith({ counters: C("off", "nohelper", NONE), hidden_hints: [] }); // Paket entfernt, Fenster wieder gezeigt
+  $("dialog.about .step .btn.term").click();
+  eq(opened + "/" + $("dialog.about .step").hidden + "/" + (document.activeElement === sw()) + "/" + sent(from).length,
+     "true/true/true/0", "M-3: Schalter gesperrt: offener Schritt geht zu, Fokus am Schalter, nichts gesendet");
   for (const [counters, reason, what] of [[C("off", "nohelper", NONE), "settings.counters_nohelper", "ohne Paket"],
                                           [C("off", "nopkexec", NONE), "settings.counters_nopkexec", "fremdes pkexec"],
                                           [C("off", "x", NONE), "settings.counters_nohelper", "unbekanntes usable"]]) {
@@ -151,7 +166,9 @@ function checkHints() {
   // ---- Ausblenden je Hinweis, Textwahl nach Q4, wieder zeigen in den Einstellungen ----
   const from = posted.length;
   const foot = () => [...$$(".foot p")].map((p) => p.firstChild.textContent + (p.querySelector("button") ? "+" : "")).join("|");
-  const show = $("dialog.about .show"), hide = (i) => $$(".foot .hint button")[i];
+  const show = $("dialog.about .show"), hide = (i) => $$(".foot .hide")[i];
+  $("dialog.about .in > .btns .btn.plain").click(); // Dialog zu: sonst nähme die Fußzeile keinen Fokus (inert)
+  $$(".tab")[0].click(); // die Fußzeile gehört zur Übersicht
   initWith({ counters: C("off", "yes", NONE), hidden_hints: [] });
   receive(tick([], { missing: ["fan"], hints: ["hint.igt_noperm", "hint.rapl_noperm"] }));
   eq(foot(), "Nicht vorhanden: Lüfter $& $1 {list}|hint.igt_noperm+|hint.rapl_noperm+",
@@ -162,16 +179,20 @@ function checkHints() {
      "ohne Paket: Hinweise verweisen auf die README");
   eq(show.textContent + "/" + show.getAttribute("aria-disabled"), "settings.show_hints/true", "nichts ausgeblendet: gesperrt");
   show.click();
+  hide(0).focus();
   hide(0).click();
   eq(sent(from).join(), '{"type":"hide_hint","key":"hint.igt_noperm"}', "Ausblenden sendet den Grundschlüssel");
   eq(foot().split("|").length, 3, "bis zur Antwort bleibt der Hinweis");
   receive({ type: "hints_state", hidden_hints: ["hint.igt_noperm"] });
   eq(foot() + "/" + show.getAttribute("aria-disabled"), "Nicht vorhanden: Lüfter $& $1 {list}|hint.rapl_noperm_readme+/false",
      "ausgeblendet; wieder zeigen frei");
+  eq(document.activeElement === hide(0), true, "M-2: Fokus auf dem Ausblenden des nächsten Hinweises");
   receive(tick([], { hints: ["hint.igt_missing", "hint.rapl_noperm"] }));
   eq(foot(), "hint.igt_missing+|hint.rapl_noperm_readme+", "neue Lage: neuer Hinweis trotz ausgeblendetem alten");
+  eq(document.activeElement === hide(1), true, "M-2: neuer Hinweis davor: Fokus bleibt beim selben Hinweis");
   receive({ type: "hints_state", hidden_hints: ["hint.igt_missing", "hint.igt_noperm", "hint.rapl_noperm"] });
-  eq($(".foot").hidden, true, "alles ausgeblendet: Fußzeile verborgen");
+  eq($(".foot").hidden + "/" + (document.activeElement === $(".info")), "true/true",
+     "alles ausgeblendet: Fußzeile verborgen, Fokus auf „Über“ (dort „wieder zeigen“)");
   show.click();
   eq(sent(from).at(-1), '{"type":"show_hints"}', "wieder zeigen sendet show_hints");
   receive({ type: "hints_state", hidden_hints: [] });
@@ -180,6 +201,11 @@ function checkHints() {
   eq(foot(), "hint.igt_missing+|hint.rapl_noperm_readme+", "hints_state ohne Liste blendet nichts aus");
   initWith({ counters: C("off", "yes", NONE), hidden_hints: ["hint.rapl_noperm"] });
   eq(foot() + "/" + show.getAttribute("aria-disabled"), "hint.igt_missing+/false", "init bringt die ausgeblendeten mit");
+  receive({ type: "hints_state", hidden_hints: [] });
+  receive(tick([], { missing: ["fan"], hints: ["hint.nvsmi_missing"] }));
+  hide(0).focus();
+  receive({ type: "hints_state", hidden_hints: ["hint.nvsmi_missing"] });
+  eq(document.activeElement === $(".foot"), true, "M-2: letzter Hinweis weg, Zeile bleibt: Fokus auf der Fußzeile");
   receive({ type: "hints_state", hidden_hints: [] });
   receive(tick([]));
   eq(sent(from).length, 2, "Ausblenden und wieder zeigen senden je genau einmal");
