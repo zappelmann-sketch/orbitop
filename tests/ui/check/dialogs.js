@@ -127,7 +127,7 @@ export function checkInfo() {
   // ---- Info-Dialog ----
   const info = $(".info"), about = $("dialog.about");
   info.click(); // ohne vorherigen Fokus: nur dialogs.js gibt ihn an den Knopf zurück
-  eq(about.open + "/" + (document.activeElement === $("dialog.about .btn.plain")), "true/true", "Info: offen, Fokus auf Schließen");
+  eq(about.open + "/" + (document.activeElement === $("dialog.about .in > .btns .btn.plain")), "true/true", "Info: offen, Fokus auf Schließen");
   eq($("dialog.about p").textContent, "Version 9.9.9", "Info: Version aus init");
   about.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
   eq(about.open + "/" + (document.activeElement === info), "false/true", "Info: Esc schließt, Fokus zurück");
@@ -164,7 +164,7 @@ export function checkInfo() {
   eq(sw.previousElementSibling.tagName + "/" + sw.previousElementSibling.textContent + "/" +
      (sw.compareDocumentPosition($("dialog.about .legend")) & Node.DOCUMENT_POSITION_PRECEDING ? "nach" : "vor"),
      "H3/settings.title/nach", "Autostart: Überschrift über dem Schalter, unter der Legende");
-  $("dialog.about .btn.term").click();
+  $("dialog.about .in > .btns .btn.term").click();
   eq(posted.at(-1), '{"type":"quit"}', "Info: beenden sendet quit");
-  $("dialog.about .btn.plain").click();
+  $("dialog.about .in > .btns .btn.plain").click();
 }

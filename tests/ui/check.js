@@ -2,7 +2,7 @@
 // Copyright © 2026 zappelmann-sketch
 // Läuft vor main.js: check/stubs.js fängt die Nachrichten an Python ab. Nach dem Laden prüfen die Module unter
 // check/ der Reihe nach Format, sichere Texte, Zeichnen, Reiter, Prozessliste, Spalten, Spaltenmenü, Ziehen (Breite,
-// Reihenfolge, Trenner), Detail, Beenden mit Rückfrage (gefälschte Brücke, nie ein echtes Beenden) und Dialoge.
+// Reihenfolge, Trenner), Detail, Beenden mit Rückfrage (gefälschte Brücke, nie ein echtes Beenden), Dialoge und Einstellungen.
 // #narrow (zweiter Lauf, 1000×800) prüft nur die gestapelte Ansicht.
 import "./check/stubs.js"; // zuerst: steht vor jedem Modul der App
 import { checkFirstProcsSame } from "./check/bridge.js";
@@ -12,6 +12,7 @@ import { checkFormat } from "./check/format.js";
 import { $, $$, eq, fails, receive, terms, texts } from "./check/kit.js";
 import { checkTabs } from "./check/page.js";
 import { checkProcs, checkProcsText } from "./check/procs.js";
+import { checkSettings } from "./check/settings.js";
 import { posted } from "./check/stubs.js";
 import { checkLongNames, checkTiles } from "./check/tiles.js";
 
@@ -45,6 +46,7 @@ document.addEventListener("DOMContentLoaded", () => {
   checkTerminate();
   checkProcsText();
   checkInfo();
+  checkSettings();
   $$(".tab")[0].click();
   eq($(".hdr .s").textContent, "Takt", "Kopfzeile in der Übersicht: Takt");
   eq(terms().length, 4, "kein terminate ohne Bestätigung");

@@ -5,10 +5,20 @@
 // ?replay=N spielt vorher N Takte ein, deren Verläufe je einen Schritt zurückliegen (links mit dem ältesten Wert
 // aufgefüllt): So zeichnen die Diagramme am Ende inkrementell, für den Bildvergleich mit vollem Zeichnen.
 // ?cols=all blendet alle Spalten ein (Sichtprüfung, Messung).
+// ?counters=on|nohelper|manual setzt den Zustand der Freigabe (sonst der aus demo-data.js: aus), ?hints=igt_noperm,…
+// zeigt diese Hinweise in der Fußzeile. ?open=about öffnet „Über“, ?open=step dazu die Erklärung vor polkit; ohne
+// Brücke zu Python sendet die Demo nichts.
 // #procs öffnet den Reiter „Prozesse“ und wählt den obersten Prozess (main.js).
 import "./demo-data.js";
 import { COLS } from "../../orbitop/ui/js/procs/columns.js";
 import "../../orbitop/ui/js/main.js";
+
+const parts = (perfmon, rapl) => [{ part: "perfmon", state: perfmon }, { part: "rapl", state: rapl }];
+const COUNTERS = {
+  on: { marker: "on", usable: "yes", manual_rule: false, parts: parts("works", "works") },
+  nohelper: { marker: "off", usable: "nohelper", manual_rule: false, parts: parts("none", "none") },
+  manual: { marker: "off", usable: "yes", manual_rule: true, parts: parts("missing", "manual") },
+};
 
 (() => {
   const { init, tick } = window.ORBITOP_DEMO;
@@ -33,6 +43,8 @@ import "../../orbitop/ui/js/main.js";
     for (const r of [...(tick.procs || []), tick.detail].filter(Boolean)) Object.assign(r, { name, args: name, user: name });
     if (tick.detail) Object.assign(tick.detail, { cmdline: name, parent: name });
   }
+  if (Object.hasOwn(COUNTERS, params.get("counters"))) init.counters = COUNTERS[params.get("counters")];
+  if (params.get("hints")) tick.hints = params.get("hints").split(",").map((k) => "hint." + k);
   if (params.get("cols") === "all") init.layout = { order: COLS.map((c) => c.id), hidden: [], widths: {}, split: 1.55 / 2.55 };
   window.orbitop.receive(init);
   const older = (v, k) => (v ? [...Array(Math.min(k, v.length)).fill(v[0]), ...v.slice(0, Math.max(0, v.length - k))] : v);
@@ -43,4 +55,6 @@ import "../../orbitop/ui/js/main.js";
       detail: tick.detail && { ...tick.detail, history: older(tick.detail.history, k) } });
   }
   window.orbitop.receive(tick);
+  if (params.get("open")) document.querySelector(".info").click();
+  if (params.get("open") === "step") document.querySelector("dialog.about .counters").click();
 })();

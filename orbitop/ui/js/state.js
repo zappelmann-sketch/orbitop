@@ -11,6 +11,9 @@ export const state = {
   drag: null, noClick: false, // laufendes Ziehen; Klick nach dem Umordnen verwerfen
   target: null, opener: null, pending: null, lastTerm: null, alert: null, // Rückfrage, laufendes Beenden, Nachsehen
   autostart: null, autoBusy: false, // Stand aus init oder autostart_state (null: kein Befehl orbitop); Antwort steht aus
+  // Freigabe der Zähler: COUNTERS aus init oder counters_state, Auftrag läuft, letztes Ergebniswort, Ziel des offenen
+  // Schritts (true: freigeben, false: sperren, null: zu); ausgeblendete Hinweise aus init oder hints_state
+  counters: null, cntBusy: false, cntResult: null, cntWant: null, hidden: [],
 };
 export const ui = { labels: [] };
 export const tiles = new Map(); // Kachel-id -> Elemente

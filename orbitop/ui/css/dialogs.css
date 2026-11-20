@@ -1,18 +1,19 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 /* Copyright © 2026 zappelmann-sketch */
-/* Dialoge und der Schalter „Beim Anmelden starten“ */
+/* Dialoge, die Schalter „Beim Anmelden starten“ und „Messzähler freigeben“ */
 
 /* ---- Dialoge ---- */
 dialog { width: min(480px, calc(100vw - 32px)); padding: 0; border: 0; background: none; color: var(--ink); overflow: visible; }
 dialog.about { width: min(680px, calc(100vw - 32px)); }
 dialog::backdrop { background: rgba(3, 5, 7, .72); }
 dialog .in { padding: 16px 18px 18px; gap: 12px; max-height: calc(100vh - 64px); overflow-y: auto; }
+dialog .in > * { flex: none; } /* zu hoch: rollen statt stauchen (.t mit overflow: hidden würde sonst abgeschnitten) */
 dialog.kill .frame { --c: var(--red); }
 dialog h2, dialog h3, dialog p { margin: 0; }
 dialog p { line-height: 1.45; }
 dialog .brand { font-size: 14px; }
 .legend { display: grid; grid-template-columns: auto 1fr; gap: 8px 14px; align-items: start; font-size: 12px; color: #d6e4ec; }
-/* Schalter „Beim Anmelden starten“: Bahn wie .btn.plain, an wie der aktive Reiter; den Zustand nennt aria-checked */
+/* Schalter (Autostart, Messzähler): Bahn wie .btn.plain, an wie der aktive Reiter; den Zustand nennt aria-checked */
 .switch { position: relative; display: flex; align-items: center; gap: 10px; align-self: flex-start; padding: 0; }
 .switch::before {
   content: "";
@@ -27,3 +28,8 @@ dialog .brand { font-size: 14px; }
 .switch[aria-checked="true"]::before { background: var(--cyan); }
 .switch[aria-checked="true"]::after { left: 17px; background: #04161d; }
 .switch[aria-disabled="true"] { opacity: .4; cursor: not-allowed; }
+/* Messzähler (settings.js): Zeilen je Teil, Ergebnis, Erklärung vor der Passwortabfrage, Hinweise wieder zeigen */
+dialog .lines { display: grid; gap: 3px; }
+dialog .result { color: #cdbb98; }
+dialog .step { display: grid; gap: 10px; padding: 10px 12px; background: #10181d; border-left: 2px solid var(--amber); }
+dialog .show { align-self: flex-start; }

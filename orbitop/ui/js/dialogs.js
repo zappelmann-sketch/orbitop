@@ -1,11 +1,12 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
-// Dialoge: Rückfrage vor dem Beenden und „Über“ mit Legende und Autostart. Ein terminate geht nur aus dem
-// Bestätigungsknopf der Rückfrage an Python (confirmed).
+// Dialoge: Rückfrage vor dem Beenden und „Über“ mit Legende, Autostart und den übrigen Einstellungen aus settings.js.
+// Ein terminate geht nur aus dem Bestätigungsknopf der Rückfrage an Python (confirmed).
 import { KIND, makeBadge, RESULTS, refresh, same, setBadge } from "./procs/view.js";
 import { button, el, fillInto, label, setText } from "./dom.js";
 import { text } from "./format.js";
 import { post } from "./post.js";
+import { buildSettings, closeStep } from "./settings.js";
 import { state, ui } from "./state.js";
 
 function makeDialog(cls, titleId) {
@@ -27,6 +28,7 @@ function makeDialog(cls, titleId) {
 /** Schließen und den Fokus sofort an den öffnenden Knopf zurückgeben (das close-Ereignis käme erst später). */
 function closeDialog(d) {
   d.close();
+  if (d === ui.about) closeStep(false); // der Schritt vor der Passwortabfrage ist beim nächsten Öffnen zu
   const o = state.opener;
   state.opener = state.target = null;
   if (o) o.focus();
@@ -67,6 +69,7 @@ export function buildDialogs() {
   ui.autoHint = el("p", "s", a);
   ui.autoHint.id = "autostart-hint";
   ui.auto.setAttribute("aria-describedby", ui.autoHint.id);
+  buildSettings(a);
   renderAutostart();
   const ab = el("div", "btns", a);
   ui.aboutClose = label(button("btn plain", ab, () => closeDialog(ui.about)), "btn.close");

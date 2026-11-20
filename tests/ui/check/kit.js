@@ -25,7 +25,8 @@ export const texts = {
   "result.zombie": "Zombie-Grund", "result.kernel": "Kernel-Grund", "result.nohelper": "Helfer fehlt", "btn.busy": "läuft …", "about.version": "Version {version}",
   "notice.for": "{name} (PID {pid}): {text}", "detail.cpu_one_core": "{pct} % (ein voller Kern)", "unit.h": "Std",
   "unit.d": "T", "detail.parent_pid": "PID {pid}", "detail.ctx_value": "freiwillig {vol}/s · erzwungen {invol}/s",
-  "coltip.pid": "Prozessnummer", "menu.restore": "Standard", "col.mem": "%MEM" };
+  "coltip.pid": "Prozessnummer", "menu.restore": "Standard", "col.mem": "%MEM",
+  "settings.part_line": "{part}: {state}" };
 
 export const G = 1024 ** 3, M = 1024 ** 2;
 export const evil = '<img src=x onerror="window.pwned=1">';

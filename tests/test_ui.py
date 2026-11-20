@@ -6,6 +6,7 @@ Und die Stylesheets unter orbitop/ui/css: in Regelreihenfolge eingebunden, als t
 import contextlib
 import functools
 import http.server
+import json
 import re
 import shutil
 import subprocess
@@ -152,6 +153,38 @@ def test_terminate_is_posted_only_by_the_confirm_button():
     assert code == ['  ui.cYes = button("btn term", cb, confirmed);', "function confirmed() {"]
     assert [name for name, s in sources.items() if "cYes" in s] == ["dialogs.js"]
     assert not re.search(r"cYes\s*\.\s*(click|dispatchEvent)\b", js)
+
+
+@pytest.mark.parametrize("kind, module", [("counters", "settings.js"), ("show_hints", "settings.js"),
+                                          ("hide_hint", "footer.js")])
+def test_new_messages_are_posted_by_one_module(kind, module):  # Q2: je Nachricht genau eine Stelle der Seite
+    word = re.compile(rf"""["'`]{kind}["'`]""")
+    sources = {p.relative_to(JS_DIR).as_posix(): p.read_text(encoding="utf-8") for p in sorted(JS_DIR.rglob("*.js"))}
+    assert {name: len(word.findall(s)) for name, s in sources.items() if word.search(s)} == {module: 1}
+
+
+def test_counters_is_posted_only_by_the_step():
+    """Erklärung vor polkit (C1, E6: Bedienung, kein Schutz): counters sendet nur stepConfirmed, und nur der Knopf
+    „Freigeben“/„Sperren“ im Schritt ruft es auf, nie das Laden der Seite oder der Schalter selbst."""
+    js = (JS_DIR / "settings.js").read_text(encoding="utf-8")
+    body = js[js.index("function stepConfirmed() {"):]
+    assert body.index('post({ type: "counters"') < body.index("\n}\n")
+    code = [line.strip() for line in js.splitlines() if "stepConfirmed" in line and not line.lstrip().startswith("//")]
+    assert code == ['ui.cntGo = button("btn term", btns, stepConfirmed);', "function stepConfirmed() {"]
+
+
+TEXT_KEY = re.compile(r"""["'`]((?:settings|counters|hint)\.[a-z0-9_]+)["'`]""")
+
+
+def test_ui_texts_in_both_languages():
+    """C7: Jeder Schlüssel der Einstellungen, der Ergebnisse und der Hinweise, den ein Modul der Seite nennt, steht in
+    beiden Sprachen. Die Wörter für counters.<Ergebnis> prüft test_i18n.test_counters_results_have_texts."""
+    used = {k for p in JS_DIR.rglob("*.js") for k in TEXT_KEY.findall(p.read_text(encoding="utf-8"))}
+    assert {"settings.counters", "settings.release_text", "settings.lock_text", "settings.state_missing_rapl",
+            "hint.hide", "hint.igt_noperm_readme", "settings.show_hints"} <= used
+    for lang in ("en", "de"):
+        texts = json.loads((REPO / "orbitop" / "locale" / f"{lang}.json").read_text(encoding="utf-8"))
+        assert used <= set(texts), (lang, sorted(used - set(texts)))
 
 
 def test_stylesheets_linked_in_order():

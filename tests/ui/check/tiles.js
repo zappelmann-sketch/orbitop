@@ -13,7 +13,7 @@ export function checkTiles() {
   eq($(".chip").textContent, evil + " 98 % CPU", "Chip CPU");
   eq(plain($$(".chip")[1].textContent), "b 2 GB RAM", "Chip RAM");
   eq($(".foot p").textContent, "Nicht vorhanden: Lüfter $& $1 {list}", "Platzhalter ohne $-Muster");
-  eq([...$$(".foot .hint")].map((p) => p.textContent).join("|"), evil + "|constructor", "Hinweise roh, auch Object-Namen");
+  eq([...$$(".foot .hint")].map((p) => p.firstChild.textContent).join("|"), evil + "|constructor", "Hinweise roh, auch Object-Namen");
   eq($(".lg .l1").textContent, evil, "Legende mit roher Beschriftung");
 
   // ---- Segmente: Bernstein nur mit warn ----

@@ -149,7 +149,8 @@ def test_hints_link_a_section_of_the_readme():  # das Paket liefert keine README
              for lang in ("en", "de")}
     for lang, name, text, power in (("en", "README.md", EN, "Graphics and power"),
                                     ("de", "README.de.md", DE, "Grafik und Leistung")):
-        links = {"hint.igt_noperm": power, "hint.rapl_noperm": power, "result.nohelper": "Installation"}
+        links = {"hint.igt_noperm_readme": power, "hint.rapl_noperm_readme": power, "settings.counters_nohelper": power,
+                 "settings.counters_manual_rule": power, "result.nohelper": "Installation"}
         for key, section in links.items():
             assert f"\n## {section}\n" in text, (lang, section)
             url = f"https://github.com/zappelmann-sketch/orbitop/blob/main/{name}#{slug(section)}"

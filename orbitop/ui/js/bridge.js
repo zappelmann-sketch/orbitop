@@ -8,6 +8,7 @@ import { fill, text } from "./format.js";
 import { renderFooter } from "./footer.js";
 import { hdrInfo } from "./header.js";
 import { renderOverview } from "./page.js";
+import { renderCounters, renderShowHints } from "./settings.js";
 import { state, ui } from "./state.js";
 
 /** Tiefer Vergleich zweier Teile des Schnappschusses (JSON-Werte). */
@@ -35,6 +36,11 @@ export function receive(msg) {
     setText(ui.version, fill("about.version", { version: state.version }));
     state.autostart = typeof msg.autostart === "boolean" ? msg.autostart : null;
     renderAutostart();
+    state.counters = msg.counters || null; // ein laufender Auftrag und sein Ergebnis bleiben über ein neues init
+    state.hidden = Array.isArray(msg.hidden_hints) ? msg.hidden_hints : [];
+    renderCounters();
+    renderShowHints();
+    renderFooter();
     hdrInfo();
   } else if (msg.type === "tick") {
     const prev = state.last;
@@ -42,7 +48,7 @@ export function receive(msg) {
     if (msg.procs_same === true) msg.procs = prev && Array.isArray(prev.procs) ? prev.procs : null;
     state.last = msg;
     state.n++;
-    renderFooter(msg.missing, msg.hints);
+    renderFooter();
     if (state.tab === "overview") renderOverview(msg); // ausgeblendete Kacheln nicht zeichnen
     // Prozesse kommen alle 2 s: dazwischen bleiben Tabelle und Detail, nur das Alter im Detail läuft weiter
     else if (Array.isArray(msg.procs) && prev && equal(msg.procs, prev.procs) && equal(msg.detail, prev.detail)) renderDetail(msg);
@@ -62,6 +68,16 @@ export function receive(msg) {
     state.autostart = typeof msg.on === "boolean" ? msg.on : null;
     state.autoBusy = false;
     renderAutostart();
+  } else if (msg.type === "counters_state") { // Antwort auf counters: frischer Zustand und ein festes Wort
+    state.counters = msg.counters || null;
+    state.cntBusy = false;
+    state.cntResult = msg.result;
+    renderCounters();
+    renderFooter(); // Q4: die Textwahl hängt an usable
+  } else if (msg.type === "hints_state") {
+    state.hidden = Array.isArray(msg.hidden_hints) ? msg.hidden_hints : [];
+    renderShowHints();
+    renderFooter();
   }
 }
 

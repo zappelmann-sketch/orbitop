@@ -129,13 +129,42 @@ def test_counters_results_have_texts():  # Q2: jedes Ergebniswort außer ok hat 
 
 
 def test_rapl_hint_names_the_risk():
-    assert "side channel" in json_of("en")["hint.rapl_noperm"]
-    assert "Seitenkanal" in json_of("de")["hint.rapl_noperm"]
+    for key in ("hint.rapl_noperm", "hint.rapl_noperm_readme"):
+        assert "side channel" in json_of("en")[key]
+        assert "Seitenkanal" in json_of("de")[key]
 
 
 def test_igt_noperm_hint_names_the_risk():
     for lang in ("en", "de"):
-        assert "CVE-2020-8694" in json_of(lang)["hint.igt_noperm"]
+        for key in ("hint.igt_noperm", "hint.igt_noperm_readme"):
+            assert "CVE-2020-8694" in json_of(lang)[key]
+
+
+def test_noperm_hints_name_the_switch():  # Q4: der Schalter statt der README; die README-Varianten für Starts ohne Paket
+    for lang, about in (("en", "About"), ("de", "Über")):
+        d = json_of(lang)
+        for key in ("hint.igt_noperm", "hint.rapl_noperm"):
+            assert d["settings.counters"] in d[key] and about in d[key] and "README" not in d[key], (lang, key)
+            assert "README" in d[key + "_readme"], (lang, key)
+
+
+def test_counters_switch_texts():  # C1, B2.5, B2.9, E5: Wortlaut der Spec und des Security-Dokuments
+    de, en = json_of("de"), json_of("en")
+    assert de["settings.counters"] == "Messzähler freigeben"
+    for d in (de, en):
+        assert "Platypus" in d["settings.release_text"] and "CVE-2020-8694" in d["settings.release_text"]
+        assert placeholders(d["settings.part_line"]) == {"part", "state"}
+    assert "ganzen Rechner" in de["settings.counters_hint"] and "whole computer" in en["settings.counters_hint"]
+    assert "jedes Konto" in de["settings.release_text"] and "every account" in en["settings.release_text"]
+    assert "Passwort" in de["settings.lock_text"] and "password" in en["settings.lock_text"]
+    assert "pkexec von polkit nötig" in de["settings.counters_nopkexec"]
+    assert "pkexec from polkit" in en["settings.counters_nopkexec"]
+    assert de["settings.counters_manual_rule"].startswith(
+        "Energiezähler: eine eigene udev-Regel gibt sie beim Start frei – siehe README")
+    assert de["settings.state_broken"] == "wirkt nicht – Schalter aus- und einschalten"
+    assert de["settings.state_missing_perfmon"] == "intel_gpu_top ist nicht installiert"
+    assert de["settings.state_missing_rapl"] == "keine Energiezähler"
+    assert de["settings.state_manual"] == "von Hand freigegeben"
 
 
 def test_igt_missing_hint_names_the_own_process_fallback():  # ohne intel_gpu_top zeigt die Kachel fdinfo eigener Prozesse
