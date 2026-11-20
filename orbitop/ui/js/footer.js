@@ -3,7 +3,7 @@
 // Fußzeile: fehlende Sensoren und Hinweise zu den Kacheln. Jeder Hinweis hat „Ausblenden“ (Spec C3); hide_hint sendet
 // nur dieses Modul, und ausgeblendet ist erst, was Python mit hints_state bestätigt. Ein neuer Schlüssel erscheint
 // auch, wenn ein alter ausgeblendet ist. Beim Hinweis hint.igt_missing der Knopf „Installieren“ (C2): nur, wenn init
-// install.usable meldet (Intel-Grafik, Paket); sonst und nach failed oder unavailable der Befehl der Distribution.
+// install.usable meldet (Intel-Grafik, Paket); sonst und nach failed, unavailable oder closed der Befehl der Distribution.
 // install_tool sendet nur install(), ohne Namen; die Vorbedingungen prüft Python.
 import { button, el, setText } from "./dom.js";
 import { fill, text } from "./format.js";
@@ -12,8 +12,11 @@ import { state, ui } from "./state.js";
 
 // Klärung Q4: ohne nutzbaren Schalter (Start ohne Paket, fremdes pkexec) verweisen sie auf die README
 const README = { "hint.igt_noperm": "hint.igt_noperm_readme", "hint.rapl_noperm": "hint.rapl_noperm_readme" };
-const RESULTS = ["denied", "busy", "locked", "failed", "unavailable", "installed"]; // Unbekanntes gilt als failed
+// Unbekanntes gilt als failed. closed: die Sitzung hatte schon einen Lauf (etwa nach Neuladen der Seite), ohne eigenen
+// Text, nur der Befehl; locked heißt allein „zu oft abgelehnt“
+const RESULTS = ["denied", "busy", "locked", "failed", "unavailable", "installed", "closed"];
 const AGAIN = [null, "denied", "busy"]; // danach ist der Knopf (wieder) da; locked bis zum Neustart, installed einmal
+const COMMAND = ["failed", "unavailable", "closed"]; // danach der Befehl der Distribution
 
 /** Die Fußzeile und neben ihr eine bleibende Statusregion für das Ergebnis von install_tool: renderFooter baut die
  * Fußzeile neu, und eine neu eingefügte Region sagen Bildschirmleser nicht an. tabIndex -1: Ziel des Fokus, wenn nach
@@ -64,10 +67,11 @@ function installView() {
   const command = typeof inst.command === "string" ? fill("install.command", { command: inst.command }) : "";
   const r = state.instResult === null || RESULTS.includes(state.instResult) ? state.instResult : "failed";
   const usable = inst.usable === true;
-  const note = [r === null ? "" : text("install." + r)];
-  if (!usable || r === "failed" || r === "unavailable") note.push(command); // Review Focus 5, Spec C2
-  return { button: usable && AGAIN.includes(r) ? state.instBusy : null, note: note.filter(Boolean).join(" "),
-           say: note[0] };
+  const note = [r === null || r === "closed" ? "" : text("install." + r)];
+  if (!usable || COMMAND.includes(r)) note.push(command); // Review Focus 5, Spec C2
+  const shown = note.filter(Boolean).join(" ");
+  return { button: usable && AGAIN.includes(r) ? state.instBusy : null, note: shown,
+           say: r === "closed" ? shown : note[0] }; // closed: angesagt wird der Befehl, denn der Knopf ist weg
 }
 
 function hintLine(key, s, inst) {

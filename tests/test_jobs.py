@@ -7,6 +7,7 @@ pkexec: die Freigabe läuft durch die echte actions.counters, aber _run ist ein 
 import functools
 import json
 import subprocess
+import threading
 from types import SimpleNamespace
 
 import pytest
@@ -49,6 +50,55 @@ def test_run_timeout_kills_child(jobrig):
     with pytest.raises(subprocess.TimeoutExpired):
         jobrig.j._run(["sleep", "30"], timeout=0.05)
     assert jobrig.j._pkexec is None
+
+
+def test_stop_while_pkexec_starts_leaves_no_child(jobrig, monkeypatch):
+    """stop() genau während Popen: das Kind wird beendet oder nie gestartet. Sonst bliebe sein Dialog nach dem Ende
+    von orbitop offen, und der Helfer handelte nach einer späteren Bestätigung."""
+    starting, go, children = threading.Event(), threading.Event(), []
+
+    class SlowPopen:
+        def __init__(self, argv):
+            starting.set()
+            go.wait(5)  # der Start dauert: genau jetzt kommt stop()
+            self.ended = threading.Event()
+            children.append(self)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc):
+            pass
+
+        def terminate(self):
+            self.ended.set()
+
+        def kill(self):
+            self.ended.set()
+
+        def wait(self, timeout):
+            if not self.ended.wait(timeout):
+                raise subprocess.TimeoutExpired("helper", timeout)
+            return -15
+    monkeypatch.setattr(jobs.subprocess, "Popen", SlowPopen)
+    out = []
+    runner = threading.Thread(target=lambda: out.append(jobrig.j._run(["helper"], timeout=2)), daemon=True)
+    runner.start()
+    assert starting.wait(5)
+    stopper = threading.Thread(target=jobrig.j.stop, daemon=True)
+    stopper.start()
+    stopper.join(0.2)  # vorher: stop() war schon fertig und fand nichts; jetzt wartet es, bis das Kind eingetragen ist
+    go.set()
+    stopper.join(5)
+    runner.join(5)
+    assert [r.returncode for r in out] == [-15] and children[0].ended.is_set() and jobrig.j._pkexec is None
+
+
+def test_run_after_stop_starts_nothing(jobrig, monkeypatch):
+    monkeypatch.setattr(jobs.subprocess, "Popen", lambda *a, **k: pytest.fail("nach stop() gestartet"))
+    jobrig.j.stop()
+    with pytest.raises(subprocess.SubprocessError):
+        jobrig.j._run(["helper"], timeout=120)
 
 
 # ---- Freigabe durch das Tor (B2.7, B2.1 „Unit (App)“) ----

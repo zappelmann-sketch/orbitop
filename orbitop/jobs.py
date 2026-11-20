@@ -52,6 +52,10 @@ class Jobs:
         self._send, self._glib = send, glib
         self._gate = Gate()  # nie ein Stapel Passwortdialoge, und eine wachsende Sperre nach Ablehnungen (B2.7)
         self._pkexec: subprocess.Popen | None = None  # laufendes pkexec, gesetzt von _run im Auftrags-Thread
+        # Start und Eintrag des Kindes gegen stop(): sonst verpasste ein gleichzeitiges stop() ein pkexec, das gerade
+        # startet; sein Dialog bliebe nach dem Ende von orbitop offen, und der Helfer handelte nach einer Bestätigung
+        self._child_lock = threading.Lock()
+        self._stopping = False  # nach stop() startet _run nichts mehr
         self._install: packagekit.Install | None = None  # laufende Installation, nur im Hauptthread gesetzt
         # Ein Lauf über PackageKit endete in installed, failed oder unavailable: in dieser Sitzung keiner mehr (B2.7),
         # wie der Knopf der Seite; sonst ließe eine Seite das root-packagekitd ohne Ende auflösen und simulieren
@@ -69,8 +73,8 @@ class Jobs:
 
     def install_tool(self, tools, refresh: Callable[[], None]) -> None:
         """tools (der Sampler): intel, igt_missing() und recheck_tools(); refresh schickt danach den frischen Stand."""
-        if self._closed:  # ohne Thread und ohne Bus
-            self._send(encode({"type": "install_state", "result": "locked"}))
+        if self._closed:  # ohne Thread und ohne Bus; eigenes Wort, denn locked heißt „zu oft abgelehnt“
+            self._send(encode({"type": "install_state", "result": "closed"}))
             return
         job = packagekit.Install()  # hier im Hauptthread: stop() erreicht ihn auch, bevor der Thread läuft
         refused = self._start("install_tool", self._install_thread, tools, refresh, job)
@@ -80,11 +84,13 @@ class Jobs:
             self._install = job
 
     def stop(self) -> None:
-        """Beim Herunterfahren: ein offenes pkexec beenden, eine laufende Installation abbrechen."""
-        child = self._pkexec
-        if child is not None:  # offenes pkexec: verwaist signalisierte es nach späterer Bestätigung ohne Rückmeldung
-            with contextlib.suppress(PermissionError):  # schon der Helfer als root, er endet gleich von selbst
-                child.terminate()
+        """Beim Herunterfahren: kein neues pkexec mehr, ein offenes beenden, eine laufende Installation abbrechen."""
+        with self._child_lock:
+            self._stopping = True
+            child = self._pkexec
+            if child is not None:  # offenes pkexec: verwaist signalisierte es nach späterer Bestätigung ohne Rückmeldung
+                with contextlib.suppress(PermissionError):  # schon der Helfer als root, er endet gleich von selbst
+                    child.terminate()
         job = self._install
         if job is not None:  # sonst installierte PackageKit ohne orbitop weiter, auch nach einem späteren Dialog
             job.cancel()
@@ -145,16 +151,21 @@ class Jobs:
         self._glib.idle_add(self._install_done, result, _install_outcome(result, job), ran, refresh)
 
     def _run(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-        """subprocess.run für pkexec, nur dass stop() das Kind erreicht und beenden kann."""
-        with subprocess.Popen(argv) as p:
-            self._pkexec = p
+        """subprocess.run für pkexec, nur dass stop() das Kind erreicht und beenden kann: gestartet und eingetragen
+        wird unter self._child_lock, und nach stop() gar nicht mehr (SubprocessError, für die Aufträge ein error)."""
+        with self._child_lock:
+            if self._stopping:
+                raise subprocess.SubprocessError("orbitop is shutting down")
+            p = self._pkexec = subprocess.Popen(argv)
+        with p:
             try:
                 return subprocess.CompletedProcess(argv, p.wait(timeout))
             except subprocess.TimeoutExpired:
                 p.kill()
                 raise
             finally:
-                self._pkexec = None
+                with self._child_lock:
+                    self._pkexec = None
 
     def _terminated(self, pid: int, start: int, force: bool, result: str) -> None:
         self._gate.end("terminate", "other")

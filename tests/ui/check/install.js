@@ -98,6 +98,15 @@ function checkResults() {
   }
   initWith(USABLE); // locked bleibt bis zum Neustart, auch über ein neues init
   eq(view(), "0|install.locked", "locked bleibt");
+  // Nach Neuladen der Seite: die Sitzung ist zu (Python antwortet closed). Kein Text der Sperre, weiter der Befehl
+  answer("closed");
+  hints("igt_missing");
+  eq(view() + "/" + $(".live").textContent, "0|Befehl: " + CMD + "/Befehl: " + CMD,
+     "closed: kein Knopf, der Befehl statt „zu oft abgelehnt“, angesagt");
+  initWith(USABLE);
+  eq(view(), "0|Befehl: " + CMD, "closed bleibt über ein neues init");
+  hints("rapl_noperm");
+  eq(view(), "0|", "closed ohne Hinweis intel_gpu_top (etwa nach installed): nichts");
   answer("installed");
   hints("igt_missing", "rapl_noperm");
   eq(view(), "0|install.installed", "installiert, Hinweis noch da: kein Knopf, Text zum Neustart");

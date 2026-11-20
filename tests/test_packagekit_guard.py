@@ -82,7 +82,8 @@ def test_installed_rechecks_in_the_thread_then_refreshes(irig):  # Q3 ohne Neust
 def test_second_install_after_success_makes_no_call(irig):  # B2.6, B2.7: einmal je Sitzung
     assert ask(irig) == ["installed"]
     calls = len(irig.bus.calls)
-    assert ask(irig) == ["locked"] and len(irig.bus.calls) == calls and irig.tools.rechecks == 1
+    # closed, nicht locked: das ist die Sperre nach Ablehnungen, die Seite zeigte sonst „zu oft abgelehnt“
+    assert ask(irig) == ["closed"] and len(irig.bus.calls) == calls and irig.tools.rechecks == 1
 
 
 @pytest.mark.parametrize("bus,want", [(FakeBus(), "installed"), (FakeBus(install=Step(exit=2)), "failed"),
@@ -94,8 +95,9 @@ def test_session_ends_after_a_terminal_result(irig, bus, want):  # Fix 1/2: kein
     assert ask(irig) == [want]
     calls = len(bus.calls)
     irig.now = 1e9  # keine Wartezeit mehr: nur das Ende der Sitzung hält auf
-    assert [ask(irig)[0] for _ in range(5)] == ["locked"] * 5
+    assert [ask(irig)[0] for _ in range(5)] == ["closed"] * 5
     assert len(bus.calls) == calls and irig.threads == [] and irig.refreshes == [1]
+    assert irig.j._gate.begin("counters") is None  # das Ende der Sitzung sperrt nicht wie zu viele Ablehnungen
 
 
 @pytest.mark.parametrize("attr,value", [("intel", False), ("missing", False), ("usable", "nohelper")],
@@ -188,10 +190,10 @@ def test_busy_while_another_job_runs(irig):
 def test_exception_gives_an_answer_and_frees_the_gate(irig, monkeypatch, where):
     if where == "install":
         monkeypatch.setattr(irig.bus, "call_sync", lambda *a: 1 / 0)  # keine GLib.Error: run() selbst wirft
-        want = ["failed", "locked"]
+        want = ["failed", "closed"]
     else:
         irig.tools.fail = True
-        want = ["installed", "locked"]
+        want = ["installed", "closed"]
     assert [ask(irig)[0], ask(irig)[0]] == want and irig.j._gate.begin("counters") is None
 
 

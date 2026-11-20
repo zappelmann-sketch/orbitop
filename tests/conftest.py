@@ -76,7 +76,9 @@ def foreign(tmp_path):
 
 @pytest.fixture
 def threads(monkeypatch):
-    """threading.Thread in orbitop.jobs ersetzt: start() zeichnet den Thread nur auf; die Liste der gestarteten."""
+    """threading.Thread in orbitop.jobs ersetzt: start() zeichnet den Thread nur auf; die Liste der gestarteten.
+    threading.Lock bleibt echt."""
+    import threading
     from types import SimpleNamespace
 
     from orbitop import jobs
@@ -88,7 +90,7 @@ def threads(monkeypatch):
 
         def start(self):
             started.append(self)
-    monkeypatch.setattr(jobs, "threading", SimpleNamespace(Thread=Thread))
+    monkeypatch.setattr(jobs, "threading", SimpleNamespace(Thread=Thread, Lock=threading.Lock))
     return started
 
 
