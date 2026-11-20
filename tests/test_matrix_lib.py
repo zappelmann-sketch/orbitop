@@ -5,11 +5,14 @@ Paketverwaltungen, mit Stellvertretern für rpm und rpmkeys (tests/matrix_helper
 step, ohne set -e."""
 import gzip
 import hashlib
+import inspect
 import re
 
 import pytest
 
+from orbitop import actions
 from tests.matrix_helpers import PAGES, call, rpm_site
+from tests.packaging_common import ROOT
 
 
 @pytest.mark.parametrize("env,passed", [({"RPMK": "digests signatures OK"}, True), ({"RPMK": "digests OK"}, False),
@@ -40,9 +43,9 @@ FPR = "57B9C66DCA7AE595D49760EE49D4A78C4130D679"
 @pytest.mark.parametrize("content,passed", [
     (f"{FPR}:3:\n", True), (f"{FPR}:4:\n", False), (f"{FPR}:2:\n", False), (f"{FPR}:3:", False),
     (f"{FPR}:3:\n{FPR}:3:\n", False), (f"{FPR}:3:\n\n", False), (f"{FPR.lower()}:3:\n", False),
-    (f"{FPR[:-1]}:3:\n", False), (f" {FPR}:3:\n", False), ("", False), (None, False)],
-    ids=["never", "marginal", "unknown", "no-newline", "two-lines", "empty-line", "lower", "short", "blank", "empty",
-         "missing"])
+    (f"{FPR[:-1]}:3:\n", False), (f" {FPR}:3:\n", False), (f"{FPR}:3:\0\n", False), ("", False), (None, False)],
+    ids=["never", "marginal", "unknown", "no-newline", "two-lines", "empty-line", "lower", "short", "blank", "nul",
+         "empty", "missing"])
 def test_pacman_trust_of_the_installed_key_is_never(tmp_path, content, passed):
     """Audit M3: orbitop-trusted des installierten Pakets ist genau eine Zeile <Fingerabdruck>:3: (Owner-Trust
     "never"), geprüft im Schritt install der Matrix auf Arch."""
@@ -51,6 +54,34 @@ def test_pacman_trust_of_the_installed_key_is_never(tmp_path, content, passed):
         trusted.write_text(content)
     ok, out = call(tmp_path, f"TRUSTED={trusted}; never_introducer", "pacman.sh")
     assert ok is passed, out
+
+
+def share(tmp_path, body):
+    """Ein installierter Baum SHARE wie /usr/share/orbitop, dessen orbitop.actions._real_pkexec() BODY ausführt."""
+    pkg = tmp_path / "share" / "orbitop"
+    pkg.mkdir(parents=True)
+    (pkg / "__init__.py").write_text("")
+    (pkg / "actions.py").write_text(f"def _real_pkexec():\n    {body}\n")
+    return pkg.parent
+
+
+@pytest.mark.parametrize("body,passed", [("return True", True), ("return False", False), ("raise OSError", False)])
+def test_real_pkexec_asks_the_installed_orbitop(tmp_path, body, passed):
+    """Final review I2: der Schritt install verlangt, dass das installierte orbitop /usr/bin/pkexec mit seiner eigenen,
+    strengeren Prüfung annimmt (actions._real_pkexec); sonst fehlte dort still das Beenden fremder Prozesse."""
+    ok, out = call(tmp_path, f"real_pkexec {share(tmp_path, body)}")
+    assert ok is passed, out
+
+
+def test_real_pkexec_takes_orbitop_only_from_share(tmp_path):
+    """Aus / mit python3 -I: weder der Arbeitsordner (der Checkout) noch PYTHONPATH bringt ein anderes orbitop."""
+    (tmp_path / "share").mkdir()
+    ok, out = call(tmp_path, f"real_pkexec {tmp_path / 'share'}", env={"PYTHONPATH": str(ROOT)})
+    assert not ok, out
+
+
+def test_real_pkexec_needs_no_arguments():  # real_pkexec in lib.sh ruft actions._real_pkexec() ohne Argumente
+    assert all(p.default is not p.empty for p in inspect.signature(actions._real_pkexec).parameters.values())
 
 
 def test_point_rewrites_from_the_package_and_refuses_a_file_changed_meanwhile(tmp_path):

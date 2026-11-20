@@ -51,6 +51,7 @@ MATCHES = {
     "pacman-resolving": f"{FETCH}Resolving timed out after 10000 milliseconds",  # "%s timed out after" mit "Resolving"
     "pacman-connect-timeout": f"{FETCH}Connection timeout after 10001 ms",
     "pacman-host": f"{FETCH}Could not resolve host: mirror.example.com",
+    "pacman-resolve-timeout": f"{FETCH}Failed to resolve 'mirror.example.com' with timeout after 10000 ms",
     "pacman-reset": f"{FETCH}Recv failure: Connection reset by peer",
     "apt-resolving": f"{APT}Temporary failure resolving 'deb.example.com'",
     "apt-resolve": f"{APT}Could not resolve 'deb.example.com'",

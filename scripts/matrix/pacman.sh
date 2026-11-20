@@ -25,11 +25,12 @@ keyring() {
 }
 
 # never_introducer: orbitop-trusted of the installed package is exactly the line "<fingerprint>:3:", owner trust 3
-# ("never"): the key never helps to validate another key in pacman's keyring (docs/release.md, Arch).
+# ("never"): the key never helps to validate another key in pacman's keyring (docs/release.md, Arch). Exactly 44
+# bytes as well: $(cat) drops a NUL byte, which the pattern alone would let through.
 never_introducer() {
     local line
     line=$(cat -- "$TRUSTED") && echo "TRUSTED $line" && [[ $line =~ ^[0-9A-F]{40}:3:$ ]] &&
-        [ "$(wc -l < "$TRUSTED")" -eq 1 ]
+        [ "$(wc -l < "$TRUSTED")" -eq 1 ] && [ "$(wc -c < "$TRUSTED")" -eq 44 ]
 }
 
 install_pkg() { net pacman -Syu orbitop --noconfirm && never_introducer; }

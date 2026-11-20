@@ -39,7 +39,17 @@ HICCUP='Curl error \(?(6|7|28|35|52|56)\b|Timeout exceeded when accessing'  # dn
 HICCUP+="|Could not resolve host|Could(n't| not) connect to|Operation timed out|Operation too slow"  # libcurl
 HICCUP+="|Empty reply from server|Connection timed out|Temporary failure resolving|Could not resolve '"  # and apt
 HICCUP+='|Resolving timed out after|Connection timeout after'  # libcurl ("%s timed out after", "Resolving")
+HICCUP+="|Failed to resolve '[^']*' with timeout after"  # libcurl 8 of Arch, Fedora and Tumbleweed
 HICCUP+='|Connection reset by peer|Temporary failure in name resolution'  # libc
+
+# real_pkexec [SHARE]: the installed orbitop (SHARE, default /usr/share/orbitop) accepts /usr/bin/pkexec with its own
+# check, the one before every pkexec (actions._real_pkexec): a root-owned ELF with the setuid bit in a root-owned
+# directory chain. From / with python3 -I, so that only SHARE provides orbitop.
+real_pkexec() {
+    (cd / && python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from orbitop.actions import _real_pkexec
+sys.exit(not _real_pkexec())' "${1:-/usr/share/orbitop}") ||
+        { echo "PKEXEC refused by the check of the installed orbitop (actions._real_pkexec)"; return 1; }
+}
 
 # logged FILE COMMAND…: COMMAND, its output live on stdout and in FILE, with or without set -e and pipefail. Returns
 # the exit code of COMMAND, or, if COMMAND succeeded, that of tee: without FILE, nothing may judge the output.

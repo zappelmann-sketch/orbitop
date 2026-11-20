@@ -48,11 +48,11 @@ def v(m): return f"{m.get_major_version()}.{m.get_minor_version()}.{m.get_micro_
 print("VERSIONS python", sys.version.split()[0], "pygobject", gi.__version__, "gtk", v(Gtk), "webkitgtk", v(WebKit))'
 }
 
-# install_pkg, then polkit's pkexec, which starts orbitop's helper: a regular setuid file that a package owns (the log
-# names it). openSUSE ships it in a package of its own, which orbitop requires as /usr/bin/pkexec.
-install_orbitop() {
-    install_pkg && [ -f /usr/bin/pkexec ] && [ ! -L /usr/bin/pkexec ] && [ -u /usr/bin/pkexec ] && owned /usr/bin/pkexec
-}
+# install_pkg, then polkit's pkexec, which starts orbitop's helper: a package owns it (the log names it), and the
+# installed orbitop accepts it (real_pkexec), so a pkexec that orbitop refuses fails here instead of silently taking
+# away "terminate other users' processes". openSUSE ships it in a package of its own, which orbitop requires as
+# /usr/bin/pkexec.
+install_orbitop() { install_pkg && owned /usr/bin/pkexec && real_pkexec; }
 
 as_tester() { runuser -u tester -- "$@"; }
 

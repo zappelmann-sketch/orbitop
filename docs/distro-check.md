@@ -30,10 +30,11 @@ How the check runs:
 - Each image runs once as
   `docker run --rm -v <copy>:/src:ro -v SITE:/site:ro -v SITE2:/site2:ro <digest> bash /src/scripts/matrix/inside.sh`,
   from the digest that `docker image inspect` reported after the pull (the one in the table), not from the tag:
-  no `--privileged`, no added capabilities, nothing writable from the host. `<copy>` is `git archive HEAD`, removed
-  afterwards. The containers reach the distribution mirrors over the network. Unlike the builds, the matrix does not
-  drop `SETFCAP`: rpm sets file capabilities while it installs (with `--cap-drop SETFCAP`, Fedora's `gstreamer1` failed
-  with `cpio: cap_set_file failed - Operation not permitted`), and no output of the container reaches the host.
+  no `--privileged`, no added capabilities, nothing writable from the host. `<copy>` is `git archive` of the commit
+  `ORBITOP_REV` (HEAD without it), removed afterwards. The containers reach the distribution mirrors over the network.
+  Unlike the builds, the matrix does not drop `SETFCAP`: rpm sets file capabilities while it installs (with
+  `--cap-drop SETFCAP`, Fedora's `gstreamer1` failed with `cpio: cap_set_file failed - Operation not permitted`), and
+  no output of the container reaches the host.
 - The steps run the commands of the README. Only the installed copies of the source definitions under `/etc` point to
   `file:///site/` (later `/site2/`) instead of `https://zappelmann-sketch.github.io/orbitop/`; the packages keep the
   Pages address (`tests/test_check_distros.py`). `point` writes these copies always from the file the package
@@ -54,9 +55,12 @@ How the check runs:
      `Server = …/arch/$arch` at the end of `/etc/pacman.conf`.
   3. `install`: `apt update` (no `W:`, `E:` or `N:`) and `apt install orbitop`; `dnf install orbitop`;
      `zypper install orbitop`, and `zypper lr orbitop` shows `GPG Check: (rp) Yes`; `pacman -Syu orbitop`.
-     Afterwards `/usr/bin/pkexec`, which starts orbitop's helper, is a regular setuid file that a package owns; the
-     log names that package (`dpkg -S`, `rpm -qf`, `pacman -Qo`). On openSUSE it is the package `pkexec`, which
-     orbitop requires as `/usr/bin/pkexec`, because `polkit` there does not pull it in. On Arch,
+     Afterwards `/usr/bin/pkexec`, which starts orbitop's helper, is a file that a package owns; the log names that
+     package (`dpkg -S`, `rpm -qf`, `pacman -Qo`). The installed orbitop must accept it with its own check before every
+     `pkexec` (`actions._real_pkexec`: a root-owned ELF with the setuid bit in a root-owned directory chain), so a
+     distribution whose `pkexec` it refuses fails the matrix instead of silently losing "terminate other users'
+     processes". On openSUSE it is the package `pkexec`, which orbitop requires as `/usr/bin/pkexec`, because `polkit`
+     there does not pull it in. On Arch,
      `/usr/share/pacman/keyrings/orbitop-trusted` of the installed package is exactly the line `<fingerprint>:3:`
      (owner trust "never", docs/release.md); the log shows it as `TRUSTED …`.
   4. `import`: import GTK 4 and WebKitGTK 6.0 through PyGObject.
