@@ -17,10 +17,10 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit  # noqa: E402
 
-from orbitop import APP_ID, __version__, autostart  # noqa: E402
+from orbitop import APP_ID, __version__, autostart, hints  # noqa: E402
 from orbitop.app import SCHEME, UI_HOST, Worker, snapshot_path, ui_file  # noqa: E402
 from orbitop.i18n import detect_language, load_texts  # noqa: E402
-from orbitop.jobs import Jobs  # noqa: E402
+from orbitop.jobs import Jobs, counters_payload  # noqa: E402
 from orbitop.layout import KEYS, LayoutFile, config_path  # noqa: E402
 from orbitop.messages import encode, parse_message  # noqa: E402
 from orbitop.sampler import Sampler  # noqa: E402
@@ -141,8 +141,9 @@ class Shell:
 
     # ---- Brücke ----
     def _init_message(self) -> str:
-        # bei jedem Senden das aktuelle Layout und der Autostart-Stand von jetzt
-        return encode({**self._init_fields, "layout": self._layouts.current, "autostart": autostart.state(os.environ)})
+        # bei jedem Senden das aktuelle Layout und die Stände von jetzt: Autostart, Freigabe, ausgeblendete Hinweise
+        return encode({**self._init_fields, "layout": self._layouts.current, "autostart": autostart.state(os.environ),
+                       "counters": counters_payload(self._sampler.intel), "hidden_hints": hints.load(os.environ)})
 
     def _send(self, text: str) -> None:
         """text stammt aus encode(), ist also ein sicheres JS-Literal."""
@@ -186,6 +187,13 @@ class Shell:
             self._jobs.terminate(msg["pid"], msg["start"], msg["force"])
         elif kind == "autostart":
             self._send(encode({"type": "autostart_state", "on": autostart.set_enabled(msg["on"], os.environ)}))
+        elif kind == "counters":
+            self._jobs.counters(msg["on"], self._sampler)
+        elif kind == "install_tool":  # shortcut: noch ohne PackageKit, bis der Knopf „Installieren“ kommt
+            self._send(encode({"type": "install_state", "result": "unavailable"}))
+        elif kind in ("hide_hint", "show_hints"):
+            hidden = hints.hide(msg["key"], os.environ) if kind == "hide_hint" else hints.show_all(os.environ)
+            self._send(encode({"type": "hints_state", "hidden_hints": hidden}))
         else:
             self._app.quit()
 

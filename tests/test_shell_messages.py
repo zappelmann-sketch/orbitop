@@ -12,7 +12,7 @@ from orbitop.app import check_runtime
 if check_runtime():
     pytest.skip("GTK 4 oder WebKitGTK 6.0 fehlt", allow_module_level=True)
 
-from orbitop import jobs, shell  # noqa: E402
+from orbitop import hints, jobs, shell  # noqa: E402
 from tests.shell_helpers import INIT, L, Value, receive  # noqa: E402
 
 
@@ -77,8 +77,40 @@ def test_quit_message_quits(rig):
     assert rig.log == ["quit"]
 
 
+def test_init_carries_counters_and_hidden_hints(rig, monkeypatch):
+    seen = []
+    monkeypatch.setattr(jobs.counters, "state", lambda intel: seen.append(intel) or {"marker": "on"})
+    rig.s._sampler.intel = True  # perfmon nur mit Intel-Grafik (Q2)
+    hints.hide("hint.igt_missing", os.environ)
+    rig.s._on_message(None, Value({"type": "ready"}))
+    sent = json.loads(rig.js[-1].removeprefix("window.orbitop.receive(").removesuffix(")"))
+    assert sent["counters"] == {"marker": "on", "usable": "nohelper"} and seen == [True]
+    assert sent["hidden_hints"] == ["hint.igt_missing"]
+
+
+def test_counters_message_starts_the_job_with_the_sampler(rig):
+    rig.s._on_message(None, Value({"type": "counters", "on": True, "x": 1}))
+    assert [(t.target, t.args, t.daemon) for t in rig.threads] == [(rig.s._jobs._counters_thread,
+                                                                     (True, rig.s._sampler), True)]
+
+
+def test_hide_and_show_hints_reply_hints_state(rig, tmp_path):
+    rig.s._on_message(None, Value({"type": "hide_hint", "key": "hint.rapl_noperm"}))
+    assert json.loads((tmp_path / "cfg/orbitop/hints.json").read_text()) == ["hint.rapl_noperm"]
+    rig.s._on_message(None, Value({"type": "show_hints"}))
+    assert rig.js == [receive({"type": "hints_state", "hidden_hints": ["hint.rapl_noperm"]}),
+                      receive({"type": "hints_state", "hidden_hints": []})]
+    assert rig.log == []
+
+
+def test_install_tool_is_unavailable_and_does_not_quit(rig):  # der Knopf über PackageKit folgt (Task 8)
+    rig.s._on_message(None, Value({"type": "install_tool", "package": "x"}))
+    assert rig.js == [receive({"type": "install_state", "result": "unavailable"})] and rig.log == []
+
+
 @pytest.mark.parametrize("obj", [{"type": "terminate", "pid": True, "start": 1, "force": False}, {"type": "x"}, [1],
-                                 {"type": "autostart", "on": 1}, {"type": "autostart"}])
+                                 {"type": "autostart", "on": 1}, {"type": "autostart"}, {"type": "counters", "on": 1},
+                                 {"type": "hide_hint", "key": "hint.evil"}])
 def test_invalid_message_is_ignored(rig, obj):
     rig.s._on_message(None, Value(obj))
     assert rig.log == [] and rig.js == [] and rig.threads == []

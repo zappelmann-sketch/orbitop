@@ -179,7 +179,7 @@ def test_startup_wires_layout_from_config_dir(monkeypatch, tmp_path):
     settings = SimpleNamespace(set_property=lambda *a: None)
     monkeypatch.setattr(shell, "Gtk", SimpleNamespace(Settings=SimpleNamespace(get_default=lambda: settings)))
     monkeypatch.setattr(shell, "_unix_signal_add", lambda: lambda *a: None)
-    monkeypatch.setattr(shell, "Sampler", lambda: SimpleNamespace())
+    monkeypatch.setattr(shell, "Sampler", lambda: SimpleNamespace(intel=False))
     monkeypatch.setattr(shell, "Worker", lambda *a: SimpleNamespace(start=lambda: None))
     monkeypatch.setattr(s, "_build_window", lambda app: None)
     app = SimpleNamespace(add_action=lambda a: None, set_accels_for_action=lambda *a: None, hold=lambda: None, quit=lambda: None)

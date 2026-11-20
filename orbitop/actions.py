@@ -1,19 +1,24 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Prozesse beenden: eigene direkt, fremde über pkexec + die root-eigene Kopie von killhelper.py aus dem Paket."""
+"""Aufrufe mit root-Rechten: Prozesse beenden (eigene direkt, fremde über pkexec und killhelper) und die Zähler
+freigeben oder sperren (pkexec und counterhelper). Beide Helfer sind die root-eigenen Kopien aus dem Paket."""
 import os
 import stat
 import subprocess
 
 from orbitop import killhelper
+from orbitop.counters import state as counter_state
 from orbitop.procs import is_kernel, parse_stat
 
 # Installiert vom orbitop-Paket; nie die Datei im Checkout, die User-Code austauschen könnte (F-1).
 # pkexec startet ihn direkt (Shebang python3 -IS), damit die polkit-Action mit exec.path genau ihn trifft.
 _HELPER = "/usr/lib/orbitop/killhelper"
+_COUNTERHELPER = "/usr/lib/orbitop/counterhelper"  # je Wort eine eigene polkit-Action (exec.argv1, B2.1)
 # Absolute Pfade: kein PATH- oder venv-Einfluss auf das, was als root läuft.
 PKEXEC = "/usr/bin/pkexec"
 _RESULT = {0: "sent", 3: "mismatch", 4: "gone", 5: "zombie", 6: "kernel", 126: "denied", 127: "denied"}
+# Vom Exit-Code der Freigabe zählt nur Abbruch (126) und Ablehnung (127); den Rest zeigt der frisch gelesene Zustand
+_COUNTERS = {126: "cancelled", 127: "denied"}
 
 
 def _own(pid: int, root: str) -> bool | None:
@@ -60,6 +65,35 @@ def real_pkexec(lstat=os.lstat, opener=os.open) -> bool:
             os.close(fd)
     except OSError:
         return False
+
+
+def counters_usable(lstat=os.lstat, opener=os.open) -> str:
+    """yes, wenn der Schalter den Helfer über pkexec starten kann; nohelper ohne vertrauenswürdigen Helfer (etwa ein
+    Start aus dem Checkout ohne Paket), nopkexec ohne das pkexec von polkit (E5)."""
+    if not trusted(_COUNTERHELPER, lstat):
+        return "nohelper"
+    return "yes" if real_pkexec(lstat, opener) else "nopkexec"
+
+
+def counters(on: bool, root="/", run=subprocess.run, lstat=os.lstat, opener=os.open) -> str:
+    """Zähler freigeben (on) oder sperren über pkexec und counterhelper (B2.1, B2.7); ein Wort aus Klärung Q2.
+    ok ohne Dialog, wenn die Merkdatei schon so steht; nohelper ohne vertrauenswürdigen Helfer oder pkexec von
+    polkit. Was wirkt, zeigt danach der frisch gelesene Zustand (B2.5)."""
+    if type(on) is not bool:
+        return "error"
+    if counter_state(root, lstat=lstat)["marker"] == ("on" if on else "off"):
+        return "ok"
+    if counters_usable(lstat, opener) != "yes":
+        return "nohelper"
+    try:
+        r = run([PKEXEC, _COUNTERHELPER, "on" if on else "off"], timeout=120)
+    except subprocess.TimeoutExpired:  # Dialog offen gelassen: pkexec ist beendet, das zählt wie ein Abbruch (R9)
+        return "cancelled"
+    except (OSError, subprocess.SubprocessError):  # auch PermissionError: kill() am Helfer, der schon als root läuft
+        return "error"
+    if r.returncode < 0:  # durch ein Signal beendet (etwa stop() beim Herunterfahren): kein Exit-Code des Helfers
+        return "error"
+    return _COUNTERS.get(r.returncode, "ok")
 
 
 def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, lstat=os.lstat, opener=os.open) -> str:

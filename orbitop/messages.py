@@ -3,6 +3,7 @@
 """Nachrichten mit der Seite: encode für alles an sie, parse_message als Schleuse für alles von ihr."""
 import json
 
+from orbitop.hints import KEYS
 from orbitop.layout import validate
 
 MAX_MESSAGE = 4096
@@ -31,7 +32,7 @@ def parse_message(raw) -> dict | None:
     if not isinstance(m, dict):
         return None
     kind = m.get("type")
-    if kind in ("ready", "quit"):
+    if kind in ("ready", "quit", "install_tool", "show_hints"):  # ohne Felder: install_tool nimmt nie ein Paket an
         return {"type": kind}
     if kind == "view":
         tab, pid, start = m.get("tab"), m.get("pid"), m.get("start")
@@ -45,6 +46,8 @@ def parse_message(raw) -> dict | None:
         pid, start, force = m.get("pid"), m.get("start"), m.get("force")
         if _uint(pid, PID_MAX) and _uint(start, START_MAX) and type(force) is bool:
             return {"type": "terminate", "pid": pid, "start": start, "force": force}
-    if kind == "autostart" and type(m.get("on")) is bool:
-        return {"type": "autostart", "on": m["on"]}
+    if kind in ("autostart", "counters") and type(m.get("on")) is bool:  # 1, "true", null: None (M-9)
+        return {"type": kind, "on": m["on"]}
+    if kind == "hide_hint" and m.get("key") in KEYS:  # nur die Hinweise der Fußzeile; eine Liste ist nie gleich
+        return {"type": "hide_hint", "key": m["key"]}
     return None

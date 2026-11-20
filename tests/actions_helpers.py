@@ -11,17 +11,32 @@ from orbitop.procs import parse_stat
 
 HELPER = os.path.abspath(killhelper.__file__)  # die Quelle im Checkout; pkexec startet nur die Kopie des Pakets
 INSTALLED = "/usr/lib/orbitop/killhelper"
+COUNTERHELPER = "/usr/lib/orbitop/counterhelper"
 PKEXEC = "/usr/bin/pkexec"
-FILES = {INSTALLED: stat.S_IFREG | 0o755, PKEXEC: stat.S_IFREG | stat.S_ISUID | 0o755}
+FILES = {INSTALLED: stat.S_IFREG | 0o755, COUNTERHELPER: stat.S_IFREG | 0o755,
+         PKEXEC: stat.S_IFREG | stat.S_ISUID | 0o755}
 ELF_HEAD = b"\x7fELF\x02\x01\x01\x00"
 
 
 def chain_lstat(**over):
-    """lstat einer vertrauenswürdigen Kette: alles root, Ordner 0755, der Helfer eine reguläre Datei 0755, pkexec
+    """lstat einer vertrauenswürdigen Kette: alles root, Ordner 0755, die Helfer reguläre Dateien 0755, pkexec
     setuid 4755; over: Pfad -> (uid, mode)."""
     def lstat(path):
         uid, mode = over.get(path, (0, FILES.get(path, stat.S_IFDIR | 0o755)))
         return SimpleNamespace(st_uid=uid, st_mode=mode)
+    return lstat
+
+
+def as_root(tree, chain=None):
+    """lstat: Dateien im Testbaum tree wie von root (uid 0 lässt sich ohne root nicht anlegen), alles andere (Helfer,
+    pkexec und ihre Ordner) aus chain, sonst aus der vertrauenswürdigen Kette."""
+    base, chain = f"{tree}/", chain or chain_lstat()
+
+    def lstat(path):
+        if path.startswith(base):
+            st = os.lstat(path)
+            return SimpleNamespace(st_mode=st.st_mode, st_uid=0)
+        return chain(path)
     return lstat
 
 

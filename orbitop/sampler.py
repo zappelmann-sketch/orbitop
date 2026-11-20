@@ -214,6 +214,15 @@ class Sampler:
         if self._own_tools:
             self._tools.stop()
 
+    @property
+    def intel(self) -> bool:
+        """Intel-Grafik da: nur dann gehört perfmon in den Zustand der Freigabe (Klärung Q2)."""
+        return any(g.info.vendor == "intel" for g in self._gpus)
+
+    def recheck_tools(self) -> None:
+        """Nach Freigabe oder Installation (Q3), aus einem Auftrags-Thread; GpuTools sperrt selbst."""
+        self._tools.recheck()
+
     # ---- Kacheln (Bau in tiles.py) ----
     def _tiles(self) -> list[dict]:
         """Jede Kachel für sich: ein Fehler beim Bau einer Kachel lässt nur diese weg."""

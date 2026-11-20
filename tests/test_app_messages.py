@@ -32,9 +32,21 @@ L = {"order": list(COLUMNS), "hidden": list(DEFAULT_HIDDEN), "widths": {"cpu": 9
     (json.dumps({"type": "layout", **L, "path": "/etc/passwd"}), {"type": "layout", **L}),
     ('{"type":"autostart","on":true}', {"type": "autostart", "on": True}),
     ('{"type":"autostart","on":false,"path":"/etc/xdg"}', {"type": "autostart", "on": False}),
+    # B2.7, M-9: Zusatzfelder fallen weg, nur normalisierte Felder verlassen parse_message
+    ('{"type":"counters","on":true,"x":1}', {"type": "counters", "on": True}),
+    ('{"type":"counters","on":false}', {"type": "counters", "on": False}),
+    ('{"type":"install_tool","package":"evil-package"}', {"type": "install_tool"}),
+    ('{"type":"hide_hint","key":"hint.rapl_noperm","path":"/x"}', {"type": "hide_hint", "key": "hint.rapl_noperm"}),
+    ('{"type":"show_hints","keys":["hint.igt_missing"]}', {"type": "show_hints"}),
 ])
 def test_parse_message_accepts_contract_shapes(raw, msg):
     assert parse_message(raw) == msg
+
+
+def test_parse_message_accepts_every_footer_hint():
+    from orbitop.hints import KEYS
+    assert [parse_message(json.dumps({"type": "hide_hint", "key": k})) for k in KEYS] == [
+        {"type": "hide_hint", "key": k} for k in KEYS]
 
 
 def test_parse_message_layout_rejects_bad_and_oversize():
@@ -69,6 +81,10 @@ def test_parse_message_layout_rejects_bad_and_oversize():
     '{"type":"view","pid":null,"start":null}',
     '{"type":"autostart","on":1}', '{"type":"autostart","on":"true"}', '{"type":"autostart"}',
     '{"type":"autostart","on":null}',
+    '{"type":"counters","on":1}', '{"type":"counters","on":"true"}', '{"type":"counters","on":null}',
+    '{"type":"counters"}', '{"type":"counters","on":[true]}',
+    '{"type":"hide_hint","key":"hint.evil"}', '{"type":"hide_hint","key":"footer.missing"}',  # nur Fußzeilen-Hinweise
+    '{"type":"hide_hint","key":["hint.igt_missing"]}', '{"type":"hide_hint","key":null}', '{"type":"hide_hint"}',
     '{"type":"reload"}', '{"type":["ready"]}', '{"type":null}', '{}',
     '[{"type":"ready"}]', "null", "1", '"ready"', "", "{kaputt", '{"type":"ready"',
     '{"type":"ready","pad":"' + "x" * 4096 + '"}',               # zu lang

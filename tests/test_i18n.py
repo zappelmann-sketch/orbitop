@@ -117,6 +117,14 @@ def test_no_text_names_the_stage_1_scripts():  # Spec 6.5: sie entfallen, die Hi
         assert not bad, bad
 
 
+def test_counters_results_have_texts():  # Q2: jedes Ergebniswort außer ok hat einen Text; B2.7: der Text der Sperre
+    for lang in ("en", "de"):
+        assert {f"counters.{r}" for r in ("cancelled", "denied", "busy", "locked", "nohelper", "error")} <= set(
+            json_of(lang))
+    assert json_of("de")["counters.locked"] == "zu oft abgelehnt – orbitop neu starten"
+    assert "restart orbitop" in json_of("en")["counters.locked"]
+
+
 def test_rapl_hint_names_the_risk():
     assert "side channel" in json_of("en")["hint.rapl_noperm"]
     assert "Seitenkanal" in json_of("de")["hint.rapl_noperm"]

@@ -1,31 +1,50 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Aufträge der Seite in eigenen Threads: einen Prozess beenden (pkexec blockiert bis zu 120 s), danach nachsehen.
+"""Aufträge der Seite in eigenen Threads, alle durch ein Tor (gate.Gate): einen Prozess beenden und die Zähler
+freigeben oder sperren. pkexec blockiert bis zu 120 s; danach wird nachgesehen bzw. der Zustand neu gelesen.
 
 Ohne GTK: glib liefert idle_add und timeout_add_seconds (in der Hülle GLib), send erhält fertiges JSON aus encode()
-und läuft nur im Hauptthread."""
+und läuft nur im Hauptthread. Das Tor berührt nur der Hauptthread."""
 import contextlib
 import subprocess
 import threading
 from collections.abc import Callable
 
-from orbitop import actions
+from orbitop import actions, counters
+from orbitop.gate import Gate
 from orbitop.messages import encode
 
 CHECK_DELAY_S = 5  # Nachsehen nach SIGTERM
 
 
+def counters_payload(intel: bool) -> dict:
+    """COUNTERS aus Klärung Q2: der Zustand ohne root und ob der Schalter nutzbar ist."""
+    return {**counters.state(intel=intel), "usable": actions.counters_usable()}
+
+
+def _outcome(result: str, ran: bool) -> str:
+    """Für das Tor. Nur ein Erfolg nach einem pkexec setzt die Sperre zurück: sonst öffnete eine Seite, die
+    abwechselnd ein „schon so“ schickt, alle 10 s einen neuen Dialog."""
+    if result in ("cancelled", "denied"):
+        return "refused"
+    return "ok" if result == "ok" and ran else "other"
+
+
 class Jobs:
     def __init__(self, send: Callable[[str], None], glib):
         self._send, self._glib = send, glib
-        self._terminating = False  # höchstens ein terminate zugleich, nie ein Stapel Passwortdialoge; nur Hauptthread
-        self._pkexec: subprocess.Popen | None = None  # laufendes pkexec, gesetzt von _run im terminate-Thread
+        self._gate = Gate()  # nie ein Stapel Passwortdialoge, und eine wachsende Sperre nach Ablehnungen (B2.7)
+        self._pkexec: subprocess.Popen | None = None  # laufendes pkexec, gesetzt von _run im Auftrags-Thread
 
     def terminate(self, pid: int, start: int, force: bool) -> None:
-        if self._terminating:
-            return  # still verwerfen: die Seite zeigt erst das Ergebnis des laufenden Auftrags
-        threading.Thread(target=self._terminate_thread, args=(pid, start, force), daemon=True).start()
-        self._terminating = True  # erst nach erfolgreichem start(), sonst bliebe das Tor für immer zu
+        # busy: still verwerfen wie in 0.2.0, die Seite zeigt erst das Ergebnis des laufenden Auftrags
+        self._start("terminate", self._terminate_thread, pid, start, force)
+
+    def counters(self, on: bool, tools) -> None:
+        """tools (der Sampler): intel, ob es Intel-Grafik gibt, und recheck_tools() nach einer Freigabe (Q3)."""
+        refused = self._start("counters", self._counters_thread, on, tools)
+        if refused:
+            self._send_counters(refused, tools)
 
     def stop(self) -> None:
         """Beim Herunterfahren: ein offenes pkexec beenden."""
@@ -34,12 +53,39 @@ class Jobs:
             with contextlib.suppress(PermissionError):  # schon der Helfer als root, er endet gleich von selbst
                 child.terminate()
 
+    def _start(self, kind: str, target, *args) -> str | None:
+        """target im Thread, wenn das Tor frei ist; sonst busy oder locked, ohne Thread."""
+        refused = self._gate.begin(kind)
+        if refused is None:
+            try:
+                threading.Thread(target=target, args=args, daemon=True).start()
+            except BaseException:  # sonst bliebe das Tor für immer zu
+                self._gate.end(kind, "other")
+                raise
+        return refused
+
     def _terminate_thread(self, pid: int, start: int, force: bool) -> None:  # pkexec blockiert bis zu 120 s
         try:
             result = actions.terminate(pid, start, force, run=self._run)
-        except Exception:  # sonst bliebe das Beenden für immer gesperrt
+        except Exception:  # sonst bliebe das Tor für immer zu
             result = "error"
         self._glib.idle_add(self._terminated, pid, start, force, result)
+
+    def _counters_thread(self, on: bool, tools) -> None:
+        ran = []
+
+        def run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
+            ran.append(argv)
+            return self._run(argv, timeout)
+        try:
+            result = actions.counters(on, run=run)
+        except Exception:  # sonst bliebe das Tor für immer zu
+            result = "error"
+        if result == "ok" and ran:
+            # intel_gpu_top mit der neuen Fähigkeit ohne Neustart (Q3); kann Sekunden dauern, daher hier im Thread
+            with contextlib.suppress(Exception):  # dann erkennt erst der Neustart neu; das Tor muss frei werden
+                tools.recheck_tools()
+        self._glib.idle_add(self._counters_done, result, _outcome(result, bool(ran)), tools)
 
     def _run(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess:
         """subprocess.run für pkexec, nur dass stop() das Kind erreicht und beenden kann."""
@@ -54,10 +100,18 @@ class Jobs:
                 self._pkexec = None
 
     def _terminated(self, pid: int, start: int, force: bool, result: str) -> None:
-        self._terminating = False
+        self._gate.end("terminate", "other")
         self._send(encode({"type": "terminate_result", "pid": pid, "result": result}))
         if result == "sent" and not force:
             self._glib.timeout_add_seconds(CHECK_DELAY_S, self._check, pid, start)
+
+    def _counters_done(self, result: str, outcome: str, tools) -> None:
+        self._gate.end("counters", outcome)
+        self._send_counters(result, tools)
+
+    def _send_counters(self, result: str, tools) -> None:
+        """Die Antwort mit einem frisch gelesenen Zustand (B2.1 „Ergebnis“) und dem festen Wort result."""
+        self._send(encode({"type": "counters_state", "counters": counters_payload(tools.intel), "result": result}))
 
     def _check(self, pid: int, start: int) -> bool:
         def work():

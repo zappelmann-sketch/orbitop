@@ -14,7 +14,8 @@ from orbitop.layout import COLUMNS, DEFAULT_HIDDEN
 
 
 UI = Path(shell.UI_DIR)
-INIT = '{"type": "init", "layout": null, "autostart": null}'
+COUNTERS = {"marker": "off", "manual_rule": False, "parts": [{"part": "rapl", "state": "none"}], "usable": "nohelper"}
+INIT = json.dumps({"type": "init", "layout": None, "autostart": None, "counters": COUNTERS, "hidden_hints": []})
 L = {"order": list(COLUMNS), "hidden": list(DEFAULT_HIDDEN), "widths": {"cpu": 90}, "split": 0.6}
 
 

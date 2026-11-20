@@ -97,6 +97,13 @@ def test_close_stops_only_own_tools(monkeypatch):
     assert stopped == [1]
 
 
+def test_intel_and_recheck_tools():  # für die Freigabe: perfmon nur mit Intel-Grafik (Q2), neu erkennen (Q3)
+    tools = NoTools()
+    assert Sampler(INTEL, tools=tools, uid=1000).intel is True and Sampler(VM, tools=tools, uid=1000).intel is False
+    Sampler(VM, tools=tools, uid=1000).recheck_tools()
+    assert tools.rechecks == 1
+
+
 def test_default_clock_counts_suspend(monkeypatch):  # s2idle: monotonic steht im Ruhezustand, RAPL zählt weiter
     real, boot = sampler_mod.time.clock_gettime, [1000.0]
     monkeypatch.setattr(sampler_mod.time, "clock_gettime",
