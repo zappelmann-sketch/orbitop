@@ -3,27 +3,14 @@
 """Netzaussetzer der Spiegel in der Container-Matrix: net und quiet in scripts/matrix/lib.sh wiederholen einen
 gescheiterten Lauf, der einen Aussetzer meldet und die Paketdatenbank nicht änderte; jeder andere Fehler zählt
 sofort, der Manipulationstest läuft einmal. Die Programme der Paketverwaltungen sind Shell-Funktionen, die pm
-aufrufen."""
+aufrufen (runs in tests/matrix_helpers.py)."""
 import os
 import shlex
 
 import pytest
 
-from tests.matrix_helpers import PAGES, call, rpm_site
+from tests.matrix_helpers import call, rpm_site, runs
 
-# Ersatz-Paketmanager pm: Lauf N gibt STATE/out.N aus, hängt STATE/installs.N an die Paketliste STATE/packages (eine
-# geänderte Paketdatenbank) und endet mit STATE/rc.N (fehlen sie: nichts, 0); jeder Lauf hängt eine Zeile an
-# STATE/calls. packages liest die Paketliste; sleep schreibt seine Dauer nach STATE/slept, statt zu warten.
-PM = ('pm() { echo >> "$STATE/calls"; local n; n=$(wc -l < "$STATE/calls"); cat "$STATE/out.$n" 2> /dev/null;'
-      ' cat "$STATE/installs.$n" >> "$STATE/packages" 2> /dev/null;'
-      ' return "$(cat "$STATE/rc.$n" 2> /dev/null || echo 0)"; }; packages() { cat "$STATE/packages"; };'
-      ' sleep() { echo "$1" >> "$STATE/slept"; };')
-# Die Quelldefinitionen liegen in STATE statt unter /etc; serve und kill in apts update_from tun nichts.
-SOURCES = ('SOURCE=$STATE/orbitop.sources REPO=$STATE/orbitop.repo CONF=$STATE/pacman.conf;'
-           ' serve() { :; }; kill() { :; };')
-POLICY = " 100 http://zappelmann-sketch.github.io/orbitop/apt stable/main all Packages"  # wie über serve
-AS_PM = {"apt.sh": f'apt() {{ pm "$@"; }}; apt-get() {{ pm "$@"; }}; apt-cache() {{ echo "{POLICY}"; }};',
-         "dnf.sh": 'dnf() { pm "$@"; };', "zypper.sh": 'zypper() { pm "$@"; };', "pacman.sh": 'pacman() { pm "$@"; };'}
 CURL = (">>> Curl error (56): Failure when receiving data from the peer for https://mirrors.fedoraproject.org/"
         "metalink?repo=updates-released-f45&arch=x86_64 [Recv failure: Connection reset by peer]")  # 2026-11-19
 RESET = ("W: Failed to fetch http://deb.example.com/debian/dists/trixie/InRelease  Error reading from server - read "
@@ -90,27 +77,6 @@ OTHERS = {
     "pacman-signature": 'error: orbitop: signature from "orbitop archive signing key" is invalid',
     "pacman-db": "error: database 'orbitop' is not valid (invalid or corrupted database (PGP signature))",
 }
-
-
-def runs(tmp_path, command, *outputs, files=("dnf.sh",)):
-    """COMMAND nach lib.sh und FILES mit pm (auch als Programme von FILES), dessen Lauf N outputs[N-1] = (Ausgabe, rc[,
-    neue Pakete]) liefert; gibt (bestanden, Ausgabe, Zahl der Läufe von pm, Pausen) zurück."""
-    state = tmp_path / "state"
-    state.mkdir(parents=True, exist_ok=True)
-    for name, line in {"packages": "bash 5.3", "orbitop.sources": f"URIs: {PAGES}apt",
-                       "orbitop.repo": f"baseurl={PAGES}rpm/fedora", "pacman.conf": f"Server = {PAGES}arch/$arch",
-                       "http.log": "GET /orbitop/apt/dists/stable/main/binary-all/by-hash/SHA512/0 HTTP/1.1"}.items():
-        (state / name).write_text(line + "\n")
-    for n, (text, rc, *installed) in enumerate(outputs, 1):
-        (state / f"out.{n}").write_text(text + "\n")
-        (state / f"rc.{n}").write_text(f"{rc}\n")
-        if installed:
-            (state / f"installs.{n}").write_text(installed[0] + "\n")
-    stand_ins = " ".join(AS_PM[f] for f in files if f in AS_PM)
-    ok, out = call(tmp_path, f"{PM} {SOURCES} {stand_ins} {command}", *files, env={"RPMK": "digests signatures OK"})
-    calls = (state / "calls").read_text().count("\n") if (state / "calls").exists() else 0
-    slept = (state / "slept").read_text().split() if (state / "slept").exists() else []
-    return ok, out, calls, slept
 
 
 @pytest.mark.parametrize("line", MATCHES.values(), ids=MATCHES.keys())

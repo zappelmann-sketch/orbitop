@@ -2,7 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 """Helfer der Tests von scripts/matrix (tests/test_matrix_lib.py, tests/test_matrix_retry.py): call führt Funktionen
 von lib.sh und den Dateien der Paketverwaltungen aus wie step in inside.sh, ohne set -e, mit Stellvertretern für rpm
-und rpmkeys."""
+und rpmkeys; runs dazu mit dem Ersatz-Paketmanager pm."""
 import os
 import subprocess
 
@@ -52,3 +52,39 @@ def rpm_site(tmp_path):
             (root / "rpm" / family / name).write_bytes(b"rpm")
     (root / "orbitop-archive-keyring.asc").write_text("key\n")
     return root
+
+
+# Ersatz-Paketmanager pm: Lauf N gibt STATE/out.N aus, hängt STATE/installs.N an die Paketliste STATE/packages (eine
+# geänderte Paketdatenbank) und endet mit STATE/rc.N (fehlen sie: nichts, 0); jeder Lauf hängt eine Zeile an
+# STATE/calls. packages liest die Paketliste; sleep schreibt seine Dauer nach STATE/slept, statt zu warten.
+PM = ('pm() { echo >> "$STATE/calls"; local n; n=$(wc -l < "$STATE/calls"); cat "$STATE/out.$n" 2> /dev/null;'
+      ' cat "$STATE/installs.$n" >> "$STATE/packages" 2> /dev/null;'
+      ' return "$(cat "$STATE/rc.$n" 2> /dev/null || echo 0)"; }; packages() { cat "$STATE/packages"; };'
+      ' sleep() { echo "$1" >> "$STATE/slept"; };')
+# Die Quelldefinitionen liegen in STATE statt unter /etc; serve und kill in apts update_from tun nichts.
+SOURCES = ('SOURCE=$STATE/orbitop.sources REPO=$STATE/orbitop.repo CONF=$STATE/pacman.conf;'
+           ' serve() { :; }; kill() { :; };')
+POLICY = " 100 http://zappelmann-sketch.github.io/orbitop/apt stable/main all Packages"  # wie über serve
+AS_PM = {"apt.sh": f'apt() {{ pm "$@"; }}; apt-get() {{ pm "$@"; }}; apt-cache() {{ echo "{POLICY}"; }};',
+         "dnf.sh": 'dnf() { pm "$@"; };', "zypper.sh": 'zypper() { pm "$@"; };', "pacman.sh": 'pacman() { pm "$@"; };'}
+
+
+def runs(tmp_path, command, *outputs, files=("dnf.sh",)):
+    """COMMAND nach lib.sh und FILES mit pm (auch als Programme von FILES), dessen Lauf N outputs[N-1] = (Ausgabe, rc[,
+    neue Pakete]) liefert; gibt (bestanden, Ausgabe, Zahl der Läufe von pm, Pausen) zurück."""
+    state = tmp_path / "state"
+    state.mkdir(parents=True, exist_ok=True)
+    for name, line in {"packages": "bash 5.3", "orbitop.sources": f"URIs: {PAGES}apt",
+                       "orbitop.repo": f"baseurl={PAGES}rpm/fedora", "pacman.conf": f"Server = {PAGES}arch/$arch",
+                       "http.log": "GET /orbitop/apt/dists/stable/main/binary-all/by-hash/SHA512/0 HTTP/1.1"}.items():
+        (state / name).write_text(line + "\n")
+    for n, (text, rc, *installed) in enumerate(outputs, 1):
+        (state / f"out.{n}").write_text(text + "\n")
+        (state / f"rc.{n}").write_text(f"{rc}\n")
+        if installed:
+            (state / f"installs.{n}").write_text(installed[0] + "\n")
+    stand_ins = " ".join(AS_PM[f] for f in files if f in AS_PM)
+    ok, out = call(tmp_path, f"{PM} {SOURCES} {stand_ins} {command}", *files, env={"RPMK": "digests signatures OK"})
+    calls = (state / "calls").read_text().count("\n") if (state / "calls").exists() else 0
+    slept = (state / "slept").read_text().split() if (state / "slept").exists() else []
+    return ok, out, calls, slept
