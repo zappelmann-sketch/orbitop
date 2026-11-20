@@ -218,8 +218,10 @@ class Sampler:
         return any(g.info.vendor == "intel" for g in self._gpus)
 
     def recheck_tools(self) -> None:
-        """Nach Freigabe oder Installation (Q3), aus einem Auftrags-Thread; GpuTools sperrt selbst."""
-        self._tools.recheck()
+        """Nach Freigabe oder Installation (Q3), aus einem Auftrags-Thread; GpuTools sperrt selbst. Nur wenn sich
+        etwas geändert hat: sonst ließe eine Seite mit „schon so“ die Intel-Leser immer wieder neu starten."""
+        if self._tools.needs_recheck():
+            self._tools.recheck()
 
     # ---- Kacheln (Bau in tiles.py) ----
     def _tiles(self) -> list[dict]:

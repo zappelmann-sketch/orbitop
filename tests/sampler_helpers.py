@@ -12,9 +12,10 @@ PROCS = {"tab": "procs", "pid": None, "start": None}
 
 
 class NoTools:
-    """Ersatz für GpuTools: keine Kindprozesse; pkg_w einstellbar, rechecks zählt recheck()."""
+    """Ersatz für GpuTools: keine Kindprozesse; pkg_w einstellbar, rechecks zählt recheck(), changed liefert
+    needs_recheck()."""
     def __init__(self, pkg_w=None):
-        self.pkg_w, self.rechecks = pkg_w, 0
+        self.pkg_w, self.rechecks, self.changed = pkg_w, 0, True
 
     def intel(self, card):
         return {"pkg_w": self.pkg_w} if self.pkg_w is not None else None
@@ -24,6 +25,9 @@ class NoTools:
 
     def hints(self):
         return []
+
+    def needs_recheck(self):
+        return self.changed
 
     def recheck(self):
         self.rechecks += 1

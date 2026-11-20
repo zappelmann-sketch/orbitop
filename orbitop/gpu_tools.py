@@ -203,20 +203,38 @@ class GpuTools:
                 self._nvidia = ToolReader(_nvidia_cmd(path), parse_nvidia_line, split_lines, "pci")
                 self._nvidia.start()
 
+    @staticmethod
+    def _observe() -> tuple[str | None, str | None]:
+        """(Pfad von intel_gpu_top, Hinweis) nach dem, was jetzt zu sehen ist; ohne Hinweis darf ein Leser starten."""
+        path = shutil.which("intel_gpu_top", path=TOOL_PATH)
+        if not path:
+            return None, "hint.igt_missing"
+        if os.geteuid() != 0 and not counters.perfmon_cap(path):  # root liest die Zähler auch ohne Fähigkeit
+            return path, "hint.igt_noperm"
+        return path, None
+
     def _detect_intel(self) -> tuple[list[str], dict[str, ToolReader]]:
         """(Hinweise, laufende Leser je Karte), wie beim Start."""
         if not self._cards:
             return [], {}
-        path = shutil.which("intel_gpu_top", path=TOOL_PATH)
-        if not path:
-            return ["hint.igt_missing"], {}
-        if os.geteuid() != 0 and not counters.perfmon_cap(path):  # root liest die Zähler auch ohne Fähigkeit
-            return ["hint.igt_noperm"], {}
+        path, hint = self._observe()
+        if hint:
+            return [hint], {}
         readers = {}
         for c in self._cards:
             readers[c] = ToolReader(_intel_cmd(path, c if len(self._cards) > 1 else None), parse_intel)
             readers[c].start()
         return [], readers
+
+    def needs_recheck(self) -> bool:
+        """True, wenn recheck() etwas ändern würde: Werkzeug oder Fähigkeit stehen anders, als beim letzten Erkennen
+        angenommen. Liest nur (which, security.capability), startet und beendet nichts; so lässt eine Seite mit
+        wiederholten Aufträgen die laufenden Leser in Ruhe."""
+        if not self._cards:
+            return False
+        with self._lock:  # Hinweis oder None für laufende Leser; "none" nur mitten in einem recheck()
+            assumed = self._igt_hints[0] if self._igt_hints else (None if self._intel else "none")
+        return assumed != self._observe()[1]
 
     def recheck(self) -> None:
         """Nach Installieren oder Freigabe ohne Neustart (Q3): laufende Intel-Leser beenden, dann neu erkennen.

@@ -12,8 +12,11 @@ from types import SimpleNamespace
 import pytest
 
 from orbitop import actions, gate, jobs
+from orbitop.sampler import Sampler
 from tests.actions_helpers import COUNTERHELPER, PKEXEC, as_root, opener
 from tests.counterhelper_helpers import make_tree
+from tests.roots import VM
+from tests.sampler_helpers import NoTools
 
 
 @pytest.fixture
@@ -131,6 +134,16 @@ def test_already_so_without_dialog_does_not_reset(crig):  # sonst öffnete eine 
     assert ask(crig) == ["cancelled"]
     crig.now = 69.9
     assert ask(crig) == ["busy"]  # die zweite Ablehnung: 60 s
+
+
+def test_already_so_twice_restarts_no_reader(crig):  # die Seite kann die Intel-Leser nicht ständig neu starten
+    tools = NoTools()
+    tools.changed = False  # Werkzeug und Fähigkeit wie erkannt
+    crig.tools = Sampler(VM, tools=tools, uid=1000)
+    assert ask(crig, False) == ["ok"] and ask(crig, False) == ["ok"]
+    assert tools.rechecks == 0 and crig.runs == []
+    tools.changed = True  # etwa die Fähigkeit von außen gesetzt
+    assert ask(crig, False) == ["ok"] and tools.rechecks == 1
 
 
 def test_signal_death_counts_as_refusal(crig):  # S-1: fail closed; die Seite sieht weiter nur error

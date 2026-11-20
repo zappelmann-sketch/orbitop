@@ -11,7 +11,9 @@ import pytest
 
 from orbitop import gpu_tools
 from orbitop.gpu_tools import GpuTools
+from orbitop.sampler import Sampler
 from tests.gpu_tools_helpers import LOOP, gpus, no_popen, wait_until
+from tests.roots import VM
 
 IGT = "/usr/bin/intel_gpu_top"
 
@@ -127,9 +129,11 @@ def test_recheck_after_stop_starts_nothing(world):
 # ---- recheck aus einem Auftrags-Thread, neben dem Mess-Thread; Ersatz-Leser, kein Kindprozess ----
 @pytest.fixture
 def fake_readers(monkeypatch):
-    """ToolReader ersetzt; live: gestartete und nicht beendete Leser, stopping: gesetzt beim ersten stop(),
-    slow: so lange dauert stop() (wie das Warten auf intel_gpu_top), tool: Pfad des Werkzeugs oder None."""
-    s = SimpleNamespace(live=set(), stopping=threading.Event(), slow=0.0, tool=IGT)
+    """ToolReader ersetzt; live: gestartete und nicht beendete Leser, starts/stops: Zahl der Aufrufe, stopping:
+    gesetzt beim ersten stop(), slow: so lange dauert stop() (wie das Warten auf intel_gpu_top), tool: Pfad des
+    Werkzeugs oder None, cap: die Fähigkeit, uid: die euid."""
+    s = SimpleNamespace(live=set(), starts=0, stops=0, stopping=threading.Event(), slow=0.0, tool=IGT, cap=False,
+                        uid=0)
 
     class Reader:
         failed = False
@@ -139,18 +143,60 @@ def fake_readers(monkeypatch):
 
         def start(self):
             s.live.add(self)
+            s.starts += 1
 
         def latest(self, key=None):
             return {"busy": 1.0} if self in s.live else None
 
         def stop(self):
             s.stopping.set()
+            s.stops += 1
             time.sleep(s.slow)
             s.live.discard(self)
     monkeypatch.setattr(gpu_tools, "ToolReader", Reader)
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: s.tool if n == "intel_gpu_top" else None)
-    monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 0)  # root liest ohne Fähigkeit
+    monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: s.uid)  # root liest ohne Fähigkeit
+    monkeypatch.setattr(gpu_tools.counters, "perfmon_cap", lambda path: s.cap)
     return s
+
+
+def test_needs_recheck_is_pure_and_follows_tool_and_capability(fake_readers, monkeypatch):
+    """Vergleicht nur, was GpuTools annimmt, mit dem, was jetzt zu sehen ist; startet und beendet nie etwas."""
+    fake_readers.uid = 1000
+    t = GpuTools(gpus("intel"))
+    assert t.hints() == ["hint.igt_noperm"]
+    no_popen(monkeypatch)
+    assert [t.needs_recheck() for _ in range(3)] == [False] * 3
+    fake_readers.cap = True  # etwa nach „an“ von außen
+    assert t.needs_recheck() and t.hints() == ["hint.igt_noperm"] and fake_readers.starts == 0
+    fake_readers.tool = None  # Werkzeug entfernt
+    assert t.needs_recheck()
+    t.recheck()
+    assert t.hints() == ["hint.igt_missing"] and not t.needs_recheck()
+    fake_readers.tool = IGT
+    t.recheck()
+    assert fake_readers.live and not t.needs_recheck()  # Leser laufen, wie es die Fähigkeit erlaubt
+    fake_readers.cap = False
+    assert t.needs_recheck()
+    assert not GpuTools(gpus("amd")).needs_recheck()  # ohne Intel-Grafik gibt es nichts neu zu erkennen
+    t.stop()
+
+
+def test_recheck_tools_leaves_running_readers_alone_when_nothing_changed(fake_readers):
+    """Zweimal „schon so“ bei gleichem Zustand: kein Neustart der Leser; erst eine neue Fähigkeit erkennt neu."""
+    fake_readers.uid = 1000
+    t = GpuTools(gpus("intel"))
+    s = Sampler(VM, tools=t, uid=1000)
+    s.recheck_tools()
+    s.recheck_tools()
+    assert (fake_readers.starts, fake_readers.stops) == (0, 0) and t.hints() == ["hint.igt_noperm"]
+    fake_readers.cap = True
+    s.recheck_tools()
+    assert (fake_readers.starts, fake_readers.stops) == (1, 0) and t.hints() == []
+    s.recheck_tools()
+    s.recheck_tools()
+    assert (fake_readers.starts, fake_readers.stops) == (1, 0) and len(fake_readers.live) == 1
+    t.stop()
 
 
 def test_two_concurrent_rechecks_then_stop_leave_no_reader(fake_readers):
