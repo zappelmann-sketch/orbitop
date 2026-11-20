@@ -341,3 +341,22 @@ Möglichkeiten, über die der User entscheidet (Werte für ausgeblendet, geschä
    - Verlust: Der Verlauf je Prozess (5 min, „Letzte 60 s“) wird für die ausgeblendete Zeit gröber.
    - Aufwand: mittel, denn die Verläufe nehmen heute feste 2-s-Schritte an.
 5. **2 und 4 zusammen:** rund 1,4 %.
+
+**Entscheidung (Controller im Auftrag des Users, 2026-11-20): Möglichkeit 4.**
+- Ausgeblendet läuft der Prozess-Takt alle 4 s statt alle 2 s (`PROCS_PERIOD_HIDDEN_S`). Beim Einblenden kommt der nächste Takt spätestens 2 s nach dem letzten, bei älteren Daten also sofort; danach wieder alle 2 s. Alles andere bleibt, auch `intel_gpu_top` und der Systemtakt.
+- Grund: kleinste sichtbare Wirkung. Der Verlauf der Grafik-Kachel bleibt vollständig, weil `intel_gpu_top` weiterläuft.
+- Was der User merkt: Der Verlauf je Prozess („Letzte 60 s“, 5-min-Kurve im Detail) hat für die ausgeblendete Zeit nur halb so viele Punkte. Die Verläufe zählen Punkte, nicht Sekunden. Direkt nach dem Einblenden reichen sie deshalb bis zu doppelt so weit zurück, bis sie nach 60 s bzw. 5 min sichtbarer Zeit wieder gefüllt sind.
+
+Messung nach der Entscheidung, 2026-11-20, zweite Sitzung. Verfahren wie oben, abwechselnd mit `main`. Alle Läufe ungestört (GTK-Hauptthread ≤ 0,17 %, Compositor ≤ 0,12 %), Lastmittel (1 min) 0,01 bis 1,52:
+
+| Stand | Ausgeblendet | Übersicht kurz | Prozesse Standard kurz |
+|---|---|---|---|
+| Möglichkeit 4 (86bc21d) | 2,60 (170); 2,55 (169) | 7,30 (236); 7,21 (230) | 8,11 (231); 7,99 (230) |
+| `main` (Stand 0.2.0), abwechselnd in derselben Sitzung | 2,98 (170); 3,02 (169) | 7,18 (235); 7,13 (237) | 8,08 (231); 7,98 (230) |
+
+- Ausgeblendet im Mittel 2,58 statt 3,00 %. `orbitop-procs` liegt bei 0,48 statt 0,90 %, `orbitop-worker` und `intel_gpu_top` sind unverändert.
+- Sichtbar gleich auf mit `main`: Übersicht +0,10 (WebKit +0,06, orbitop +0,04, innerhalb der Streuung von rund ±0,2), Prozesse Standard +0,02.
+- Zwischenstand 7475670 tickte bei jedem Einblenden sofort. Im Prozess-Reiter lag er bei 8,27 bis 8,33 % statt 7,94 bis 8,02 %.
+  - Ursache war der Ablauf der Messung: Kurz nach dem Start gab der sofortige Takt Raten über Bruchteile einer Sekunde. Die Sichtprüfung (`#procs`) wählte deshalb orbitop statt PID 1 als gewählten Prozess, und dessen Detailansicht kostet mehr Zeichenarbeit.
+  - Die Vermutung, die Phase gegenüber dem Systemtakt sei schuld (3a8ffd3), hat die Messung widerlegt.
+  - 86bc21d nimmt 3a8ffd3 zurück und tickt beim Einblenden nur sofort, wenn der letzte Takt älter als 2 s ist. Der Start verhält sich so wie in `main`.
