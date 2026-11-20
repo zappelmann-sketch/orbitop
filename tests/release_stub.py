@@ -23,10 +23,18 @@ GIT_ENV = {"GIT_CONFIG_GLOBAL": "/dev/null", "GIT_CONFIG_NOSYSTEM": "1"}
 # Die Identität des Projekts (öffentlich, in jedem Commit); release.sh verlangt genau sie.
 NAME, NOREPLY = "zappelmann-sketch", "235797375+zappelmann-sketch@users.noreply.github.com"
 TOOLS = ("calls", "git", "gh", "curl", "docker", "gpg-agent", "gpgconf")
+# Jedes Bau-Skript holt die Dateien wie das echte (tracked_files) und schreibt nach trees.log, ob sie den Commit
+# MOVE_HEAD enthalten; MOVE_HEAD: der erste Bau committet vorher moved.txt (ein anderer Prozess nach Schritt 1).
+TREE = """(. "$REPO/scripts/container-common.sh" && workdir && tracked_files &&
+    if [ -e "$tmp/src/moved.txt" ]; then echo "${0##*/} moved"; else echo "${0##*/} pinned"; fi) >> "$LOG_DIR/trees.log"
+"""
+MOVE = """[ -z "$MOVE_HEAD" ] || [ -e "$REPO/moved.txt" ] || { echo moved > "$REPO/moved.txt" &&
+    "$REAL_GIT" -C "$REPO" add moved.txt && "$REAL_GIT" -C "$REPO" commit -qm moved; }
+"""
 # Die Bau-Skripte als Stellvertreter: Sie schreiben nur die Dateinamen, die release.sh liest.
 BUILD_PACKAGES = f"""#!/bin/sh
 printf '%s\\n' build-packages "$@" ---- >> "$LOG_DIR/calls.log"
-while [ $# -gt 0 ]; do
+{MOVE}{TREE}while [ $# -gt 0 ]; do
     case $1 in --out) out=$2 ;; --pubkey) cp "$2" "$LOG_DIR/pubkey.asc" ;; --suffix) s=$2 ;; esac
     shift 2
 done
@@ -42,7 +50,7 @@ echo "rebuilt $out" > "$out/arch/orbitop-{VERSION}-1${{s:+.1}}-any.pkg.tar.zst"
 """
 BUILD_SITE = """#!/bin/sh
 printf '%s\\n' build-site "$@" ---- >> "$LOG_DIR/calls.log"
-while [ $# -gt 0 ]; do case $1 in --packages) p=$2 ;; --out) out=$2 ;; esac; shift 2; done
+""" + TREE + """while [ $# -gt 0 ]; do case $1 in --packages) p=$2 ;; --out) out=$2 ;; esac; shift 2; done
 sha256sum "$p"/deb/*.deb >> "$LOG_DIR/site-inputs.txt"  # was build-site.sh bekam
 apt=$out/apt/dists/stable/main/binary-all
 mkdir -p "$out/apt/pool/main/o/orbitop" "$out/apt/pool/main/o/orbitop-apt-source" "$apt/by-hash/SHA256" \\
@@ -66,7 +74,7 @@ gpg --no-options --batch --export "$ORBITOP_KEY" > "$out/orbitop-archive-keyring
 # MATRIX_COMMIT: während der Matrix committet ein anderer Prozess (eine andere Sitzung) im Repository.
 CHECK_DISTROS = """#!/bin/sh
 printf '%s\\n' check-distros "$@" ---- >> "$LOG_DIR/calls.log"
-[ -z "$MATRIX_COMMIT" ] || "$REAL_GIT" -C "$REPO" commit -q --allow-empty -m other
+""" + TREE + """[ -z "$MATRIX_COMMIT" ] || "$REAL_GIT" -C "$REPO" commit -q --allow-empty -m other
 cat "$LOG_DIR/matrix.txt"
 exit "${MATRIX_RC:-0}"
 """
@@ -74,11 +82,15 @@ LOGGED = """#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/{tool}.log"
 exec {real} "$@"
 """
-# git: wie LOGGED; die Push-Adressen von origin sind die von GitHub (ORIGIN_PUSH), gepusht wird ins lokale Remote.
+# git: wie LOGGED; die Push- und die Fetch-Adressen von origin sind die von GitHub (ORIGIN_PUSH, ORIGIN_FETCH),
+# gepusht und gelesen wird im lokalen Remote.
 GIT = """#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/git.log"
-case " $* " in *" remote get-url --all --push origin "*)
-    printf '%s\\n' "${{ORIGIN_PUSH-https://github.com/zappelmann-sketch/orbitop.git}}"; exit 0 ;;
+case " $* " in
+    *" remote get-url --all --push origin "*)
+        printf '%s\\n' "${{ORIGIN_PUSH-https://github.com/zappelmann-sketch/orbitop.git}}"; exit 0 ;;
+    *" remote get-url --all origin "*)
+        printf '%s\\n' "${{ORIGIN_FETCH-https://github.com/zappelmann-sketch/orbitop.git}}"; exit 0 ;;
 esac
 exec {real} "$@"
 """
@@ -92,8 +104,13 @@ case "$1 $2" in
     "auth status") exit "${GH_AUTH_RC:-0}" ;;
     "api repos/zappelmann-sketch/orbitop") echo "${GH_ADMIN:-true}" ;;
     "release create")
-        case " $* " in *" --repo "*" --notes-from-tag "*)  # wie gh 2.104
-            echo "using \\`--notes-from-tag\\` with \\`--repo\\` is not supported" >&2 && exit 1 ;; esac
+        from_tag="" repo=""  # wie gh 2.104: --notes-from-tag mit --repo oder -R, in jeder Reihenfolge und Schreibweise
+        for a; do
+            case $a in --notes-from-tag | --notes-from-tag=true) from_tag=1 ;; --repo | --repo=* | -R*) repo=1 ;; esac
+        done
+        if [ -n "$from_tag" ] && [ -n "$repo" ]; then
+            echo "using \\`--notes-from-tag\\` with \\`--repo\\` is not supported" >&2 && exit 1
+        fi
         "$REAL_GIT" --git-dir "$REMOTE" rev-parse -q --verify "refs/tags/$3" > /dev/null || exit 1
         mkdir -p "$LOG_DIR/assets"
         notes=""
@@ -151,9 +168,15 @@ def sha256(data):
     return hashlib.sha256(data).hexdigest()
 
 
+def environ():
+    """os.environ ohne GIT_AUTHOR_* und GIT_COMMITTER_* der Shell, mit GIT_ENV: Commits und Tags der Tests tragen nur
+    die Identität ihres Repositorys (oder die, die ein Test ausdrücklich setzt)."""
+    return {**{k: v for k, v in os.environ.items() if not k.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_"))}, **GIT_ENV}
+
+
 def git(cwd, *args):
     return subprocess.run([REAL["git"], *args], cwd=cwd, check=True, capture_output=True, text=True,
-                          env={**os.environ, **GIT_ENV}).stdout
+                          env=environ()).stdout
 
 
 def matrix_output(fpr):
@@ -242,7 +265,7 @@ def publish_pages(tmp_path, paths, files, links=()):
 def run(tmp_path, paths, key, *args, env=()):
     """release.sh mit den Stellvertretern; gibt das Ergebnis und die Aufrufe je Werkzeug zurück (je Aufruf seine
     Argumente)."""
-    env = {**os.environ, **GIT_ENV, "PATH": f"{paths['bin']}:{os.environ['PATH']}", "LOG_DIR": str(tmp_path),
+    env = {**environ(), "PATH": f"{paths['bin']}:{os.environ['PATH']}", "LOG_DIR": str(tmp_path),
            "REAL_GIT": REAL["git"], "REMOTE": str(paths["remote"]), "RPM_BIN": str(paths["rpm_bin"]),
            "REPO": str(paths["repo"]),
            "GNUPGHOME": str(key["home"]), "ORBITOP_KEY": key["fpr"], "TMPDIR": str(tmp_path / "tmp"), **dict(env)}

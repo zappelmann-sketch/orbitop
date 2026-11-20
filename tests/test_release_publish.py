@@ -2,13 +2,15 @@
 # Copyright © 2026 zappelmann-sketch
 """scripts/release.sh, die Veröffentlichung mit Stellvertretern (tests/release_stub.py): Pushes mit genannten Refs,
 ohne Signatur- und Tag-Folge-Überraschungen, die Anhänge des Releases, der Entwurf, der erst nach Pages
-veröffentlicht wird, und ein liegengebliebener Zweig gh-pages."""
+veröffentlicht wird, die Identität im Worktree von gh-pages, ein liegengebliebener Zweig gh-pages und der
+Stellvertreter für gh."""
+import os
 import subprocess
 import tarfile
 
 import pytest
 
-from tests.release_stub import KV, NAME, NOREPLY, VERSION, git, make_repo, run, sha256
+from tests.release_stub import GH, KV, NAME, NOREPLY, REAL, VERSION, git, make_repo, run, sha256, stub
 from tests.site_stub import kill_agent, make_keys, needs_git
 
 pytestmark = needs_git
@@ -117,9 +119,9 @@ def test_pages_commit_ignores_the_excludes_of_git(tmp_path, keys, repo):
     assert f"arch/x86_64/orbitop-{VERSION}-1-any.pkg.tar.zst" in names
 
 
-def test_refuses_an_identity_that_only_the_gh_pages_worktree_gets(tmp_path, keys, repo):
-    """Re-Review: includeIf onbranch:main gibt nur main die Identität des Projekts, der Worktree auf gh-pages bekäme
-    die globale (etwa eine private). Der Lauf hält an, bevor etwas veröffentlicht ist."""
+def identity_only_on_main(tmp_path, repo):
+    """includeIf onbranch:main gibt nur main die Identität des Projekts, sonst gilt die globale (etwa eine private);
+    gibt die Umgebung dafür zurück."""
     project = tmp_path / "project.gitconfig"
     project.write_text(f"[user]\n\tname = {NAME}\n\temail = {NOREPLY}\n")
     config = tmp_path / "global.gitconfig"
@@ -127,12 +129,33 @@ def test_refuses_an_identity_that_only_the_gh_pages_worktree_gets(tmp_path, keys
                       f"\tpath = {project}\n")
     for key in ("user.name", "user.email"):
         git(repo["repo"], "config", "--unset", key)
-    r, calls = run(tmp_path, repo, keys, VERSION, env={"GIT_CONFIG_GLOBAL": str(config)})
+    return {"GIT_CONFIG_GLOBAL": str(config)}
+
+
+def test_refuses_an_identity_that_only_the_gh_pages_worktree_gets(tmp_path, keys, repo):
+    """Re-Review: Der Worktree auf gh-pages bekäme die globale Identität. Der Lauf hält an, bevor etwas
+    veröffentlicht ist."""
+    r, calls = run(tmp_path, repo, keys, VERSION, env=identity_only_on_main(tmp_path, repo))
     assert r.returncode == 1 and "GIT_AUTHOR_IDENT must be exactly zappelmann-sketch <" in r.stderr, r.stderr
     assert "/pages (git config" in r.stderr  # im Worktree, nicht im Repository
     assert not [c for c in calls["git"] if "push" in c or "tag" in c]
     assert not [c for c in calls["gh"] if c[0] == "release"]
     assert "gh-pages" not in git(repo["remote"], "branch")
+
+
+@pytest.mark.parametrize("local", [False, True], ids=["first", "local-gh-pages"])
+def test_dry_run_checks_the_pages_identity(tmp_path, keys, repo, local):
+    """Task 9: Der Trockenlauf prüft die Identität im Worktree von gh-pages wie der echte Lauf und ändert dabei keinen
+    Zweig, auch keinen lokalen gh-pages, den ein früherer Lauf ließ."""
+    if local:
+        git(repo["repo"], "branch", "gh-pages")
+    refs = git(repo["repo"], "for-each-ref")
+    r, calls = run(tmp_path, repo, keys, VERSION, "--dry-run", env=identity_only_on_main(tmp_path, repo))
+    assert r.returncode == 1 and "GIT_AUTHOR_IDENT must be exactly zappelmann-sketch <" in r.stderr, r.stderr
+    assert "/pages (git config" in r.stderr
+    assert not calls["gh"] and not [c for c in calls["git"] if "push" in c]
+    assert git(repo["repo"], "for-each-ref") == refs
+    assert git(repo["repo"], "worktree", "list").count("\n") == 1
 
 
 def test_first_release_replaces_a_leftover_local_gh_pages(tmp_path, keys, repo):
@@ -143,3 +166,19 @@ def test_first_release_replaces_a_leftover_local_gh_pages(tmp_path, keys, repo):
     remote = repo["remote"]
     assert git(remote, "rev-list", "--count", "gh-pages").strip() == "1"  # verwaist, ohne den alten Zweig
     assert "orbitop/__init__.py" not in git(remote, "ls-tree", "-r", "--name-only", "gh-pages")
+
+
+@pytest.mark.parametrize("args", [["--repo", "o/r", "--notes-from-tag"], ["--notes-from-tag", "--repo", "o/r"],
+                                  ["--notes-from-tag", "-R", "o/r"], ["--notes-from-tag=true", "--repo", "o/r"]],
+                         ids=["repo-first", "repo-after", "short", "equals"])
+def test_gh_stub_refuses_notes_from_tag_with_repo(tmp_path, args):
+    """Task 9: Der Stellvertreter lehnt wie gh 2.104 --notes-from-tag mit --repo oder -R ab, in jeder Reihenfolge und
+    als --notes-from-tag=true; --notes-file mit --repo nicht (dort scheitert nur der fehlende Tag)."""
+    stub(tmp_path, "gh", GH)
+    git(tmp_path, "init", "-q", "--bare", str(tmp_path / "remote.git"))
+    env = {**os.environ, "LOG_DIR": str(tmp_path), "REAL_GIT": REAL["git"], "REMOTE": str(tmp_path / "remote.git")}
+    text = "using `--notes-from-tag` with `--repo` is not supported"
+    for notes, refused in ((args, True), ([a for a in args if "notes" not in a] + ["--notes-file", "n"], False)):
+        r = subprocess.run([str(tmp_path / "gh"), "release", "create", "v1", "--verify-tag", *notes],
+                           capture_output=True, text=True, env=env)
+        assert r.returncode == 1 and (text in r.stderr) == refused, (notes, r.stderr)

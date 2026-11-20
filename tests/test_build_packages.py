@@ -9,7 +9,7 @@ import pytest
 
 from orbitop import __version__
 from tests.packaging_common import ROOT
-from tests.site_stub import GETCAP
+from tests.site_stub import GETCAP, kill_agent
 
 PUBLIC = "-----BEGIN PGP PUBLIC KEY BLOCK-----\n\nAAAA\n-----END PGP PUBLIC KEY BLOCK-----\n"
 SECRET = "-----BEGIN PGP PRIVATE KEY BLOCK-----\n\nAAAA\n-----END PGP PRIVATE KEY BLOCK-----\n"
@@ -39,7 +39,7 @@ def keys(tmp_path_factory):
     for name, data in files.items():
         (d / f"{name}.asc").write_bytes(data)
     yield {name: d / f"{name}.asc" for name in files}
-    subprocess.run(["gpgconf", "--homedir", str(home), "--kill", "all"], capture_output=True)
+    kill_agent(home)
 
 
 def build(tmp_path, *args, plant=""):

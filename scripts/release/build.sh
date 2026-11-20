@@ -77,22 +77,24 @@ published() {
     done
 }
 
-# build DIR SITE [SUFFIX]: build-packages.sh into DIR, the published small packages in place, build-site.sh into SITE.
+# build DIR SITE [SUFFIX]: build-packages.sh into DIR, the published small packages in place, build-site.sh into SITE,
+# both from the files of the pinned HEAD (ORBITOP_REV for tracked_files), whatever HEAD is by now.
 build() {
-    bash "$repo/scripts/build-packages.sh" --out "$1" --pubkey "$tmp/key.asc" ${3:+--suffix "$3"} ||
-        die "build-packages.sh failed"
+    ORBITOP_REV=$pinned bash "$repo/scripts/build-packages.sh" --out "$1" --pubkey "$tmp/key.asc" \
+        ${3:+--suffix "$3"} || die "build-packages.sh failed"
     cp -r -- "$tmp/reuse/." "$1/"
-    bash "$repo/scripts/build-site.sh" --packages "$1" --out "$2" || die "build-site.sh failed"
+    ORBITOP_REV=$pinned bash "$repo/scripts/build-site.sh" --packages "$1" --out "$2" || die "build-site.sh failed"
 }
 
-# matrix: check-distros.sh with both trees must pass on every image and name ORBITOP_KEY. Its output becomes the
-# results in docs/distro-check.md, which must still list every distribution of the README as passed; a release commits
-# the file, a dry run only writes it. release_rev is the commit of the release files: that commit, or the pinned HEAD.
+# matrix: check-distros.sh with both trees and the files of the pinned HEAD must pass on every image and name
+# ORBITOP_KEY. Its output becomes the results in docs/distro-check.md, which must still list every distribution of the
+# README as passed; a release commits the file, a dry run only writes it. release_rev is the commit of the release
+# files: that commit, or the pinned HEAD.
 matrix() {
     local key doc=docs/distro-check.md
     release_rev=$pinned
-    bash "$repo/scripts/check-distros.sh" --site "$tmp/site" --site2 "$tmp/site2" | tee "$tmp/matrix.log" ||
-        die "the container matrix failed (RESULT lines above)"
+    ORBITOP_REV=$pinned bash "$repo/scripts/check-distros.sh" --site "$tmp/site" --site2 "$tmp/site2" |
+        tee "$tmp/matrix.log" || die "the container matrix failed (RESULT lines above)"
     key=$(sed -n 's/^KEY //p' "$tmp/matrix.log" | sort -u)
     [ "$key" = "$fpr" ] || die "the matrix ran with the key ${key:-none}, not ORBITOP_KEY=$fpr"
     python3 -I "$repo/scripts/release/distro-check.py" "$repo/$doc" "$version" "$keyring_version" ${dry:+"--dry-run"} \

@@ -226,15 +226,16 @@ def test_checks_accept_the_repository(tmp_path):
     fpr = re.search(r"using EDDSA key ([0-9A-F]{40})", (ROOT / "README.md").read_text())[1]
     (tmp_path / "gnupg").mkdir(mode=0o700)
     (tmp_path / "import").mkdir(mode=0o700)
+    script = ". scripts/container-common.sh; . scripts/release/checks.sh; check_readme; check_committed"
     try:
         gpg(tmp_path / "import", "--no-options", "--import", str(KEY_FILE))
         (tmp_path / "key.pgp").write_bytes(gpg(tmp_path / "import", "--no-options", "--export", "--export-options",
                                                "export-minimal", fpr))
+        r = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=ROOT, capture_output=True, text=True,
+                           env={**os.environ, "repo": str(ROOT), "fpr": fpr, "tmp": str(tmp_path), "dry": ""})
     finally:
-        kill_agent(tmp_path / "import")
-    script = ". scripts/container-common.sh; . scripts/release/checks.sh; check_readme; check_committed"
-    r = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=ROOT, capture_output=True, text=True,
-                       env={**os.environ, "repo": str(ROOT), "fpr": fpr, "tmp": str(tmp_path), "dry": ""})
+        for home in ("import", "gnupg"):  # gnupg: das leere GNUPGHOME von check_committed
+            kill_agent(tmp_path / home)
     assert r.returncode == 0 and not r.stderr, r.stderr
 
 

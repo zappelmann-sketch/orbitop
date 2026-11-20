@@ -12,6 +12,7 @@ import pytest
 
 from orbitop import app
 from tests.packaging_common import KEY_FILE
+from tests.site_stub import kill_agent
 
 REPO = Path(__file__).resolve().parent.parent
 EN = (REPO / "README.md").read_text(encoding="utf-8")
@@ -158,8 +159,11 @@ def key_records(tmp_path):
     if not shutil.which("gpg"):
         pytest.skip("gpg fehlt")
     (tmp_path / "gnupg").mkdir(mode=0o700)
-    out = subprocess.run(["gpg", "--no-options", "--homedir", str(tmp_path / "gnupg"), "--batch", "--with-colons",
-                          "--show-keys", str(KEY_FILE)], check=True, capture_output=True, text=True).stdout
+    try:
+        out = subprocess.run(["gpg", "--no-options", "--homedir", str(tmp_path / "gnupg"), "--batch", "--with-colons",
+                              "--show-keys", str(KEY_FILE)], check=True, capture_output=True, text=True).stdout
+    finally:
+        kill_agent(tmp_path / "gnupg")
     return [ln.split(":") for ln in out.splitlines()]
 
 

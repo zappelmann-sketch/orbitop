@@ -54,12 +54,18 @@ previous_by_hash() {
     done
 }
 
-# pages_worktree (a release only): gh-pages, an orphan branch, in a worktree of its own at $tmp/pages, never checked
-# out: the published branch, or a new one on the first release. It is made before anything is published, so that
-# check_ident sees the identity git gives this worktree before step 4.
+# pages_worktree: gh-pages, an orphan branch, in a worktree of its own at $tmp/pages, never checked out: the published
+# branch, or a new one on the first release. It is made before anything is published, so that check_ident sees the
+# identity git gives this worktree before step 4. A dry run checks it too, but changes no branch: it takes a local
+# gh-pages as it is, or an unborn one, which leaves no ref.
 pages_worktree() {
-    [ -z "$dry" ] || return 0
-    if [ -n "$pages_rev" ]; then
+    if [ -n "$dry" ]; then
+        if git -C "$repo" rev-parse -q --verify refs/heads/gh-pages > /dev/null; then
+            git -C "$repo" worktree add -q --no-checkout "$tmp/pages" gh-pages
+        else
+            git -C "$repo" worktree add -q --orphan -b gh-pages "$tmp/pages"
+        fi
+    elif [ -n "$pages_rev" ]; then
         git -C "$repo" worktree add -q --no-checkout -B gh-pages "$tmp/pages" "$pages_rev"
     else
         if git -C "$repo" rev-parse -q --verify refs/heads/gh-pages > /dev/null; then

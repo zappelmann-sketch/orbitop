@@ -4,11 +4,12 @@
 # Builds, checks and publishes a release of orbitop (spec 5, docs/release.md "Release").
 # Usage: GNUPGHOME=DIR ORBITOP_KEY=FINGERPRINT bash release.sh VERSION [--dry-run]
 #        On a clean main whose orbitop/__init__.py has VERSION; GNUPGHOME holds the archive key and nothing else.
-#        --dry-run runs steps 1 to 3 and the release files (docs/distro-check.md is written, not committed) and only
-#        prints the commands of steps 4 to 8.
-# Steps: 1 checks (release/checks.sh); 2 packages and signed source, twice (the second with --suffix check1), in a
-#        work directory that is removed on exit; 3 container matrix and docs/distro-check.md; the release files from
-#        its commit (release/build.sh) and the gh-pages worktree with its identity checked (a release only);
+#        --dry-run runs steps 1 to 3, the release files (docs/distro-check.md is written, not committed) and the
+#        identity check of the gh-pages worktree, and only prints the commands of steps 4 to 8.
+# Steps: 1 checks (release/checks.sh), HEAD pinned; 2 packages and signed source of the pinned HEAD, twice (the
+#        second with --suffix check1), in a work directory that is removed on exit; 3 container matrix with the files
+#        of the pinned HEAD and docs/distro-check.md; the release files from its commit (release/build.sh) and the
+#        gh-pages worktree with its identity checked;
 #        4 annotated tag of that commit, if HEAD has not moved since step 1; 5 push of main and tag, GitHub release
 #        as a draft;
 #        6 gh-pages; 7 GitHub Pages on the first release; 8 wait until Pages serves the new source, then publish

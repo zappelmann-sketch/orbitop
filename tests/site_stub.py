@@ -83,7 +83,10 @@ def make_keys(home, uids=("Test Signing <test@example.com>",)):
 
 
 def kill_agent(home):
-    subprocess.run(["gpgconf", "--homedir", str(home), "--kill", "all"], capture_output=True)
+    """Am Ende jedes Tests mit einem GNUPGHOME: dessen Agent stoppt, und dessen Socket-Ordner unter
+    /run/user/<uid>/gnupg (den gpgconf --kill anlegt, falls er fehlt) verschwindet (Wächter: tests/conftest.py)."""
+    for what in (["--kill", "all"], ["--remove-socketdir"]) if shutil.which("gpgconf") else ():
+        subprocess.run(["gpgconf", "--homedir", str(home), *what], capture_output=True)
 
 
 def run(tmp_path, key, *, packages=PACKAGES, fpr=None, socket=None, env=(), stubs=()):

@@ -34,16 +34,19 @@ fresh_out() {
     if [ -e "$1" ] && [ -n "$(ls -A -- "$1")" ]; then die "--out must be empty or missing, $2: $1"; fi
 }
 
-# workdir: sets $tmp, a new directory that is removed on exit (with the gpg-agent of $tmp/gnupg, if there is one).
+# workdir: sets $tmp, a new directory that is removed on exit, with the gpg-agent of $tmp/gnupg, if there is one, and
+# the socket directory below /run/user/<uid>/gnupg that gpgconf --kill makes for it; a failure there keeps nothing.
 workdir() {
     tmp=$(mktemp -d)
-    trap '[ ! -d "$tmp/gnupg" ] || gpgconf --homedir "$tmp/gnupg" --kill all 2>/dev/null; rm -rf -- "$tmp"' EXIT
+    trap '[ ! -d "$tmp/gnupg" ] || { gpgconf --homedir "$tmp/gnupg" --kill all
+        gpgconf --homedir "$tmp/gnupg" --remove-socketdir; } 2>/dev/null || true; rm -rf -- "$tmp"' EXIT
 }
 
-# tracked_files: $tmp/src holds the files of HEAD (git archive), never local ones such as CLAUDE.md.
+# tracked_files: $tmp/src holds the files of the commit ORBITOP_REV, or of HEAD without it (git archive), never local
+# ones such as CLAUDE.md. release.sh passes the HEAD of its step 1, so that a commit during the run changes no build.
 tracked_files() {
     mkdir "$tmp/src"
-    git -C "$repo" archive HEAD | tar -C "$tmp/src" -xf -
+    git -C "$repo" archive "${ORBITOP_REV:-HEAD}" | tar -C "$tmp/src" -xf -
 }
 
 # only_plain DIR: DIR comes from a container (as root); host tools may touch it only if it holds nothing but regular

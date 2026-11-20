@@ -1,8 +1,11 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
+import os
 import shutil
 import subprocess
 import warnings
+from pathlib import Path
+from urllib.parse import unquote
 
 import pytest
 
@@ -100,6 +103,48 @@ def rig(monkeypatch, tmp_path):
     monkeypatch.setattr(shell, "GLib", glib)
     monkeypatch.setattr(shell, "threading", SimpleNamespace(Thread=Thread))
     return SimpleNamespace(s=s, log=log, glib=glib, threads=threads, js=s._view.js)
+
+
+def gnupg_socket_dirs():
+    """Die Socket-Ordner d.* unter dem socketdir von GnuPG (/run/user/<uid>/gnupg), einer je GNUPGHOME außer dem
+    üblichen; leer ohne gpgconf oder wenn das socketdir der GnuPG-Ordner selbst ist (dann gibt es keine d.*)."""
+    env = {k: v for k, v in os.environ.items() if k != "GNUPGHOME"}  # sonst legte gpgconf dessen d.* erst an
+    try:
+        out = subprocess.run(["gpgconf", "--list-dirs"], capture_output=True, text=True, env=env).stdout
+    except FileNotFoundError:
+        return set()
+    dirs = dict(unquote(ln).split(":", 1) for ln in out.splitlines() if ":" in ln)
+    base = dirs.get("socketdir")
+    if not base or base == dirs.get("homedir") or not os.path.isdir(base):
+        return set()
+    return {n for n in os.listdir(base) if n.startswith("d.")}
+
+
+def gpg_agents_below(path):
+    """PID -> GNUPGHOME jedes laufenden gpg-agent, dessen --homedir unter PATH liegt."""
+    found = {}
+    for pid in filter(str.isdigit, os.listdir("/proc")):
+        try:
+            args = Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").split("\0")
+        except OSError:
+            continue
+        if os.path.basename(args[0]) == "gpg-agent" and "--homedir" in args[:-1]:
+            home = args[args.index("--homedir") + 1]
+            if home.startswith(f"{path}/"):
+                found[pid] = home
+    return found
+
+
+@pytest.fixture(scope="session", autouse=True)
+def gnupg_leaves_nothing(tmp_path_factory):
+    """Jeder Test, der ein GNUPGHOME anlegt, stoppt am Ende dessen Agenten und entfernt den Socket-Ordner
+    (site_stub.kill_agent); ein Testlauf lässt keinen neuen d.*-Ordner und keinen gpg-agent eines Test-GNUPGHOME
+    zurück. shortcut: ein gleichzeitiger GnuPG-Lauf außerhalb dieser Tests zählt mit."""
+    before = gnupg_socket_dirs()
+    yield
+    new = sorted(gnupg_socket_dirs() - before)
+    agents = gpg_agents_below(tmp_path_factory.getbasetemp())
+    assert not new and not agents, f"GnuPG-Reste des Testlaufs: Socket-Ordner {new}, gpg-agent {agents}"
 
 
 @pytest.fixture(autouse=True)

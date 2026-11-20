@@ -11,7 +11,8 @@ APP=io.github.zappelmann_sketch.orbitop
 GH_REPO=zappelmann-sketch/orbitop
 IDENT="zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>"  # of every commit and tag
 WARN_DAYS=180  # spec 4: the key's remaining time
-# The push URL of origin, the one repository a release pushes to: GH_REPO on GitHub, over https or ssh.
+# The push and the fetch URL of origin, the one repository a release pushes to and reads from: GH_REPO on GitHub, over
+# https or ssh.
 ORIGIN_URL='(https://github\.com/|git@github\.com:|ssh://git@github\.com/)zappelmann-sketch/orbitop(\.git)?'
 
 gpg() { command gpg --no-options --batch "$@"; }  # never a gpg.conf: its options would reach the release
@@ -30,7 +31,8 @@ check_ident() {
 
 # check_tree: a clean main at VERSION, without the tag, whose commits and tag carry IDENT; the Debian and the RPM
 # changelog of this version come from the one source, the <release> entries of the metainfo (packaging/changelog.py).
-# pinned is this HEAD: the release files and the tag are of it or of the one commit of step 3 on top (check_head).
+# pinned is this HEAD: the builds and the matrix take its files (build.sh), the release files and the tag are of it or
+# of the one commit of step 3 on top (check_head).
 check_tree() {
     local branch status have kind
     check_ident "$repo"
@@ -66,13 +68,17 @@ print(E.parse(sys.argv[1]).find("releases/release").get("date"))' "$repo/data/$A
         warn_or_die "the newest <release> of the metainfo has the date $released, not today ($today, UTC)"
 }
 
-# check_origin: every URL that git push origin pushes to is one, the repository GH_REPO on GitHub. git remote get-url
-# --all --push names them after pushurl, insteadOf and pushInsteadOf of the git configuration.
+# check_origin: every URL that git push origin pushes to, and every URL that remote_state reads the tag and gh-pages
+# from, is one, the repository GH_REPO on GitHub, so that no mirror stands in for it. git remote get-url --all
+# [--push] names them after pushurl, insteadOf and pushInsteadOf of the git configuration.
 check_origin() {
     local urls re="^${ORIGIN_URL}\$"
     urls=$(git -C "$repo" remote get-url --all --push origin 2> /dev/null) || urls=""
     [[ $urls =~ $re ]] || warn_or_die "origin pushes to ${urls:-nowhere}, not to $GH_REPO on GitHub (git remote" \
         "get-url --all --push origin: url, pushurl, insteadOf)"
+    urls=$(git -C "$repo" remote get-url --all origin 2> /dev/null) || urls=""
+    [[ $urls =~ $re ]] || warn_or_die "origin fetches from ${urls:-nowhere}, not from $GH_REPO on GitHub (git" \
+        "remote get-url --all origin: url, insteadOf)"
 }
 
 # check_key: ORBITOP_KEY is the primary key of a secret key in GNUPGHOME and has not expired (a warning when less than
