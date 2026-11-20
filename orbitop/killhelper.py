@@ -1,9 +1,9 @@
-#!/usr/bin/python3 -I
+#!/usr/bin/python3 -IS
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Signal-Kern und Root-Hilfsprogramm: killhelper.py <pid> <start> TERM|KILL (Aufruf über pkexec).
 
-Läuft mit `python -I`, also ohne PYTHONPATH und Skriptverzeichnis: nur Standardbibliothek, nie `orbitop.*`.
+Läuft mit `python -IS`, ohne PYTHONPATH, Skriptverzeichnis und site-packages: nur Standardbibliothek, nie `orbitop.*`.
 Deshalb ist das Stat-Parsen hier (bis zur letzten ')') bewusst doppelt zu procs.parse_stat.
 Exit-Codes: 0 gesendet, 2 ungültig, 3 mismatch, 4 gone, 5 zombie, 6 Kernel/verweigert."""
 import errno

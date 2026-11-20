@@ -440,7 +440,7 @@ The packages of orbitop depend on the same runtime packages and on polkit.
 
 ### Security model
 
-- The page talks to Python only through `parse_message` in `orbitop/app.py`. It accepts the messages `ready`, `view`, `layout`, `terminate`, `autostart` and `quit`, checks every value for type and range, drops unknown keys and limits the size to 4096 characters. Anything else is ignored.
+- The page talks to Python only through `parse_message` in `orbitop/messages.py`. It accepts the messages `ready`, `view`, `layout`, `terminate`, `autostart` and `quit`, checks every value for type and range, drops unknown keys and limits the size to 4096 characters. Anything else is ignored.
 - Process names, command lines and users reach the page only as text (`textContent`), never as HTML.
 - orbitop opens no port and makes no network connections. Updates come only through the package manager.
 - Terminating a process of another user runs `pkexec /usr/lib/orbitop/killhelper <pid> <start time> <signal>`. The polkit action `io.github.zappelmann-sketch.orbitop.terminate` applies only to this program (`org.freedesktop.policykit.exec.path`) and asks for the admin password every time (`auth_admin`); the dialog shows PID, start time and signal. Before that, orbitop checks with `lstat` that the helper is a regular file and not a symlink, and that it and every directory up to `/` belong to root and are not writable by group or others. If not, it shows a hint and asks for no password. It also starts the helper only through the setuid `pkexec` of polkit: `/usr/bin/pkexec` must be a regular, root-owned ELF program with the setuid bit, in the same kind of directory chain. Otherwise, for example with `run0-wrappers` on openSUSE, terminating other users' processes is not available and orbitop says so.
@@ -477,7 +477,7 @@ shell.py            GTK 4 window, WebKitGTK 6.0 view, orbitop://ui/
 orbitop/ui/js/      page as ES modules from main.js, chart.js draws the charts
    |  postMessage: ready, view, layout, terminate, autostart, quit
    v
-app.py parse_message
+messages.py parse_message
    |-- layout    -> layout.py    -> ~/.config/orbitop/layout.json
    |-- autostart -> autostart.py -> ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
    '-- terminate -> actions.py   -> own process: signal

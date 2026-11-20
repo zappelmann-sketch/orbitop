@@ -9,7 +9,7 @@ from orbitop import killhelper
 from orbitop.procs import is_kernel, parse_stat
 
 # Installiert vom orbitop-Paket; nie die Datei im Checkout, die User-Code austauschen könnte (F-1).
-# pkexec startet ihn direkt (Shebang python3 -I), damit die polkit-Action mit exec.path genau ihn trifft.
+# pkexec startet ihn direkt (Shebang python3 -IS), damit die polkit-Action mit exec.path genau ihn trifft.
 _HELPER = "/usr/lib/orbitop/killhelper"
 # Absolute Pfade: kein PATH- oder venv-Einfluss auf das, was als root läuft.
 PKEXEC = "/usr/bin/pkexec"
@@ -28,7 +28,7 @@ def _own(pid: int, root: str) -> bool | None:
     return None
 
 
-def _trusted(path: str, lstat=os.lstat) -> bool:
+def trusted(path: str, lstat=os.lstat) -> bool:
     """True, wenn path eine ausführbare reguläre Datei und kein Symlink ist und jedes Glied von ihr bis / root gehört
     und für Gruppe und andere nicht beschreibbar ist. Sonst könnte ein Prozess des Users austauschen, was pkexec als
     root startet; ohne x-Bit scheiterte pkexec erst nach dem Passwort."""
@@ -46,12 +46,12 @@ def _trusted(path: str, lstat=os.lstat) -> bool:
     return False
 
 
-def _real_pkexec(lstat=os.lstat, opener=os.open) -> bool:
-    """True, wenn PKEXEC das setuid-ELF von polkit sein kann: _trusted, root-eigen mit S_ISUID, beginnt mit \\x7fELF.
+def real_pkexec(lstat=os.lstat, opener=os.open) -> bool:
+    """True, wenn PKEXEC das setuid-ELF von polkit sein kann: trusted, root-eigen mit S_ISUID, beginnt mit \\x7fELF.
     run0-wrappers (openSUSE) legt dort ein bash-Skript um run0 ab, das die polkit-Action von orbitop umgeht (I-3).
     Vor jedem Aufruf von PKEXEC; gelesen mit O_NOFOLLOW aus einem fd, ein Symlink scheitert also auch hier."""
     try:
-        if not _trusted(PKEXEC, lstat) or not lstat(PKEXEC).st_mode & stat.S_ISUID:
+        if not trusted(PKEXEC, lstat) or not lstat(PKEXEC).st_mode & stat.S_ISUID:
             return False
         fd = opener(PKEXEC, os.O_RDONLY | os.O_NOFOLLOW | os.O_CLOEXEC)
         try:
@@ -79,7 +79,7 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, l
     refused = _precheck(pid, start, root)
     if refused:  # veraltete Startzeit oder verweigertes Ziel: kein Passwortdialog
         return refused
-    if not (_trusted(_HELPER, lstat) and _real_pkexec(lstat, opener)):  # Helfer austauschbar, pkexec fremd: kein pkexec
+    if not (trusted(_HELPER, lstat) and real_pkexec(lstat, opener)):  # Helfer austauschbar, pkexec fremd: kein pkexec
         return "nohelper"
     try:
         r = run([PKEXEC, _HELPER, str(pid), str(start), sig], timeout=120)

@@ -75,22 +75,33 @@ def foreign(tmp_path):
 
 
 @pytest.fixture
-def rig(monkeypatch, tmp_path):
-    """Hülle ohne Fenster mit Attrappen für Worker, WebView, Thread und GLib; nur nach check_runtime() nutzbar."""
+def threads(monkeypatch):
+    """threading.Thread in orbitop.jobs ersetzt: start() zeichnet den Thread nur auf; die Liste der gestarteten."""
     from types import SimpleNamespace
 
-    from orbitop import shell
-    from orbitop.layout import LayoutFile
-    from tests.shell_helpers import FakeGLib, FakeView, FakeWorker
-    log, threads = [], []
+    from orbitop import jobs
+    started = []
 
     class Thread:
         def __init__(self, target, args=(), daemon=None):
             self.target, self.args, self.daemon = target, args, daemon
 
         def start(self):
-            threads.append(self)
+            started.append(self)
+    monkeypatch.setattr(jobs, "threading", SimpleNamespace(Thread=Thread))
+    return started
 
+
+@pytest.fixture
+def rig(monkeypatch, tmp_path, threads):
+    """Hülle ohne Fenster mit Attrappen für Worker, WebView, Thread und GLib; nur nach check_runtime() nutzbar."""
+    from types import SimpleNamespace
+
+    from orbitop import shell
+    from orbitop.jobs import Jobs
+    from orbitop.layout import LayoutFile
+    from tests.shell_helpers import FakeGLib, FakeView, FakeWorker
+    log = []
     s = shell.Shell(False)
     s._worker, s._view = FakeWorker(log), FakeView()
     s._init_fields, s._layouts = {"type": "init"}, LayoutFile(str(tmp_path / "layout.json"))
@@ -101,7 +112,7 @@ def rig(monkeypatch, tmp_path):
     monkeypatch.setattr(shell.autostart, "set_enabled", lambda on, env: log.append(("autostart", on)))
     glib = FakeGLib()
     monkeypatch.setattr(shell, "GLib", glib)
-    monkeypatch.setattr(shell, "threading", SimpleNamespace(Thread=Thread))
+    s._jobs = Jobs(s._send, glib)
     return SimpleNamespace(s=s, log=log, glib=glib, threads=threads, js=s._view.js)
 
 

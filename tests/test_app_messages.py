@@ -5,9 +5,9 @@ import json
 
 import pytest
 
-from orbitop import app
-from orbitop.app import parse_message
+from orbitop import messages
 from orbitop.layout import COLUMNS, DEFAULT_HIDDEN
+from orbitop.messages import parse_message
 
 L = {"order": list(COLUMNS), "hidden": list(DEFAULT_HIDDEN), "widths": {"cpu": 90}, "split": 0.6}
 
@@ -91,5 +91,5 @@ def test_parse_message_survives_deep_nesting(monkeypatch):
 
     def boom(_):
         raise RecursionError
-    monkeypatch.setattr(app.json, "loads", boom)
+    monkeypatch.setattr(messages.json, "loads", boom)
     assert parse_message('{"type":"ready"}') is None

@@ -440,7 +440,7 @@ Die Pakete von orbitop hängen von denselben Laufzeitpaketen und von polkit ab.
 
 ### Sicherheitsmodell
 
-- Die Seite spricht mit Python nur über `parse_message` in `orbitop/app.py`. Die Schleuse nimmt die Nachrichten `ready`, `view`, `layout`, `terminate`, `autostart` und `quit` an, prüft jeden Wert auf Typ und Wertebereich, verwirft unbekannte Schlüssel und begrenzt die Größe auf 4096 Zeichen. Alles andere wird verworfen.
+- Die Seite spricht mit Python nur über `parse_message` in `orbitop/messages.py`. Die Schleuse nimmt die Nachrichten `ready`, `view`, `layout`, `terminate`, `autostart` und `quit` an, prüft jeden Wert auf Typ und Wertebereich, verwirft unbekannte Schlüssel und begrenzt die Größe auf 4096 Zeichen. Alles andere wird verworfen.
 - Prozessnamen, Befehlszeilen und Benutzer kommen nur als Text (`textContent`) in die Seite, nie als HTML.
 - orbitop öffnet keinen Port und baut keine Netzwerkverbindung auf. Updates kommen nur über die Paketverwaltung.
 - Einen Prozess eines anderen Benutzers beendet orbitop mit `pkexec /usr/lib/orbitop/killhelper <pid> <startzeit> <signal>`. Die polkit-Action `io.github.zappelmann-sketch.orbitop.terminate` gilt nur für dieses Programm (`org.freedesktop.policykit.exec.path`) und fragt jedes Mal nach dem Admin-Passwort (`auth_admin`); der Dialog zeigt PID, Startzeit und Signal. Vorher prüft orbitop per `lstat`, dass der Helfer eine reguläre Datei und kein Symlink ist und dass er und jedes Verzeichnis bis `/` root gehören und für Gruppe und andere nicht beschreibbar sind. Sonst zeigt es einen Hinweis und fragt nach keinem Passwort. Den Helfer startet es außerdem nur über das setuid-`pkexec` von polkit: `/usr/bin/pkexec` muss ein reguläres, root-eigenes ELF-Programm mit setuid-Bit in einer ebensolchen Verzeichniskette sein. Sonst, etwa mit `run0-wrappers` unter openSUSE, ist das Beenden fremder Prozesse nicht verfügbar, und orbitop sagt das.
@@ -477,7 +477,7 @@ shell.py            GTK 4 window, WebKitGTK 6.0 view, orbitop://ui/
 orbitop/ui/js/      page as ES modules from main.js, chart.js draws the charts
    |  postMessage: ready, view, layout, terminate, autostart, quit
    v
-app.py parse_message
+messages.py parse_message
    |-- layout    -> layout.py    -> ~/.config/orbitop/layout.json
    |-- autostart -> autostart.py -> ~/.config/autostart/io.github.zappelmann_sketch.orbitop.desktop
    '-- terminate -> actions.py   -> own process: signal

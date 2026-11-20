@@ -43,12 +43,12 @@ HICCUP+="|Failed to resolve '[^']*' with timeout after"  # libcurl 8 of Arch, Fe
 HICCUP+='|Connection reset by peer|Temporary failure in name resolution'  # libc
 
 # real_pkexec SHARE: the orbitop installed in SHARE (/usr/share/orbitop) accepts /usr/bin/pkexec with its own check,
-# the one before every pkexec (actions._real_pkexec): a root-owned ELF with the setuid bit in a root-owned directory
+# the one before every pkexec (actions.real_pkexec): a root-owned ELF with the setuid bit in a root-owned directory
 # chain. From / with python3 -I, so that only SHARE provides orbitop.
 real_pkexec() {
-    (cd / && python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from orbitop.actions import _real_pkexec
-sys.exit(not _real_pkexec())' "$1") ||
-        { echo "PKEXEC refused by the check of the installed orbitop (actions._real_pkexec)"; return 1; }
+    (cd / && python3 -I -c 'import sys; sys.path.insert(0, sys.argv[1]); from orbitop.actions import real_pkexec
+sys.exit(not real_pkexec())' "$1") ||
+        { echo "PKEXEC refused by the check of the installed orbitop (actions.real_pkexec)"; return 1; }
 }
 
 # logged FILE COMMAND…: COMMAND, its output live on stdout and in FILE, with or without set -e and pipefail. Returns

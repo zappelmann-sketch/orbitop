@@ -3,13 +3,10 @@
 """GTK-4-Fenster mit WebView: Einzelinstanz, Hintergrundbetrieb und Brücke zur Seite.
 
 Erst nach app.check_runtime() importieren, sonst endet ein fehlendes WebKit in einem Traceback."""
-import contextlib
 import math
 import os
 import signal
-import subprocess
 import sys
-import threading
 import time
 from pathlib import Path
 
@@ -20,15 +17,16 @@ gi.require_version("Gtk", "4.0")
 gi.require_version("WebKit", "6.0")
 from gi.repository import Gdk, Gio, GLib, Gtk, WebKit  # noqa: E402
 
-from orbitop import APP_ID, __version__, actions, autostart  # noqa: E402
-from orbitop.app import SCHEME, UI_HOST, Worker, encode, parse_message, snapshot_path, ui_file  # noqa: E402
+from orbitop import APP_ID, __version__, autostart  # noqa: E402
+from orbitop.app import SCHEME, UI_HOST, Worker, snapshot_path, ui_file  # noqa: E402
 from orbitop.i18n import detect_language, load_texts  # noqa: E402
+from orbitop.jobs import Jobs  # noqa: E402
 from orbitop.layout import KEYS, LayoutFile, config_path  # noqa: E402
+from orbitop.messages import encode, parse_message  # noqa: E402
 from orbitop.sampler import Sampler  # noqa: E402
 
 UI_DIR = str(Path(__file__).resolve().parent / "ui")
 INDEX_URI = f"{SCHEME}://{UI_HOST}/index.html"
-CHECK_DELAY_S = 5  # Nachsehen nach SIGTERM
 SNAPSHOT_DELAY_S = 5
 RELOAD_GAP_S = 10  # nach Abstürzen des Web-Prozesses höchstens einmal je 10 s neu laden
 
@@ -61,8 +59,7 @@ def _settings() -> WebKit.Settings:
 class Shell:
     def __init__(self, hidden: bool):
         self._argv = ["orbitop", "--hidden"] if hidden else ["orbitop"]
-        self._terminating = False  # höchstens ein terminate zugleich, nie ein Stapel Passwortdialoge; nur Hauptthread
-        self._pkexec: subprocess.Popen | None = None  # laufendes pkexec, gesetzt von _run im terminate-Thread
+        self._jobs = Jobs(self._send, GLib)  # Aufträge der Seite in eigenen Threads
         self._reloaded = -math.inf
         # Jeder Start reicht seine Argumente an die erste Instanz weiter (Einzelinstanz über D-Bus)
         self._app = Gtk.Application(application_id=APP_ID, flags=Gio.ApplicationFlags.HANDLES_COMMAND_LINE)
@@ -126,10 +123,7 @@ class Shell:
         return 0
 
     def _shutdown(self, _app) -> None:
-        child = self._pkexec
-        if child is not None:  # offenes pkexec: verwaist signalisierte es nach späterer Bestätigung ohne Rückmeldung
-            with contextlib.suppress(PermissionError):  # schon der Helfer als root, er endet gleich von selbst
-                child.terminate()
+        self._jobs.stop()
         self._worker.stop()
         self._sampler.close()  # beendet intel_gpu_top
 
@@ -189,7 +183,7 @@ class Shell:
         elif kind == "layout":
             self._layouts.save({k: msg[k] for k in KEYS})
         elif kind == "terminate":
-            self._terminate(msg["pid"], msg["start"], msg["force"])
+            self._jobs.terminate(msg["pid"], msg["start"], msg["force"])
         elif kind == "autostart":
             self._send(encode({"type": "autostart_state", "on": autostart.set_enabled(msg["on"], os.environ)}))
         else:
@@ -208,45 +202,6 @@ class Shell:
         else:
             decision.ignore()
         return True
-
-    # ---- Beenden von Prozessen ----
-    def _terminate(self, pid: int, start: int, force: bool) -> None:
-        if self._terminating:
-            return  # still verwerfen: die Seite zeigt erst das Ergebnis des laufenden Auftrags
-        threading.Thread(target=self._terminate_thread, args=(pid, start, force), daemon=True).start()
-        self._terminating = True  # erst nach erfolgreichem start(), sonst bliebe das Tor für immer zu
-
-    def _terminate_thread(self, pid: int, start: int, force: bool) -> None:  # pkexec blockiert bis zu 120 s
-        try:
-            result = actions.terminate(pid, start, force, run=self._run)
-        except Exception:  # sonst bliebe das Beenden für immer gesperrt
-            result = "error"
-        GLib.idle_add(self._terminated, pid, start, force, result)
-
-    def _run(self, argv: list[str], timeout: float) -> subprocess.CompletedProcess:
-        """subprocess.run für pkexec, nur dass _shutdown das Kind erreicht und beenden kann."""
-        with subprocess.Popen(argv) as p:
-            self._pkexec = p
-            try:
-                return subprocess.CompletedProcess(argv, p.wait(timeout))
-            except subprocess.TimeoutExpired:
-                p.kill()
-                raise
-            finally:
-                self._pkexec = None
-
-    def _terminated(self, pid: int, start: int, force: bool, result: str) -> None:
-        self._terminating = False
-        self._send(encode({"type": "terminate_result", "pid": pid, "result": result}))
-        if result == "sent" and not force:
-            GLib.timeout_add_seconds(CHECK_DELAY_S, self._check, pid, start)
-
-    def _check(self, pid: int, start: int) -> bool:
-        def work():
-            alive = actions.is_alive(pid, start)
-            GLib.idle_add(self._send, encode({"type": "terminate_check", "pid": pid, "alive": alive}))
-        threading.Thread(target=work, daemon=True).start()
-        return False  # einmalig
 
     # ---- Sichtprüfung ----
     def _save_snapshot(self, path: str) -> bool:

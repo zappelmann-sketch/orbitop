@@ -62,7 +62,7 @@ def test_trusted_chain_reaches_runner_with_exact_argv(foreign):
 
 
 def test_trust_check_accepts_a_real_root_chain():
-    assert actions._trusted(os.path.realpath("/usr/bin/python3"))
+    assert actions.trusted(os.path.realpath("/usr/bin/python3"))
 
 
 def test_own_process_needs_no_helper(child):
@@ -94,7 +94,7 @@ def test_only_polkits_pkexec_is_started(foreign, over, data, want):
 
 def test_pkexec_is_read_without_following_links_and_closed():
     seen = []
-    assert actions._real_pkexec(TRUSTED, opener(seen=seen))
+    assert actions.real_pkexec(TRUSTED, opener(seen=seen))
     [(path, flags, fd)] = seen
     assert path == PKEXEC and flags & os.O_NOFOLLOW and flags & os.O_CLOEXEC and flags & os.O_ACCMODE == os.O_RDONLY
     with pytest.raises(OSError):
@@ -121,4 +121,4 @@ def test_real_open_refuses_a_link_that_lstat_hid(monkeypatch, tmp_path):
         def lstat(p):
             mode = stat.S_IFREG | stat.S_ISUID | 0o755 if p == str(path) else stat.S_IFDIR | 0o755
             return SimpleNamespace(st_uid=0, st_mode=mode)
-        assert actions._real_pkexec(lstat) is want
+        assert actions.real_pkexec(lstat) is want

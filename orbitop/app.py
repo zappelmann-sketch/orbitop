@@ -1,8 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Start und GTK-freie Teile der Hülle: Laufzeitprüfung, Nachrichten-Schleuse, UI-Dateien, Mess-Thread."""
+"""Start und GTK-freie Teile der Hülle: Laufzeitprüfung, UI-Dateien, Mess-Thread."""
 import argparse
-import json
 import os
 import sys
 import threading
@@ -11,10 +10,8 @@ import traceback
 from urllib.parse import unquote, urlsplit
 
 from orbitop import __version__, sysfs
-from orbitop.layout import validate
 from orbitop.i18n import detect_language, load_texts
 
-MAX_MESSAGE = 4096
 PERIOD_S = 1.0  # tick_system und Schnappschuss
 PROCS_PERIOD_S = 2.0  # tick_procs, im eigenen Thread
 PROCS_PERIOD_HIDDEN_S = 4.0  # ausgeblendet: halbe Eigenlast des Prozess-Takts (Spec 2026-11-19, Messung Eigenlast)
@@ -62,7 +59,7 @@ def check_runtime(require_version=None, root: str = "/", version=sys.version_inf
             version=".".join(map(str, version[:3])))
     if require_version is None:
         try:
-            import gi  # erst hier, nie auf Modulebene: sampler importiert encode aus diesem Modul
+            import gi  # erst hier, nie auf Modulebene: ohne PyGObject meldet main() das Paket statt eines Tracebacks
         except ImportError:
             return _missing(0, root)
         require_version = gi.require_version
@@ -71,48 +68,6 @@ def check_runtime(require_version=None, root: str = "/", version=sys.version_inf
             require_version(namespace, ns_version)
         except ValueError:
             return _missing(index, root)
-    return None
-
-
-def encode(msg: dict) -> str:
-    """JSON nur mit ASCII (auch U+2028/2029 maskiert) und ohne NaN: als JS-Literal sicher."""
-    return json.dumps(msg, ensure_ascii=True, allow_nan=False)
-
-
-PID_MAX, START_MAX = 4194304, 2**63 - 1  # PID_MAX_LIMIT des Kernels; start ist ein u64-Zähler in Ticks
-
-
-def _uint(v, top: int) -> bool:
-    return type(v) is int and 0 <= v <= top  # bool ist kein int im Sinne des Vertrags
-
-
-def parse_message(raw) -> dict | None:
-    """Schleuse für Nachrichten der Seite: nur die Formen des Vertrags, sonst None (still verworfen)."""
-    if not isinstance(raw, str) or len(raw) > MAX_MESSAGE:
-        return None
-    try:
-        m = json.loads(raw)
-    except (ValueError, RecursionError):
-        return None
-    if not isinstance(m, dict):
-        return None
-    kind = m.get("type")
-    if kind in ("ready", "quit"):
-        return {"type": kind}
-    if kind == "view":
-        tab, pid, start = m.get("tab"), m.get("pid"), m.get("start")
-        if tab in ("overview", "procs") and (pid is None or _uint(pid, PID_MAX)) and (
-                start is None or _uint(start, START_MAX)):
-            return {"type": "view", "tab": tab, "pid": pid, "start": start}
-    if kind == "layout":
-        layout = validate(m)
-        return {"type": "layout", **layout} if layout else None
-    if kind == "terminate":
-        pid, start, force = m.get("pid"), m.get("start"), m.get("force")
-        if _uint(pid, PID_MAX) and _uint(start, START_MAX) and type(force) is bool:
-            return {"type": "terminate", "pid": pid, "start": start, "force": force}
-    if kind == "autostart" and type(m.get("on")) is bool:
-        return {"type": "autostart", "on": m["on"]}
     return None
 
 

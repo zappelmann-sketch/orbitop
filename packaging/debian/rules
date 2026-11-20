@@ -10,7 +10,7 @@
 override_dh_auto_install:
 	bash packaging/install-tree.sh debian/orbitop
 
-# Shebangs stay as they are: otherwise dh_python3 turns the root helper's "#!/usr/bin/python3 -I" into
-# "#! /usr/bin/python3" without -I. Byte-compiling in postinst and prerm stays (Python Policy 5.3).
+# Shebangs stay as they are: otherwise dh_python3 turns the root helper's "#!/usr/bin/python3 -IS" into
+# "#! /usr/bin/python3" without -IS. Byte-compiling in postinst and prerm stays (Python Policy 5.3).
 override_dh_python3:
 	dh_python3 --no-shebang-rewrite

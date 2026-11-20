@@ -1,7 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Gemeinsame Hilfen der Worker-Tests: feste Uhr, Ersatz-Sampler, synchrone Läufe beider Takte."""
-from orbitop.app import Worker, encode
+from orbitop.app import Worker
+from orbitop.messages import encode
 
 
 class Clock:

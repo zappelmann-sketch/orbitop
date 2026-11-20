@@ -57,7 +57,7 @@ How the check runs:
      `zypper install orbitop`, and `zypper lr orbitop` shows `GPG Check: (rp) Yes`; `pacman -Syu orbitop`.
      Afterwards `/usr/bin/pkexec`, which starts orbitop's helper, is a file that a package owns; the log names that
      package (`dpkg -S`, `rpm -qf`, `pacman -Qo`). The installed orbitop must accept it with its own check before every
-     `pkexec` (`actions._real_pkexec`: a root-owned ELF with the setuid bit in a root-owned directory chain), so a
+     `pkexec` (`actions.real_pkexec`: a root-owned ELF with the setuid bit in a root-owned directory chain), so a
      distribution whose `pkexec` it refuses fails the matrix instead of silently losing "terminate other users'
      processes". On openSUSE it is the package `pkexec`, which orbitop requires as `/usr/bin/pkexec`, because `polkit`
      there does not pull it in. On Arch,

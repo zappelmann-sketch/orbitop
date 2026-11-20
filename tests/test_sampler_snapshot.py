@@ -222,7 +222,7 @@ def test_tick_procs_passes_status_gate(monkeypatch):
 
 def test_snapshot_json_byte_identical_and_rows_once_per_process_tick(with_procs):
     """Die Prozessliste ändert sich nur alle 2 s: Zeilen und ihr JSON einmal je Prozess-Takt, sonst eingesetzt."""
-    from orbitop.app import encode
+    from orbitop.messages import encode
     s = run(with_procs)
     first = s.snapshot({"tab": "procs", "pid": None, "start": None})["procs"][0]
     views = [OVERVIEW, {"tab": "procs", "pid": None, "start": None},
@@ -244,7 +244,7 @@ def test_snapshot_json_byte_identical_and_rows_once_per_process_tick(with_procs)
 
 def test_snapshot_json_sends_unchanged_procs_once(with_procs):
     """resend=False: Die Liste steht nur im Tick, wenn sie sich seit der zuletzt gelieferten geändert hat."""
-    from orbitop.app import encode
+    from orbitop.messages import encode
     s = run(with_procs)
     first = json.loads(s.snapshot_json(PROCS, resend=False))
     assert first["procs"] and "procs_same" not in first

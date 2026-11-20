@@ -57,18 +57,18 @@ def test_pacman_trust_of_the_installed_key_is_never(tmp_path, content, passed):
 
 
 def share(tmp_path, body):
-    """Ein installierter Baum SHARE wie /usr/share/orbitop, dessen orbitop.actions._real_pkexec() BODY ausführt."""
+    """Ein installierter Baum SHARE wie /usr/share/orbitop, dessen orbitop.actions.real_pkexec() BODY ausführt."""
     pkg = tmp_path / "share" / "orbitop"
     pkg.mkdir(parents=True)
     (pkg / "__init__.py").write_text("")
-    (pkg / "actions.py").write_text(f"def _real_pkexec():\n    {body}\n")
+    (pkg / "actions.py").write_text(f"def real_pkexec():\n    {body}\n")
     return pkg.parent
 
 
 @pytest.mark.parametrize("body,passed", [("return True", True), ("return False", False), ("raise OSError", False)])
 def test_real_pkexec_asks_the_installed_orbitop(tmp_path, body, passed):
     """Final review I2: der Schritt install verlangt, dass das installierte orbitop /usr/bin/pkexec mit seiner eigenen,
-    strengeren Prüfung annimmt (actions._real_pkexec); sonst fehlte dort still das Beenden fremder Prozesse."""
+    strengeren Prüfung annimmt (actions.real_pkexec); sonst fehlte dort still das Beenden fremder Prozesse."""
     ok, out = call(tmp_path, f"real_pkexec {share(tmp_path, body)}")
     assert ok is passed, out
 
@@ -80,8 +80,8 @@ def test_real_pkexec_takes_orbitop_only_from_share(tmp_path):
     assert not ok, out
 
 
-def test_real_pkexec_needs_no_arguments():  # real_pkexec in lib.sh ruft actions._real_pkexec() ohne Argumente
-    assert all(p.default is not p.empty for p in inspect.signature(actions._real_pkexec).parameters.values())
+def test_real_pkexec_needs_no_arguments():  # real_pkexec in lib.sh ruft actions.real_pkexec() ohne Argumente
+    assert all(p.default is not p.empty for p in inspect.signature(actions.real_pkexec).parameters.values())
 
 
 def test_point_rewrites_from_the_package_and_refuses_a_file_changed_meanwhile(tmp_path):

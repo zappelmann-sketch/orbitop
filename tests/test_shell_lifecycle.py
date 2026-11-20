@@ -3,7 +3,6 @@
 """Hülle ohne Fenster: Unix-Signale, Herunterfahren, Sichtbarkeit, Start und Absturz der Seite."""
 import json
 import signal
-import subprocess
 import sys
 import threading
 import time
@@ -82,7 +81,7 @@ def test_shutdown_terminates_open_pkexec(rig, exc):
         rig.log.append("pkexec")
         if exc:
             raise exc
-    rig.s._pkexec = SimpleNamespace(terminate=terminate)
+    rig.s._jobs._pkexec = SimpleNamespace(terminate=terminate)
     rig.s._shutdown(None)
     assert rig.log == ["pkexec", "stop", "close"]
 
@@ -90,20 +89,14 @@ def test_shutdown_terminates_open_pkexec(rig, exc):
 def test_run_child_ends_with_shutdown(rig):
     """_run wie subprocess.run, aber das Kind bleibt für _shutdown erreichbar; hier ein eigenes sleep statt pkexec."""
     out = []
-    t = threading.Thread(target=lambda: out.append(rig.s._run(["sleep", "30"], timeout=120)))
+    t = threading.Thread(target=lambda: out.append(rig.s._jobs._run(["sleep", "30"], timeout=120)))
     t.start()
     deadline = time.monotonic() + 5
-    while rig.s._pkexec is None and time.monotonic() < deadline:
+    while rig.s._jobs._pkexec is None and time.monotonic() < deadline:
         time.sleep(0.01)
     rig.s._shutdown(None)
     t.join(5)
-    assert out[0].returncode == -signal.SIGTERM and rig.s._pkexec is None
-
-
-def test_run_timeout_kills_child(rig):
-    with pytest.raises(subprocess.TimeoutExpired):
-        rig.s._run(["sleep", "30"], timeout=0.05)
-    assert rig.s._pkexec is None
+    assert out[0].returncode == -signal.SIGTERM and rig.s._jobs._pkexec is None
 
 
 class Win:

@@ -58,7 +58,7 @@ def test_helper_copy_identical_and_executable(tree):
     helper = tree / "usr/lib/orbitop/killhelper"
     assert helper.read_bytes() == (ROOT / "orbitop" / "killhelper.py").read_bytes()
     assert stat.S_IMODE(os.lstat(helper).st_mode) == 0o755
-    assert helper.read_text().startswith("#!/usr/bin/python3 -I\n")  # pkexec startet ihn direkt (K1)
+    assert helper.read_text().startswith("#!/usr/bin/python3 -IS\n")  # pkexec startet ihn direkt (K1)
 
 
 def test_data_files_identical(tree):  # Starter, Vorlage und polkit-Datei unverändert aus data/ und bin/
