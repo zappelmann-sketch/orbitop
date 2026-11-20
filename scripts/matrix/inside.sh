@@ -67,7 +67,7 @@ run_tests() {
 # The installed starter names the version of /src: the packages are built from the same commit.
 version() {
     local want got
-    want="orbitop $(src_version)"
+    want="orbitop $(src_version /src)"
     got=$(cd / && as_tester /usr/bin/orbitop --version) && echo "$got" && [ "$got" = "$want" ]
 }
 

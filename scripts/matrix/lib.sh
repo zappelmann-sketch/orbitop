@@ -42,8 +42,9 @@ HICCUP+='|Resolving timed out after|Connection timeout after'  # libcurl ("%s ti
 HICCUP+="|Failed to resolve ([a-z]+ )?'[^']*' with timeout after"  # libcurl 8; from 8.18 with "host" or "proxy"
 HICCUP+='|Connection reset by peer|Temporary failure in name resolution'  # libc
 
-# src_version [ROOT]: the version in orbitop/__init__.py of ROOT (default /src, the commit the packages come from).
-src_version() { sed -n 's/^__version__ = "\(.*\)"$/\1/p' "${1:-/src}/orbitop/__init__.py"; }
+# src_version ROOT: the version in orbitop/__init__.py of ROOT (/src: the commit the packages come from). ROOT is
+# required: shellcheck 0.10 (Debian 13) reports SC2119 for a call without arguments of a function that reads $1.
+src_version() { sed -n 's/^__version__ = "\(.*\)"$/\1/p' "$1/orbitop/__init__.py"; }
 
 # real_pkexec SHARE: the orbitop installed in SHARE (/usr/share/orbitop) accepts /usr/bin/pkexec with its own check,
 # the one before every pkexec (actions.real_pkexec): a root-owned ELF with the setuid bit in a root-owned directory

@@ -187,7 +187,7 @@ from_020() {
     scripted install_file "$(orbitop_file v020)" && before=$(installed) && [ ! -e "$HELPER" ] &&
         scripted install_file "$(orbitop_file rev1)" && after=$(installed) || return 1
     echo "FROM_020 $before to $after"
-    [ "$before" = 0.2.0-1 ] && [ "$after" = "$(src_version)-1" ] && [ "$after" != "$before" ] && [ -x "$HELPER" ]
+    [ "$before" = 0.2.0-1 ] && [ "$after" = "$(src_version /src)-1" ] && [ "$after" != "$before" ] && [ -x "$HELPER" ]
 }
 
 # B2.8, 3 and review focus 1: the update from 0.2.0 releases nothing, and a capability set by hand stays. pkexec is
