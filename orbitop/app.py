@@ -17,6 +17,7 @@ from orbitop.i18n import detect_language, load_texts
 MAX_MESSAGE = 4096
 PERIOD_S = 1.0  # tick_system und Schnappschuss
 PROCS_PERIOD_S = 2.0  # tick_procs, im eigenen Thread
+PROCS_PERIOD_HIDDEN_S = 4.0  # ausgeblendet: halbe Eigenlast des Prozess-Takts (Spec 2026-11-19, Messung Eigenlast)
 RUNTIME = (("Gtk", "4.0"), ("WebKit", "6.0"))
 # je Paketmanager PyGObject, GTK 4, WebKitGTK 6.0, dahinter weitere Laufzeitpakete; gleich mit Paketen und README (Tests)
 PACKAGES = {
@@ -147,13 +148,14 @@ class Worker:
 
     def __init__(self, sampler, post, clock=time.monotonic, wait=None):
         self._sampler, self._post, self._clock = sampler, post, clock
-        self._lock = threading.Lock()  # schützt _visible, _ready, _view, _resend und _errors
+        self._lock = threading.Lock()  # schützt _visible, _shown, _ready, _view, _resend und _errors
         self._visible = self._ready = False
+        self._shown = False  # eingeblendet seit dem letzten Prozess-Takt: der nächste kommt sofort
         self._view = {"tab": "overview", "pid": None, "start": None}
         # True: nächster Tick mit voller Prozessliste; sonst darf eine unveränderte fehlen, denn WebKit parst je Tick
         # das ganze Literal (~170 KB)
         self._resend = True
-        self._stop, self._wake = threading.Event(), threading.Event()
+        self._stop, self._wake, self._procs_wake = threading.Event(), threading.Event(), threading.Event()
         self._wait = wait or self._wake.wait
         self._errors: set[tuple[str, str]] = set()  # schon gemeldete Fehler (Typ, Text)
         self._threads = [threading.Thread(target=self.run, name="orbitop-worker", daemon=True),
@@ -162,8 +164,10 @@ class Worker:
     def update(self, *, visible=None, ready=None, view=None) -> bool:
         """True, wenn das Fenster sichtbar und die Seite bereit ist; dann folgt sofort ein Schnappschuss."""
         with self._lock:
+            shown = bool(visible) and not self._visible
             if visible is not None:
                 self._visible = visible
+                self._shown = self._shown or shown
             if ready is not None:
                 self._ready = ready
             if view is not None:
@@ -173,6 +177,8 @@ class Worker:
             live = self._visible and self._ready
         if live:
             self._wake.set()
+        if shown:
+            self._procs_wake.set()
         return live
 
     def start(self) -> None:
@@ -183,6 +189,7 @@ class Worker:
         """Beendet beide Threads, insgesamt höchstens timeout lang; ein in /proc hängender Daemon hält nichts auf."""
         self._stop.set()
         self._wake.set()
+        self._procs_wake.set()
         deadline = time.monotonic() + timeout
         for t in self._threads:
             if t.is_alive():
@@ -208,16 +215,22 @@ class Worker:
             self._wake.clear()
 
     def run_procs(self, wait=None) -> None:
-        """Prozess-Takt alle PROCS_PERIOD_S, auch bei ausgeblendetem Fenster; wait nur für Tests."""
-        wait = wait or self._stop.wait
+        """Prozess-Takt alle PROCS_PERIOD_S, ausgeblendet alle PROCS_PERIOD_HIDDEN_S, beim Einblenden sofort;
+        wait nur für Tests."""
+        wait = wait or self._procs_wake.wait
         due = self._clock()
         while not self._stop.is_set():
+            with self._lock:
+                shown, self._shown = self._shown, False
+                visible = self._visible
+                shr = visible and self._ready and self._view.get("tab") == "procs"
+            if shown:
+                due = self._clock()
             if self._clock() >= due:
-                with self._lock:
-                    shr = self._visible and self._ready and self._view.get("tab") == "procs"
                 self._guard(lambda: self._sampler.tick_procs(shr=shr))
-                due = self._next(due, PROCS_PERIOD_S)
+                due = self._next(due, PROCS_PERIOD_S if visible else PROCS_PERIOD_HIDDEN_S)
             wait(max(0.0, due - self._clock()))
+            self._procs_wake.clear()  # erst danach, wie in run(): _shown und _stop gehen so nie verloren
 
     def _guard(self, fn) -> None:
         """Ein Fehler im Sampler darf keinen Mess-Thread still beenden; jeder Fehler erscheint einmal, nicht je Takt."""

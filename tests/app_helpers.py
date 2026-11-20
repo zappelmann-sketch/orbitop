@@ -59,7 +59,7 @@ def run_fake(sampler, clock, ticks, setup=lambda w: None, sleep=lambda timeout: 
 
 
 def run_procs_fake(sampler, clock, n, sleep=lambda timeout: timeout):
-    """Lässt den Prozess-Takt synchron laufen, bis n Prozess-Takte erfolgt sind."""
+    """Lässt den Prozess-Takt bei sichtbarem Fenster synchron laufen, bis n Prozess-Takte erfolgt sind."""
     def wait(timeout):
         assert timeout >= 0
         clock.t += sleep(timeout)
@@ -67,4 +67,5 @@ def run_procs_fake(sampler, clock, n, sleep=lambda timeout: timeout):
             worker.stop()
         return False
     worker = Worker(sampler, [].append, clock=clock)
+    worker.update(visible=True)  # sichtbar: Takt PROCS_PERIOD_S
     worker.run_procs(wait)

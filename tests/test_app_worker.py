@@ -45,6 +45,36 @@ def test_procs_tick_every_2_s_drift_free_and_skips_missed():
     assert [t for _, t in s.calls] == pytest.approx([100.0, 105.0, 109.0])
 
 
+def test_procs_tick_every_4_s_when_hidden_and_at_once_when_shown():
+    """Ausgeblendet halbe Eigenlast des Prozess-Takts; beim Einblenden sofort frische Prozesse, dann wieder 2 s."""
+    clock = Clock()
+    s = FakeSampler(clock)
+    times = lambda: [t for k, t in s.calls if k == "procs"]  # noqa: E731
+
+    def wait(timeout):
+        assert timeout >= 0
+        n = len(times())
+        if n == 2:
+            worker.update(visible=False)
+        if n == 4:
+            clock.t = 109.0  # mitten in der 4-s-Pause eingeblendet
+            worker.update(visible=True)
+            return True
+        if n >= 6:
+            worker.stop()
+        clock.t += timeout
+        return False
+    worker = Worker(s, [].append, clock=clock)
+    worker.update(visible=True)
+    worker.run_procs(wait)
+    assert times() == pytest.approx([100.0, 102.0, 104.0, 108.0, 109.0, 111.0])
+
+
+def test_hidden_procs_period_keeps_rates_valid():
+    from orbitop import app, system
+    assert app.PROCS_PERIOD_S < app.PROCS_PERIOD_HIDDEN_S < system.MAX_DT  # sonst gälten ausgeblendet alle Raten als ungültig
+
+
 def test_worker_skips_missed_slots_instead_of_bursting():
     clock = Clock()
     s = FakeSampler(clock, cost=lambda n: 2.5 if n == 1 else 0.1)
