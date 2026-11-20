@@ -98,10 +98,11 @@ def rig(monkeypatch, tmp_path, threads):
     from types import SimpleNamespace
 
     from orbitop import shell
-    from orbitop.jobs import Jobs
     from orbitop.layout import LayoutFile
     from tests.shell_helpers import FakeGLib, FakeView, FakeWorker
     log = []
+    glib = FakeGLib()
+    monkeypatch.setattr(shell, "GLib", glib)  # vor Shell(): die Hülle baut ihre Jobs selbst, mit dieser Attrappe
     s = shell.Shell(False)
     s._worker, s._view = FakeWorker(log), FakeView()
     s._init_fields, s._layouts = {"type": "init"}, LayoutFile(str(tmp_path / "layout.json"))
@@ -110,9 +111,6 @@ def rig(monkeypatch, tmp_path, threads):
     # nie der echte Autostart-Ordner: set_enabled schriebe sonst nach ~/.config/autostart
     monkeypatch.setattr(shell.autostart, "state", lambda env: None)
     monkeypatch.setattr(shell.autostart, "set_enabled", lambda on, env: log.append(("autostart", on)))
-    glib = FakeGLib()
-    monkeypatch.setattr(shell, "GLib", glib)
-    s._jobs = Jobs(s._send, glib)
     return SimpleNamespace(s=s, log=log, glib=glib, threads=threads, js=s._view.js)
 
 

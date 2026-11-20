@@ -77,7 +77,7 @@ def test_empty_cmdline_with_other_ppid_not_refused(child, tmp_path):
 def test_helper_has_no_orbitop_import():
     src = Path(HELPER).read_text()
     assert "import orbitop" not in src and "from orbitop" not in src
-    assert src.startswith("#!/usr/bin/python3 -IS\n") and os.access(HELPER, os.X_OK)
+    assert os.access(HELPER, os.X_OK)
 
 
 def test_killhelper_shebang():  # B2.1: unter -S lädt Python keine .pth-Datei aus site-packages, auch nicht als root
