@@ -216,19 +216,23 @@ class Worker:
 
     def run_procs(self, wait=None) -> None:
         """Prozess-Takt alle PROCS_PERIOD_S, ausgeblendet alle PROCS_PERIOD_HIDDEN_S, beim Einblenden sofort;
-        wait nur für Tests."""
+        wait nur für Tests. Die übrigen Takte bleiben im Raster ab dem Start, gleichauf mit dem Systemtakt: Mit
+        verschobener Phase kostete der sichtbare Prozess-Reiter 0,3 Punkte mehr (Spec 2026-11-19, Messung Eigenlast)."""
         wait = wait or self._procs_wake.wait
-        due = self._clock()
+        start = due = self._clock()
         while not self._stop.is_set():
             with self._lock:
                 shown, self._shown = self._shown, False
                 visible = self._visible
                 shr = visible and self._ready and self._view.get("tab") == "procs"
-            if shown:
-                due = self._clock()
-            if self._clock() >= due:
+            now = self._clock()
+            if shown or now >= due:
                 self._guard(lambda: self._sampler.tick_procs(shr=shr))
-                due = self._next(due, PROCS_PERIOD_S if visible else PROCS_PERIOD_HIDDEN_S)
+                if shown:  # zurück ins Raster, frühestens eine halbe Periode nach diesem Takt
+                    due = start + ((now - start) // PROCS_PERIOD_S + 1) * PROCS_PERIOD_S
+                    due += PROCS_PERIOD_S if due - now < PROCS_PERIOD_S / 2 else 0
+                else:
+                    due = self._next(due, PROCS_PERIOD_S if visible else PROCS_PERIOD_HIDDEN_S)
             wait(max(0.0, due - self._clock()))
             self._procs_wake.clear()  # erst danach, wie in run(): _shown und _stop gehen so nie verloren
 
