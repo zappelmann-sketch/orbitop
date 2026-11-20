@@ -3,7 +3,7 @@
 """ProcTable: CPU-Rate und Einstufung (Dauerlast, Kernel-Hänger) über die Stichproben."""
 import pytest
 
-from orbitop.procs import ProcTable
+from orbitop.procs import PROCS_MAX_DT, ProcTable
 from tests.procs_helpers import CLK, raw
 
 
@@ -15,7 +15,7 @@ def test_cpu_percent_one_core_and_first_sample_zero():
     assert t.rows(2.0)[0]["cpu"] == pytest.approx(100.0)
 
 
-@pytest.mark.parametrize("now,ticks", [(2.0, 50), (9.0, 5000), (0.0, 5000)])
+@pytest.mark.parametrize("now,ticks", [(2.0, 50), (PROCS_MAX_DT + 1.0, 5000), (0.0, 5000)])
 def test_cpu_zero_on_counter_decrease_or_bad_dt(now, ticks):
     t = ProcTable(clk_tck=CLK, uid=1000)
     t.update({(10, 1): raw(ticks=100)}, 0)
@@ -51,7 +51,7 @@ def test_d_state_becomes_kernel_hang_then_resets():
 
 
 def test_d_state_clock_restarts_after_suspend_gap():
-    """Ruhezustand: dt > MAX_DT macht die Stichprobe ungültig; die D-Uhr darf nicht von vor dem Schlaf weiterlaufen."""
+    """Ruhezustand: dt > PROCS_MAX_DT macht die Stichprobe ungültig; die D-Uhr läuft nicht von vor dem Schlaf weiter."""
     t = ProcTable(clk_tck=CLK, uid=1000)
     for i in range(4):
         t.update({(10, 1): raw(state="D")}, i * 2.0)
@@ -84,7 +84,7 @@ def test_d_state_reentry_restarts_clock():
 
 
 def test_dt_boundary_and_io_decrease():
-    for now, ok in [(5.0, True), (5.01, False)]:
+    for now, ok in [(PROCS_MAX_DT, True), (PROCS_MAX_DT + 0.01, False)]:
         t = ProcTable(clk_tck=CLK, uid=1000)
         t.update({(10, 1): raw(ticks=0, io=100)}, 0)
         t.update({(10, 1): raw(ticks=500, io=50)}, now)

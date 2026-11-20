@@ -77,9 +77,10 @@ def test_procs_tick_every_4_s_when_hidden_and_fresh_when_shown(shown_at, after):
 
 
 def test_hidden_procs_period_keeps_rates_valid():
-    from orbitop import app, procs, system
-    # sonst gälten ausgeblendet alle Raten als ungültig
-    assert app.PROCS_PERIOD_S < app.PROCS_PERIOD_HIDDEN_S < system.MAX_DT
+    from orbitop import app, procs
+    # ausgeblendet bleiben Prozess-Stichproben gültig, auch deutlich verspätet; ein Ruhezustand nicht
+    assert app.PROCS_PERIOD_S < app.PROCS_PERIOD_HIDDEN_S
+    assert procs.PROCS_MAX_DT == 2.5 * app.PROCS_PERIOD_HIDDEN_S
     assert procs.STEP_S == app.PROCS_PERIOD_S  # ein Verlaufspunkt je sichtbarem Prozess-Takt
 
 

@@ -31,6 +31,17 @@ def test_hidden_4_s_ticks_keep_one_history_point_per_2_s():
     assert hist[before:] == pytest.approx([50.0] * 10)  # Treppe für die ausgeblendete Zeit
 
 
+@pytest.mark.parametrize("dt,points,cpu", [(5.5, 3, 50.0), (10.0, 5, 50.0), (3600.0, 1, 0.0)])
+def test_late_hidden_tick_counts_but_suspend_gap_does_not(dt, points, cpu):
+    """Ein ausgeblendeter Takt (4 s), der 1,5 s zu spät kommt, ist gültig; höchstens PROCS_MAX_DT / STEP_S Punkte.
+    Eine Lücke von einer Stunde (Ruhezustand) ist ungültig und hängt genau einen Punkt an."""
+    t = ProcTable(clk_tck=CLK, uid=1000)
+    t.update({(10, 1): raw(ticks=0)}, 0.0)
+    t.update({(10, 1): raw(ticks=int(dt * CLK) // 2)}, dt)
+    hist = t.detail(10, 1, dt)["history"]
+    assert len(hist) == 1 + points and hist[-1] == pytest.approx(cpu)
+
+
 def test_pid_reuse_gets_fresh_history_and_dead_removed():
     t = ProcTable(clk_tck=CLK, uid=1000)
     t.update({(10, 1): raw(start=1), (11, 1): raw(pid=11)}, 0)

@@ -9,10 +9,10 @@ from dataclasses import dataclass, field
 
 from orbitop import sysfs
 from orbitop.classify import BUSY_CPU, ProcState, classify, is_busy_sample
-from orbitop.system import MAX_DT
 
 HISTORY = 150  # Punkte je Prozess, einer je STEP_S: 5 min
 STEP_S = 2.0  # wie der sichtbare Prozess-Takt (app.PROCS_PERIOD_S, Test)
+PROCS_MAX_DT = 10.0  # gültiges dt: 2,5 × ausgeblendeter Takt (app, Test); Ruhezustand, Uhrsprung ungültig
 SPARK = 30
 CMDLINE_MAX = 4096
 _CHUNK = 65536
@@ -214,7 +214,7 @@ class ProcTable:
             if e is None or key == self.selected or e.status_t is None or not 0 <= now - e.status_t < STATUS_EVERY_S:
                 return True
             dt = now - e.t
-            return 0 < dt <= MAX_DT and (ticks - e.raw.ticks) / self.clk_tck / dt * 100 >= BUSY_CPU
+            return 0 < dt <= PROCS_MAX_DT and (ticks - e.raw.ticks) / self.clk_tck / dt * 100 >= BUSY_CPU
         return due
 
     def update(self, raw: dict[tuple[int, int], RawProc], now: float) -> None:
@@ -227,7 +227,7 @@ class ProcTable:
             if not fresh:  # status nicht gelesen: uid und Zähler vom letzten Lesen, die Raten bleiben stehen
                 r.uid, r.vctx, r.nvctx = prev.uid, prev.vctx, prev.nvctx
             dt = None if e.t is None else now - e.t
-            valid = dt is not None and 0 < dt <= MAX_DT
+            valid = dt is not None and 0 < dt <= PROCS_MAX_DT
             e.cpu = 0.0
             io_delta = None
             if valid and r.ticks >= prev.ticks:
@@ -235,14 +235,15 @@ class ProcTable:
             ctx_ok = False  # Kontextwechsel in diesem Takt gelesen; angezeigt wird die Rate über das dt seit dem letzten Lesen
             if fresh:
                 sdt = None if e.status_t is None else now - e.status_t
-                ctx_ok = sdt is not None and 0 < sdt <= STATUS_EVERY_S + MAX_DT and r.vctx >= prev.vctx and r.nvctx >= prev.nvctx
+                ctx_ok = sdt is not None and 0 < sdt <= STATUS_EVERY_S + PROCS_MAX_DT and r.vctx >= prev.vctx and r.nvctx >= prev.nvctx
                 e.vctx_rate, e.nvctx_rate = ((r.vctx - prev.vctx) / sdt, (r.nvctx - prev.nvctx) / sdt) if ctx_ok else (0.0, 0.0)
                 e.status_t = now
             if valid and r.io is not None and prev.io is not None and r.io >= prev.io:
                 io_delta = r.io - prev.io
             e.io_rate = None if io_delta is None else io_delta / dt
             e.t = now
-            # ein längerer Takt (ausgeblendet 4 s) zählt mehrfach: ein Punkt je STEP_S, als Treppe
+            # ein längerer Takt (ausgeblendet 4 s) zählt mehrfach, ein Punkt je STEP_S als Treppe; höchstens
+            # PROCS_MAX_DT / STEP_S = 5 Punkte, ungültig genau einer, und der deque hält nie mehr als HISTORY
             e.history.extend([e.cpu] * (max(1, round(dt / STEP_S)) if valid else 1))
             s = e.state
             s.state, s.io_known, s.last_cpu, s.last_io_delta = r.state, r.io is not None, e.cpu, io_delta
