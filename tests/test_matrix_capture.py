@@ -33,15 +33,23 @@ def test_logged_fails_when_tee_cannot_write(tmp_path, rc, status):  # ohne die K
     assert ok and calls == 1, out
 
 
+# wait_for FILE: bis tee die Kopie angelegt hat (tee und pm starten zugleich), höchstens 5 s; sonst eine Zeile, die der
+# Test sieht. command sleep: runs ersetzt sleep durch einen Stellvertreter.
+WAIT_FOR = ('wait_for() { local _; for _ in $(seq 500); do [ -e "$1" ] && return 0; command sleep 0.01; done;'
+            ' echo "NO CAPTURE FILE"; };')
+
+
 @AS_ROOT
-@pytest.mark.parametrize("command,log,output", [("clean pm", "clean.out", (WARNING, 0)),
-                                                ("net pm", "net.out", (HICCUP_LINE, 1))], ids=["clean", "net"])
-def test_unreadable_capture_fails_clean_and_net_does_not_retry(tmp_path, command, log, output):
-    """Der Befehl nimmt seiner Kopie das Leserecht: grep scheitert mit 2. clean scheitert dann, net wiederholt nicht."""
-    unreadable = (f'pm() {{ echo >> "$STATE/calls"; cat "$STATE/out.1"; chmod 200 "$STATE/{log}";'
-                  ' return "$(cat "$STATE/rc.1")"; };')
+@pytest.mark.parametrize("command,log,output,reason", [
+    ("clean pm", "clean.out", ("Hit:1 x", 0), "NOISE unknown: cannot read"),
+    ("net pm", "net.out", (HICCUP_LINE, 1), "")], ids=["clean", "net"])
+def test_unreadable_capture_fails_clean_and_net_does_not_retry(tmp_path, command, log, output, reason):
+    """Der Befehl nimmt seiner Kopie das Leserecht: grep scheitert mit 2. clean scheitert dann trotz sauberer
+    Ausgabe, net wiederholt den Aussetzer nicht."""
+    unreadable = (f'{WAIT_FOR} pm() {{ echo >> "$STATE/calls"; cat "$STATE/out.1"; wait_for "$STATE/{log}";'
+                  f' chmod 200 "$STATE/{log}"; return "$(cat "$STATE/rc.1")"; }};')
     ok, out, calls, slept = runs(tmp_path, f"{unreadable} {command}", output, ("", 0), files=("apt.sh",))
-    assert not ok and calls == 1 and slept == [], out
+    assert not ok and calls == 1 and slept == [] and reason in out and "NO CAPTURE FILE" not in out, out
 
 
 @AS_ROOT
@@ -85,7 +93,17 @@ def test_a_nul_byte_before_an_anchored_prefix_still_counts(tmp_path, manager, li
     """Wie printf 'Hit:1 x\\n\\0W: GPG error …' mit Exit 0: Das NUL-Byte steht direkt vor dem verankerten Präfix von
     NOISE; matching liest es als Zeilenumbruch."""
     ok, out, calls, _ = runs(tmp_path, "clean pm", (f"Hit:1 x\n\0{line}", 0), files=(manager,))
-    assert not ok and calls == 1, out
+    assert not ok and calls == 1 and f"NOISE {line}" in out.splitlines(), out
+
+
+@pytest.mark.parametrize("manager,line", [
+    ("apt.sh", WARNING), ("pacman.sh", "warning: orbitop: local (0.2.0-1) is newer than extra (0.1.0-1)"),
+], ids=["apt", "pacman"])
+def test_a_carriage_return_before_an_anchored_prefix_still_counts(tmp_path, manager, line):
+    """Wie ein Fortschrittsbalken, den \\r überschreibt: Ohne Zeilenumbruch stünde das Präfix von NOISE mitten in der
+    Zeile; matching liest \\r wie das NUL-Byte als Zeilenumbruch."""
+    ok, out, calls, _ = runs(tmp_path, "clean pm", (f"Hit:1 x\r{line}", 0), files=(manager,))
+    assert not ok and calls == 1 and f"NOISE {line}" in out.splitlines(), out
 
 
 @pytest.mark.parametrize("command,output", [("clean pm", ("Hit:1 x", 0)), ("net pm", (HICCUP_LINE, 1))],
@@ -96,10 +114,21 @@ def test_a_failing_tr_is_never_no_match(tmp_path, command, output):
     assert not ok and calls == 1 and slept == [], out
 
 
+@pytest.mark.parametrize("command,output", [("clean pm", ("Hit:1 x", 0)), ("net pm", (HICCUP_LINE, 1))],
+                         ids=["clean", "net"])
+def test_a_failing_grep_is_never_no_match(tmp_path, command, output):
+    """grep endet mit 2, nachdem es alles gelesen hat (Stellvertreter; ein ungültiges Muster ließe tr je nach Zeitpunkt
+    an SIGPIPE scheitern): clean scheitert auch bei sauberer Ausgabe, net wiederholt nicht."""
+    failing = "grep() { cat > /dev/null; return 2; };"
+    ok, out, calls, slept = runs(tmp_path, f"{failing} {command}", output, ("", 0), files=("apt.sh",))
+    assert not ok and calls == 1 and slept == [], out
+
+
 # pm sperrt nach jedem Lauf seine Kopie (nur lesbar), sobald tee sie angelegt hat: Ohne rm vor dem nächsten Lauf
 # könnte tee sie nicht ersetzen, und die alte Kopie entschiede.
-LOCKING = ('pm() { echo >> "$STATE/calls"; local n; n=$(wc -l < "$STATE/calls"); until [ -e "$STATE/net.out" ];'
-           ' do :; done; cat "$STATE/out.$n"; chmod 400 "$STATE/net.out"; return "$(cat "$STATE/rc.$n")"; };')
+LOCKING = (f'{WAIT_FOR} pm() {{ echo >> "$STATE/calls"; local n; n=$(wc -l < "$STATE/calls");'
+           ' wait_for "$STATE/net.out"; cat "$STATE/out.$n"; chmod 400 "$STATE/net.out";'
+           ' return "$(cat "$STATE/rc.$n")"; };')
 
 
 @AS_ROOT
@@ -107,8 +136,8 @@ def test_the_capture_file_is_removed_before_every_run(tmp_path):
     """Lauf 1 meldet einen Aussetzer, Lauf 2 einen Fehler des Pakets: Die gesperrte Kopie von Lauf 1 entscheidet nicht
     über Lauf 2. Bei drei Läufen hält die Kopie am Ende die Ausgabe von Lauf 3."""
     ok, out, calls, slept = runs(tmp_path / "two", f"{LOCKING} net pm", (HICCUP_LINE, 1), (PACKAGE_ERROR, 1), ("", 0))
-    assert not ok and calls == 2 and slept == ["10"], out
+    assert not ok and calls == 2 and slept == ["10"] and "NO CAPTURE FILE" not in out, out
     ok, out, calls, slept = runs(tmp_path / "three", f"{LOCKING} net pm", (HICCUP_LINE, 1), (HICCUP_LINE, 1),
                                  (PACKAGE_ERROR, 1))
-    assert not ok and calls == 3 and slept == ["10", "10"], out
+    assert not ok and calls == 3 and slept == ["10", "10"] and "NO CAPTURE FILE" not in out, out
     assert (tmp_path / "three" / "state" / "net.out").read_text() == PACKAGE_ERROR + "\n"

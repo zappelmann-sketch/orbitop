@@ -50,12 +50,13 @@ logged() {
     return "${status[0]}"
 }
 
-# matching PATTERN FILE: the lines of FILE that match PATTERN, as text, with each NUL byte read as a line break, so
-# that none hides the start of a line from an anchored pattern. Returns 0 on a match, 1 on none, 2 if FILE, tr or grep
-# fails: a read error is never "no match".
+# matching PATTERN FILE: the lines of FILE that match PATTERN, as text, with each NUL byte and each carriage return
+# read as a line break, so that none hides the start of a line from an anchored pattern. Returns 0 on a match, 1 on
+# none, 2 if FILE, tr or grep fails: a read error is never "no match".
 matching() {
     local status=()
-    { tr '\0' '\n' < "$2" | grep -aE -- "$1"; status=("${PIPESTATUS[@]}"); } || true
+    # shellcheck disable=SC2020  # two characters, each to a line break
+    { tr '\0\r' '\n\n' < "$2" | grep -aE -- "$1"; status=("${PIPESTATUS[@]}"); } || true
     [ "${status[0]}" -eq 0 ] || return 2
     return "${status[1]}"
 }

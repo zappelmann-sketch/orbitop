@@ -59,7 +59,7 @@ verdict() {
 
 workdir
 mkdir -m 700 "$tmp/gnupg"  # never the caller's GNUPGHOME
-# The containers trust whatever key the sites carry; the run names it, and Task 10 compares it with ORBITOP_KEY.
+# The containers trust whatever key the sites carry; the run names it, and release.sh compares it with ORBITOP_KEY.
 key=$(fingerprint "$site/orbitop-archive-keyring.asc") ||
     die "--site: orbitop-archive-keyring.asc must hold exactly one key"
 [ "$(fingerprint "$site2/orbitop-archive-keyring.asc" || true)" = "$key" ] ||

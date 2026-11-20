@@ -16,7 +16,7 @@ NO_HEADER = {PKG / "debian" / "source" / "format", APT_SOURCE / "debian" / "sour
              PKG / "keyring.version", KEY_FILE}
 # Eingaben von orbitop-apt-source samt dem Schlüssel KEY_FILE, je packaging/keyring.version. Ändert sich eine, steigt
 # die Version, und hier kommt ein Eintrag dazu; sonst gäbe es zwei verschiedene Pakete mit derselben Version.
-# Nur vor der ersten Veröffentlichung (Task 10) darf ein Eintrag ersetzt werden.
+# Nur vor der ersten Veröffentlichung (Plan 2026-11-18, Task 10) darf ein Eintrag ersetzt werden.
 APT_SOURCE_INPUTS = {"2026.11.18": "5215e6ccb0f9d127bf2a24ccf88fdcdb91df425a1c538e7b3c7457c6494413a5"}
 KEYRING = "/etc/apt/keyrings/orbitop-archive-keyring.pgp"
 

@@ -102,9 +102,9 @@ How the check runs:
   manager in `remove` and `purge`) also count a line that matches `NOISE` as a failed run; without `NOISE` they fail.
   Each run first removes the copy of the previous run's output in `STATE` (if it cannot, the run fails without
   starting), then writes its output live into the log and into a new copy, which `net` and `quiet` search as text,
-  with each NUL byte read as a line break; if the new copy cannot be written or read, the run fails and is not
-  repeated. Any
-  other failure counts at once: the expected refusal on `debian:bookworm` and
+  with each NUL byte and each carriage return read as a line break; if the new copy cannot be written or read, or
+  grep fails, the run fails and is not repeated. Any other failure counts at once: the expected refusal on
+  `debian:bookworm` and
   `ubuntu:22.04` stays one run, and the `tamper` step runs its refresh once. A `NOISE` line of an earlier run stays in
   the log, but the verdict comes from the last run: the sources are read-only, so a signature check gives the same
   result in every run. A hiccup is one of the messages the images print (read from the strings of librepo, libzypp,
@@ -184,4 +184,4 @@ From the run of 2026-11-18 (orbitop 0.1.0, throwaway key) unless a note names an
   `orbitop-apt-source` itself installs there.
 - **Not covered:** the window itself (no display in the containers), the kill helper through `pkexec`, the upgrade
   of a distribution release (Ubuntu disables third-party sources then), and the package source over HTTPS from Pages
-  itself (Task 10).
+  itself (plan 2026-11-18, Task 10).

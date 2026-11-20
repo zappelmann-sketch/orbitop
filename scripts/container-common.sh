@@ -44,8 +44,11 @@ workdir() {
 
 # git_archive ARG…: git archive in $repo, without refs/replace (git-replace(1)) and without core.attributesFile, whose
 # export-ignore and export-subst would change what it takes (git-archive(1), ATTRIBUTES); release.sh refuses a
-# non-empty info/attributes (check_tree).
-git_archive() { git -C "$repo" --no-replace-objects -c core.attributesFile=/dev/null archive "$@"; }
+# non-empty info/attributes (check_tree). --format=tar.gz always packs with gzip: tar.tar.gz.command of the git
+# configuration could name any command (git-archive(1), CONFIGURATION).
+git_archive() {
+    git -C "$repo" --no-replace-objects -c core.attributesFile=/dev/null -c tar.tar.gz.command="gzip -cn" archive "$@"
+}
 
 # tracked_files: $tmp/src holds the files of the commit ORBITOP_REV, its full hash, or of HEAD without it, never local
 # ones such as CLAUDE.md. release.sh passes the HEAD of its step 1, so that a commit during the run changes no file a

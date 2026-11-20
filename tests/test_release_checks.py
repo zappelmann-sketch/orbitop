@@ -109,6 +109,7 @@ def test_check_origin(tmp_path, case):
         r = subprocess.run(["bash", "-euo", "pipefail", "-c", script], cwd=ROOT, capture_output=True, text=True,
                            env={**os.environ, **GIT_ENV, "R": str(tmp_path / "r"), "dry": dry})
         assert r.returncode == (1 if problems and not dry else 0), r.stderr
+        assert bool(problems) == bool(r.stderr), r.stderr  # eine angenommene Konfiguration meldet nichts
         found = [m for m in ("not to", "not from") if f"{m} zappelmann-sketch/orbitop on GitHub" in r.stderr]
         assert found == list(problems[:1] if not dry else problems), r.stderr
         assert not dry or r.stderr.count("warning: origin ") == len(problems), r.stderr

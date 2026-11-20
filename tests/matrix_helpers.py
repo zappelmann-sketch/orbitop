@@ -1,8 +1,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Helfer der Tests von scripts/matrix (tests/test_matrix_lib.py, tests/test_matrix_retry.py): call führt Funktionen
-von lib.sh und den Dateien der Paketverwaltungen aus wie step in inside.sh, ohne set -e, mit Stellvertretern für rpm
-und rpmkeys; runs dazu mit dem Ersatz-Paketmanager pm."""
+"""Helfer der Tests von scripts/matrix (tests/test_matrix_lib.py, tests/test_matrix_retry.py,
+tests/test_matrix_capture.py): call führt Funktionen von lib.sh und den Dateien der Paketverwaltungen aus wie step in
+inside.sh, ohne set -e, mit Stellvertretern für rpm und rpmkeys; runs dazu mit dem Ersatz-Paketmanager pm."""
 import os
 import subprocess
 

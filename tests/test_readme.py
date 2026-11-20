@@ -183,7 +183,8 @@ def key_records(tmp_path):
     return [ln.split(":") for ln in out.splitlines()]
 
 
-def test_key_file_holds_one_public_key(tmp_path):  # Task 9: ohne Unterschlüssel, ohne Geheimes, User-ID ohne Mail
+# Plan 2026-11-18, Task 9: ohne Unterschlüssel, ohne Geheimes, User-ID ohne Mail
+def test_key_file_holds_one_public_key(tmp_path):
     records = key_records(tmp_path)
     assert [r[0] for r in records if r[0] in ("pub", "sub", "sec", "ssb")] == ["pub"]
     assert [r[9] for r in records if r[0] == "uid"] == ["orbitop archive signing key"]

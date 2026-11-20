@@ -40,7 +40,7 @@ def one_key(tmp_path, expiry, *faked):
 
 @pytest.fixture
 def repo(tmp_path, keys):
-    """Ein Release-Stand: der README-Platzhalter durch den Fingerabdruck ersetzt (Task 9)."""
+    """Ein Release-Stand: der README-Platzhalter durch den Fingerabdruck ersetzt (Plan 2026-11-18, Task 9)."""
     return make_repo(tmp_path, keys["fpr"], readme=keys["fpr"])
 
 
@@ -157,8 +157,9 @@ def test_refuses_key_not_matching_committed_file(tmp_path, keys, repo):
 @pytest.mark.parametrize("change", [["--quick-set-expire", "2y"],
                                     ["--quick-add-uid", "Test Signing Two <test@example.com>"]], ids=["expiry", "uid"])
 def test_refuses_committed_key_after_renewal(tmp_path, change):
-    """Audit Task 9: neue Laufzeit oder weitere User-ID bei gleichem Fingerabdruck, die Datei nicht neu exportiert.
-    Der Schlüssel entsteht einen Tag zuvor, damit die neue Selbstsignatur jünger ist als die alte."""
+    """Audit von Plan 2026-11-18, Task 9: neue Laufzeit oder weitere User-ID bei gleichem Fingerabdruck, die Datei
+    nicht neu exportiert. Der Schlüssel entsteht einen Tag zuvor, damit die neue Selbstsignatur jünger ist als die
+    alte."""
     day_ago = time.strftime("%Y%m%dT%H%M%S!", time.gmtime(time.time() - 86400))
     key = one_key(tmp_path, "1y", "--faked-system-time", day_ago)
     try:
@@ -221,9 +222,10 @@ def test_build_gets_the_exported_public_key(tmp_path, keys, repo):
 
 
 def test_checks_accept_the_repository(tmp_path):
-    """Task 9: check_readme und check_committed nehmen die READMEs und packaging/keys/orbitop-archive-keyring.asc
-    dieses Repositorys für ein Release an (kein Trockenlauf). Ohne den geheimen Schlüssel steht für den Export von
-    ORBITOP_KEY ($tmp/key.pgp) der Export der Datei aus einem eigenen Schlüsselbund, wie check_key ihn macht."""
+    """Plan 2026-11-18, Task 9: check_readme und check_committed nehmen die READMEs und
+    packaging/keys/orbitop-archive-keyring.asc dieses Repositorys für ein Release an (kein Trockenlauf). Ohne den
+    geheimen Schlüssel steht für den Export von ORBITOP_KEY ($tmp/key.pgp) der Export der Datei aus einem eigenen
+    Schlüsselbund, wie check_key ihn macht."""
     if not shutil.which("gpg"):
         pytest.skip("gpg fehlt")
     fpr = re.search(r"using EDDSA key ([0-9A-F]{40})", (ROOT / "README.md").read_text())[1]

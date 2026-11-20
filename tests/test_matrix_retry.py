@@ -4,7 +4,6 @@
 gescheiterten Lauf, der einen Aussetzer meldet und die Paketdatenbank nicht änderte; jeder andere Fehler zählt
 sofort, der Manipulationstest läuft einmal. Die Programme der Paketverwaltungen sind Shell-Funktionen, die pm
 aufrufen (runs in tests/matrix_helpers.py)."""
-import os
 import shlex
 
 import pytest

@@ -191,14 +191,16 @@ def test_gh_stub_refuses_notes_from_tag_with_repo(tmp_path, args):
 
 def test_source_archive_ignores_replace_refs_and_attribute_files(tmp_path, keys, repo):
     """Audit M3 (Plan 2026-11-19, Task 9): Das Quellarchiv des Release (make_assets) enthält README.md, wie der
-    Commit sie hat, auch mit einem Ersatz für ihren Blob (refs/replace) und export-ignore in core.attributesFile."""
+    Commit sie hat, auch mit einem Ersatz für ihren Blob (refs/replace) und export-ignore in core.attributesFile;
+    gzip packt es, auch wenn tar.tar.gz.command der git-Konfiguration einen anderen Befehl nennt."""
     readme = (repo["repo"] / "README.md").read_bytes()
     planted = subprocess.run(["git", "-C", str(repo["repo"]), "hash-object", "-w", "--stdin"], input=b"planted\n",
                              capture_output=True, check=True).stdout.decode().strip()
     git(repo["repo"], "replace", git(repo["repo"], "rev-parse", "HEAD:README.md").strip(), planted)
     (tmp_path / "attributes").write_text("README.md export-ignore\n")
     git(repo["repo"], "config", "core.attributesFile", str(tmp_path / "attributes"))
+    git(repo["repo"], "config", "tar.tar.gz.command", "cat > /dev/null; echo planted")
     r, _ = run(tmp_path, repo, keys, VERSION)
     assert r.returncode == 0, r.stderr
-    with tarfile.open(tmp_path / "assets" / f"orbitop-{VERSION}.tar.gz") as tar:
+    with tarfile.open(tmp_path / "assets" / f"orbitop-{VERSION}.tar.gz", "r:gz") as tar:
         assert tar.extractfile(f"orbitop-{VERSION}/README.md").read() == readme
