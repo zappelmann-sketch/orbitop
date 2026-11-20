@@ -31,14 +31,27 @@ written() {
 # forget FILE: written FILE, and point starts over with it: its package goes, and a new one installs it anew.
 forget() { written "$1" && rm -f -- "$STATE/written${1//\//_}" "$STATE/pristine${1//\//_}"; }
 
-# quiet COMMAND…: COMMAND succeeds and prints no line that matches NOISE (warnings, notices, errors).
+# A network hiccup at a mirror, not a fault of the packages: curl's codes for resolve, connect, timeout, TLS
+# handshake, empty reply and receive, and the same failures in the words of the system.
+HICCUP='Curl error \((6|7|28|35|52|56)\)|Connection reset by peer|Could not resolve host'
+HICCUP+='|Temporary failure in name resolution|Operation timed out'
+
+# quiet COMMAND…: COMMAND succeeds and prints no line that matches NOISE (warnings, notices, errors). A run that fails
+# so and printed a network hiccup (HICCUP) runs again after 10 s, up to three runs, and only the last one counts; any
+# other failure counts at once. The callers are index refreshes, which may run again; the tamper step uses refused.
 quiet() {
-    local out rc=0 noise
-    out=$("$@" 2>&1) || rc=$?
-    printf '%s\n' "$out"
-    noise=$(grep -E -- "$NOISE" <<< "$out") || true
-    [ -z "$noise" ] || printf 'NOISE %s\n' "$noise"
-    [ "$rc" -eq 0 ] && [ -z "$noise" ]
+    local out rc noise run
+    for run in 1 2 3; do
+        rc=0
+        out=$("$@" 2>&1) || rc=$?
+        printf '%s\n' "$out"
+        noise=$(grep -E -- "$NOISE" <<< "$out") || true
+        [ -z "$noise" ] || printf 'NOISE %s\n' "$noise"
+        [ "$rc" -ne 0 ] || [ -n "$noise" ] || return 0
+        if [ "$run" -eq 3 ] || ! grep -qE -- "$HICCUP" <<< "$out"; then return 1; fi
+        echo "RETRY run $((run + 1)) of 3 in 10 s: network hiccup"
+        sleep 10
+    done
 }
 
 # refused TEXT COMMAND…: COMMAND fails, and its output names the reason TEXT.
