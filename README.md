@@ -259,7 +259,7 @@ The command in the hint names the package that every release of your distributio
 
 ### Counter release
 
-The kernel lets only root read two kinds of counters that orbitop shows: the GPU counters, which `intel_gpu_top` reads with the file capability `cap_perfmon`, and the RAPL energy counters (`/sys/class/powercap/intel-rapl:*`), from which orbitop takes the CPU package power. Without them, the package power comes from `intel_gpu_top` if it has `cap_perfmon`. The switch "Release counters" in the settings of the About dialog (the info button in the header) releases both for every account on the machine and locks them again. It switches only what the machine has: the GPU counters with Intel graphics and an installed `intel_gpu_top`, the energy counters where there are RAPL zones (Intel and AMD). The switch is off until an admin turns it on; no installation, update or reinstall turns it on.
+The kernel lets only root read two kinds of counters that orbitop shows: the GPU counters, which `intel_gpu_top` reads with the file capability `cap_perfmon`, and the RAPL energy counters (`/sys/class/powercap/intel-rapl:*`), from which orbitop takes the CPU package power. Without them, the package power comes from `intel_gpu_top` if it has `cap_perfmon`. The switch "Release counters" in the settings of the About dialog (the info button in the header) releases both for every account on the machine and locks them again. It switches only what the machine has: the GPU counters wherever `/usr/bin/intel_gpu_top` is installed, also on a machine without Intel graphics, where the lines below the switch do not show them, and the energy counters where there are RAPL zones (Intel and AMD). The switch is off until an admin turns it on; no installation, update or reinstall turns it on.
 
 Risk: with the switch on, every local account and every sandbox that sees `/sys`, such as a Flatpak app, can read the energy counters, and `intel_gpu_top` runs for every account with `CAP_PERFMON`, so it reads the GPU counters and the package power. The kernel restricts these counters because they allow power side-channel attacks: the Platypus attack (CVE-2020-8694) used them to break KASLR and to recover keys from the kernel and from SGX enclaves. Turn the switch on only if you accept that for every account on the machine.
 
@@ -321,6 +321,8 @@ sudo rm -f /etc/udev/rules.d/70-orbitop-rapl.rules
 sudo setcap -r /usr/bin/intel_gpu_top
 ```
 
+If `intel_gpu_top` has no capability, `setcap -r` exits with 1 and the message that there is none to remove (`has no capability to remove`, in older versions of libcap `has no capablity to remove`); that is harmless.
+
 Without these commands, turning the switch on and off also takes the capability set by hand away, but the rule stays: the helper never deletes a file that an admin created, and the rule releases the energy counters again at every boot. orbitop then says so below the switch. The package's own rule has another name, so neither rule hides the other.
 
 ## Uninstall
@@ -336,6 +338,8 @@ If the helper cannot run during the removal, the package manager prints `orbitop
 ```sh
 sudo setcap -r /usr/bin/intel_gpu_top
 ```
+
+If `intel_gpu_top` has no capability, `setcap -r` exits with 1 and the message that there is none to remove (`has no capability to remove`, in older versions of libcap `has no capablity to remove`); that is harmless. On a minimal system `setcap` may be missing: it comes with the package `libcap2-bin` on Debian and Ubuntu, `libcap-progs` on openSUSE and `libcap` on Fedora and Arch Linux.
 
 Turn the switch off before a downgrade to 0.2.0. 0.2.0 does not know the marker: it stays after the downgrade, together with the capability on `intel_gpu_top`, and a later update to 0.3.0 releases the counters again without asking. The package source offers no older version.
 
@@ -400,9 +404,12 @@ sudo pacman -Sc
 The packages never touch files in home directories. orbitop keeps the column layout and the hidden hints in `~/.config/orbitop/` and, with the switch "Start at login" on, an autostart entry. To remove them:
 
 ```sh
-rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/orbitop"
-rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
+case ${XDG_CONFIG_HOME-} in /*) config=$XDG_CONFIG_HOME ;; *) config=$HOME/.config ;; esac
+rm -rf -- "$config/orbitop"
+rm -f -- "$config/autostart/io.github.zappelmann_sketch.orbitop.desktop"
 ```
+
+The first line takes `$XDG_CONFIG_HOME` only if it is an absolute path, as orbitop does.
 
 An autostart for all users is removed as under [For all users](#for-all-users), a release set by hand as under [Moving from 0.2.0](#moving-from-020).
 

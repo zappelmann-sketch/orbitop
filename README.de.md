@@ -259,7 +259,7 @@ Die Zähler aller Prozesse liest `intel_gpu_top` nur mit der Freigabe der Messz�
 
 ### Messzähler freigeben
 
-Zwei Arten von Zählern, die orbitop zeigt, lässt der Kernel nur root lesen: die Grafik-Zähler, die `intel_gpu_top` mit der Datei-Fähigkeit `cap_perfmon` liest, und die RAPL-Energiezähler (`/sys/class/powercap/intel-rapl:*`), aus denen orbitop die Leistung des CPU-Pakets nimmt. Ohne sie kommt die Paketleistung von `intel_gpu_top`, wenn es `cap_perfmon` hat. Der Schalter „Messzähler freigeben“ in den Einstellungen im Dialog „Über“ (der Info-Knopf in der Kopfleiste) gibt beide für jedes Konto auf dem Rechner frei und sperrt sie wieder. Er schaltet nur, was der Rechner hat: die Grafik-Zähler bei Intel-Grafik mit installiertem `intel_gpu_top`, die Energiezähler, wo es RAPL-Zonen gibt (Intel und AMD). Der Schalter ist aus, bis ein Admin ihn einschaltet; keine Installation, kein Update und keine Neuinstallation schaltet ihn ein.
+Zwei Arten von Zählern, die orbitop zeigt, lässt der Kernel nur root lesen: die Grafik-Zähler, die `intel_gpu_top` mit der Datei-Fähigkeit `cap_perfmon` liest, und die RAPL-Energiezähler (`/sys/class/powercap/intel-rapl:*`), aus denen orbitop die Leistung des CPU-Pakets nimmt. Ohne sie kommt die Paketleistung von `intel_gpu_top`, wenn es `cap_perfmon` hat. Der Schalter „Messzähler freigeben“ in den Einstellungen im Dialog „Über“ (der Info-Knopf in der Kopfleiste) gibt beide für jedes Konto auf dem Rechner frei und sperrt sie wieder. Er schaltet nur, was der Rechner hat: die Grafik-Zähler überall, wo `/usr/bin/intel_gpu_top` installiert ist, auch auf einem Rechner ohne Intel-Grafik, wo die Zeilen unter dem Schalter sie nicht zeigen, und die Energiezähler, wo es RAPL-Zonen gibt (Intel und AMD). Der Schalter ist aus, bis ein Admin ihn einschaltet; keine Installation, kein Update und keine Neuinstallation schaltet ihn ein.
 
 Risiko: Ist der Schalter an, kann jedes lokale Konto und jede Sandbox, die `/sys` sieht, etwa eine Flatpak-App, die Energiezähler lesen, und `intel_gpu_top` läuft für jedes Konto mit `CAP_PERFMON`, liest also die Grafik-Zähler und die Paketleistung. Der Kernel sperrt diese Zähler, weil sie Seitenkanalangriffe über den Stromverbrauch erlauben: Der Platypus-Angriff (CVE-2020-8694) hat damit KASLR gebrochen und Schlüssel aus dem Kernel und aus SGX-Enklaven gewonnen. Schalten Sie ihn nur ein, wenn Sie das für jedes Konto auf dem Rechner hinnehmen.
 
@@ -321,6 +321,8 @@ sudo rm -f /etc/udev/rules.d/70-orbitop-rapl.rules
 sudo setcap -r /usr/bin/intel_gpu_top
 ```
 
+Hat `intel_gpu_top` keine Fähigkeit, endet `setcap -r` mit 1 und der Meldung, es gebe keine zu entfernen (`has no capability to remove`, in älteren Versionen von libcap `has no capablity to remove`); das ist harmlos.
+
 Ohne diese Befehle nimmt Ein- und Ausschalten die von Hand gesetzte Fähigkeit zwar auch weg, die Regel aber bleibt: Der Helfer löscht nie eine Datei, die ein Admin angelegt hat, und die Regel gibt die Energiezähler bei jedem Start wieder frei. orbitop sagt das dann unter dem Schalter. Die Regel des Pakets heißt anders, deshalb verdeckt keine der beiden Regeln die andere.
 
 ## Deinstallation
@@ -336,6 +338,8 @@ Kann der Helfer beim Entfernen nicht laufen, meldet die Paketverwaltung `orbitop
 ```sh
 sudo setcap -r /usr/bin/intel_gpu_top
 ```
+
+Hat `intel_gpu_top` keine Fähigkeit, endet `setcap -r` mit 1 und der Meldung, es gebe keine zu entfernen (`has no capability to remove`, in älteren Versionen von libcap `has no capablity to remove`); das ist harmlos. Auf einem minimalen System fehlt `setcap` eventuell: Es kommt mit dem Paket `libcap2-bin` unter Debian und Ubuntu, `libcap-progs` unter openSUSE und `libcap` unter Fedora und Arch Linux.
 
 Vor einem Downgrade auf 0.2.0 den Schalter ausschalten. 0.2.0 kennt die Merkdatei nicht: Sie bleibt nach dem Downgrade liegen, zusammen mit der Fähigkeit auf `intel_gpu_top`, und ein späteres Update auf 0.3.0 gibt die Zähler ohne Rückfrage wieder frei. Die Paketquelle bietet keine ältere Version an.
 
@@ -400,9 +404,12 @@ sudo pacman -Sc
 Die Pakete fassen nie Dateien in Home-Verzeichnissen an. orbitop legt das Spaltenlayout und die ausgeblendeten Hinweise in `~/.config/orbitop/` ab und, bei eingeschaltetem Schalter „Beim Anmelden starten“, einen Autostart-Eintrag. Alles entfernen:
 
 ```sh
-rm -rf -- "${XDG_CONFIG_HOME:-$HOME/.config}/orbitop"
-rm -f -- "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
+case ${XDG_CONFIG_HOME-} in /*) config=$XDG_CONFIG_HOME ;; *) config=$HOME/.config ;; esac
+rm -rf -- "$config/orbitop"
+rm -f -- "$config/autostart/io.github.zappelmann_sketch.orbitop.desktop"
 ```
+
+Die erste Zeile nimmt `$XDG_CONFIG_HOME` nur, wenn es ein absoluter Pfad ist, so wie orbitop selbst.
 
 Einen Autostart für alle Benutzer entfernen Sie wie unter [Für alle Benutzer](#für-alle-benutzer), eine von Hand gesetzte Freigabe wie unter [Umstieg von 0.2.0](#umstieg-von-020).
 

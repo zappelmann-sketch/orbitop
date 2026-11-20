@@ -275,3 +275,15 @@ def test_readmes_show_the_fallback_command_of_the_hint():  # der Befehl, den der
     for manager in packagekit.NAMES:
         command = f"`{packagekit.command(manager)}`"
         assert command in section(EN, "### Intel") and command in section(DE, "### Intel"), manager
+
+
+@pytest.mark.parametrize("name", COUNTERS)
+def test_cleanup_and_setcap_notes(name):
+    """Review Task 9: rm -rf nie unter einem relativen XDG_CONFIG_HOME, den orbitop ignoriert; setcap -r ohne Fähigkeit
+    scheitert harmlos, und woher setcap auf einem minimalen System kommt."""
+    text = EN if name == "README.md" else DE
+    rm = [ln for block in code_blocks(text) for ln in block.splitlines() if ln.startswith("rm -rf")]
+    assert rm == ['rm -rf -- "$config/orbitop"'] and "case ${XDG_CONFIG_HOME-} in /*) config=$XDG_CONFIG_HOME" in text
+    for part in (section(text, COUNTERS[name]["move"]), section(text, COUNTERS[name]["remove"])):
+        assert "has no capability to remove" in part
+    assert all(f"`{p}`" in section(text, COUNTERS[name]["remove"]) for p in ("libcap2-bin", "libcap-progs", "libcap"))
