@@ -295,3 +295,49 @@ Die genaue Bauweise legt das Dokument aus Teil B fest. Sichtbar für den Benutze
 3. Plan 2 (Teil C) nach dem Dokument aus Teil B und den Entscheidungen des Users dazu.
 4. Plan 2 ausführen.
 5. Teil D: Schlussprüfung, Testversion auf dem Notebook, Go, Release, Update auf dem Notebook, Freigabe prüfen, Issue #1, Nacharbeiten.
+
+## Messung Eigenlast (Umbau)
+
+Gemessen am 2026-11-20 nach Task 6 (9a3518f), Verfahren wie in der Spec vom 2026-11-17, Abschnitt „Messung Eigenlast (2026-11-17)“: `scripts/measure-load.py --pid <orbitop> --seconds 60` über den Prozessbaum, 60 s nach 60 s Aufwärmen, Fenster 1600×1000, Skalierung 1,25. „Alle Spalten“ = Layout mit allen 15 Spalten sichtbar. Jede Lage in eigener Instanz mit eigenem `XDG_CONFIG_HOME` und eigener D-Bus-Sitzung. Zweig und `main` (Stand 0.2.0, die Laufzeitdateien gleich `v0.2.0`) liefen in derselben Sitzung abwechselnd (Zweig, `main`, `main`, Zweig), dazu ein drittes Paar „Prozesse Standard“. Aufteilung je Thread aus `/proc/<pid>/task/*/stat` über dasselbe Fenster. Alle Läufe sind ungestört (GTK-Hauptthread ≤ 0,15 %, Compositor ≤ 0,10 %), keiner wurde verworfen. Lastmittel (1 min) 0,03 bis 1,20. Auf dem Rechner liefen dabei rund 390 Prozesse mit rund 2 000 Threads.
+
+CPU in % eines Kerns, in Klammern PSS in MB:
+
+| Stand | Ausgeblendet | Übersicht kurz | Prozesse Standard kurz | Prozesse alle Spalten kurz |
+|---|---|---|---|---|
+| Umbau (9a3518f) | 3,05 (170); 2,93 (169) | 7,23 (234); 7,26 (231) | 8,04 (230); 8,30 (235); 8,08 (229) | 9,00 (233); 8,93 (234) |
+| `main` (Stand 0.2.0), abwechselnd in derselben Sitzung | 3,02 (169); 3,00 (169) | 7,26 (239); 7,26 (235) | 8,01 (231); 7,95 (231); 8,00 (230) | 8,98 (232); 8,96 (234) |
+| **Budget (User)** | **≤ 3** | **≤ 9** | **≤ 9** | **≤ 9** (Ausnahme bis etwa 9,4); PSS **< 275** |
+
+Der Umbau liegt in allen Lagen im Rahmen der Streuung gleich auf mit `main`. Mittel Umbau / `main`: ausgeblendet 2,99 / 3,01, Übersicht 7,25 / 7,26, Prozesse Standard 8,14 / 7,99, alle Spalten 8,97 / 8,97. Der Lauf 8,30 ist ungestört nach der Regel (GTK-Hauptthread 0,10 %, Compositor 0,03 %). Während dieses Laufs stieg aber das Lastmittel von 0,12 auf 0,98, und alle Prozesse lagen höher, auch `intel_gpu_top` (1,23 statt 1,15). Ohne ihn liegt der Umbau bei 8,06.
+
+Aufteilung je Prozess (Mittel), Umbau / `main`:
+- Ausgeblendet: orbitop 1,86 / 1,86 (`orbitop-worker` 0,93 / 0,92, `orbitop-procs` 0,89 / 0,89, GTK-Hauptthread 0,00), `intel_gpu_top` 1,13 / 1,15, WebKit 0 %.
+- Übersicht: WebKit 3,51 / 3,48, orbitop 2,58 / 2,60, `intel_gpu_top` 1,16 / 1,19.
+- Prozesse Standard: orbitop 3,76 / 3,72, WebKit 3,20 / 3,11, `intel_gpu_top` 1,18 / 1,16.
+- Prozesse alle Spalten: WebKit 4,13 / 4,10, orbitop 3,69 / 3,73, `intel_gpu_top` 1,14 / 1,15.
+
+PSS ausgeblendet 169 bis 170 MB statt 137 bis 138 MB am 2026-11-19, in beiden Ständen gleich (WebKit-Webprozess 85 statt 64 MB, orbitop 67 statt rund 60 MB). Die Ursache ist nicht untersucht, das Budget hält.
+
+### Ausgeblendet untersucht (A7.1)
+
+- **Versionen:** `intel_gpu_top` 2.3-1 und Kernel 7.0.0-43 sind seit dem 2026-11-16 unverändert. Alle Messungen vom 2026-11-17 bis heute liefen im selben Bootvorgang. Seitdem kamen nur WebKitGTK (2026-11-18), das Paket orbitop 0.2.0 selbst und Pakete ohne Bezug zur Messung neu. WebKit liegt ausgeblendet bei 0 %.
+- **Gleicher Code, andere Werte:** a568c23 und 0.1.0 haben denselben Programmcode (`orbitop/`, `bin/`). Gemessen wurden 2,65 % am 2026-11-18 und 3,08 % am 2026-11-19. Die Schwankung stammt also nicht aus dem Code.
+- **Je Thread:** Der GTK-Hauptthread steht ausgeblendet. `orbitop-worker` (Systemtakt) und `orbitop-procs` (Prozess-Takt alle 2 s, auch ausgeblendet) tragen je etwa die Hälfte. orbitop liegt mit 1,86 % nahe am Wert vom 2026-11-17 (1,78 bis 1,80 %).
+- **Ohne `intel_gpu_top`:** `gpu_tools.py` sucht das Werkzeug nur im festen `TOOL_PATH`, nicht im `PATH`. Darum lief diese Messung über die Test-Naht: `TOOL_PATH` zeigt auf einen leeren Ordner. Ergebnis 2,58 % statt rund 3,0 %. Dabei steigt aber `orbitop-worker` von 0,92 auf 1,62 %: Ohne Werte des Werkzeugs liest `gpu.py` die Auslastung jede Sekunde aus den fdinfo-Dateien der eigenen Prozesse (Hinweis `hint.igt_missing`). Netto spart das Weglassen also nur rund 0,4 Punkte.
+- **`intel_gpu_top` allein** (`-J -s 2000` wie in orbitop): 1,10 %. Mit 20 000 zusätzlich offenen Dateien in einem Probeprozess steigt der Wert auf 3,18 %, also rund 0,1 Punkte je 1 000 offene Dateien. Das passt dazu, dass das Werkzeug je Takt in den Dateilisten aller lesbaren Prozesse nach Grafik-Clients sucht (Block `clients`). orbitop verwirft diesen Block; Version 2.3 hat keinen Schalter, der die Suche abstellt.
+- **Mit 300 zusätzlichen schlafenden Prozessen**, ausgeblendet: 4,08 % statt rund 3,0 %. `orbitop-procs` liegt bei 1,68 statt 0,89 % (rund 0,26 Punkte je 100 Prozesse), `intel_gpu_top` bei 1,38 statt 1,13 %. `orbitop-worker` bleibt etwa gleich (0,97 %).
+
+**Ergebnis:** Die Ursache ist keine Änderung in orbitop, sondern der Zustand des Rechners. Beide großen Posten der ausgeblendeten Last wachsen mit der Zahl der Prozesse und der offenen Dateien: `orbitop-procs` und `intel_gpu_top`. Der Anteil von orbitop ist seit dem 2026-11-17 im Rahmen gleich geblieben. Der Mehrbedarf gegenüber dem 2026-11-17 (`intel_gpu_top` +0,1) hängt am selben Zustand. Mit rund 390 Prozessen liegt der Wert genau an der Grenze von 3 %. Mit mehr offenen Programmen steigt er, mit weniger sinkt er (2,65 % am 2026-11-18).
+
+Möglichkeiten, über die der User entscheidet (Werte für ausgeblendet, geschätzt aus den Messungen oben):
+1. **So lassen.** Kein Aufwand, kein Verlust. Das Budget von 3 % gilt dann für einen Rechner mit etwa 400 Prozessen; jedes weitere offene Programm hebt die Last.
+2. **`intel_gpu_top` bei ausgeblendetem Fenster anhalten**, dabei auch den Ersatzweg über fdinfo auslassen (sonst kostet er 0,7 Punkte zurück). Ergebnis rund 1,9 %.
+   - Verlust: Im Verlauf der Grafik-Kachel (Auslastung, Takt, Leistung) fehlt die ausgeblendete Zeit. Nach dem Einblenden fehlen die Grafikwerte rund 2 s lang.
+   - Aufwand: Start und Stopp im `ToolReader` (heute startet er höchstens alle 30 s neu), Sichtbarkeit bis zum Sampler, Tests.
+3. **`intel_gpu_top` ausgeblendet mit längerem Takt neu starten**, etwa 4 s. Ersparnis rund 0,55 Punkte.
+   - Verlust: gröbere Grafikwerte für die ausgeblendete Zeit und eine kurze Lücke beim Umschalten.
+   - Aufwand: wie bei 2.
+4. **Prozess-Takt ausgeblendet seltener**, etwa 4 s statt 2 s. Ersparnis rund 0,45 Punkte; der Anteil, der mit der Prozesszahl wächst, halbiert sich.
+   - Verlust: Der Verlauf je Prozess (5 min, „Letzte 60 s“) wird für die ausgeblendete Zeit gröber.
+   - Aufwand: mittel, denn die Verläufe nehmen heute feste 2-s-Schritte an.
+5. **2 und 4 zusammen:** rund 1,4 %.
