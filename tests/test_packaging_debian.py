@@ -5,8 +5,11 @@ import hashlib
 import re
 from urllib.parse import urlsplit
 
+import pytest
+
 from orbitop import app
-from tests.packaging_common import APT_SOURCE, KEY_FILE, METAINFO, NOREPLY, PKG, ROOT, deb822, load_changelog
+from tests.packaging_common import (APT_SOURCE, KEY_FILE, METAINFO, NOREPLY, PKG, ROOT, deb822, load_changelog,
+                                     pulls_orbitop)
 
 # Datendateien ohne Kommentarformat: einzeilige Dateien und der Schlüssel, so wie gpg ihn exportiert
 NO_HEADER = {PKG / "debian" / "source" / "format", APT_SOURCE / "debian" / "source" / "format",
@@ -37,10 +40,23 @@ def test_debian_depends_match_app_packages():
     assert [p.get("Package") for p in deb822(PKG / "debian" / "control")[1:]] == ["orbitop"]
 
 
+def pulled_orbitop(paragraph):
+    """Die Beziehungen in Depends, Pre-Depends und Recommends, mit denen apt ein Paket orbitop* mitinstallierte."""
+    return [r for f in ("Depends", "Pre-Depends", "Recommends") for r in relations(paragraph.get(f, ""))
+            if pulls_orbitop(r)]
+
+
+@pytest.mark.parametrize("field, value, pulled", [
+    ("Depends", "orbitop-apt-source", True), ("Pre-Depends", "orbitop-apt-source (>= 2026.11.18)", True),
+    ("Depends", "python3, foo | orbitop-apt-source", True), ("Recommends", "foo (>= 1) | orbitop-apt-source:any", True),
+    ("Depends", "foo [amd64] | orbitop-apt-source [amd64]", True),
+    ("Depends", "python3 (>= 3.12), pkexec, ${misc:Depends}", False), ("Recommends", "foo | liborbitop1", False)])
+def test_k3_guard_sees_alternatives_and_versions(field, value, pulled):
+    assert bool(pulled_orbitop({field: value})) is pulled
+
+
 def test_main_package_never_pulls_the_apt_source():  # K3: die Quelle kommt nur auf ausdrücklichen Wunsch
-    main = package("orbitop")
-    pulled = [r for f in ("Depends", "Pre-Depends", "Recommends") for r in relations(main.get(f, ""))]
-    assert not [r for r in pulled if r.startswith("orbitop")]
+    assert not pulled_orbitop(package("orbitop"))
 
 
 def test_description_matches_metainfo():

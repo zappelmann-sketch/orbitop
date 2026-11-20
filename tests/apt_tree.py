@@ -11,8 +11,8 @@ import sys
 import tarfile
 from pathlib import Path
 
-HASHES = (("MD5sum", "MD5Sum", "md5"), ("SHA1", "SHA1", "sha1"), ("SHA256", "SHA256", "sha256"),
-          ("SHA512", "SHA512", "sha512"))
+# Feld in Packages, Feld in Release, Name in hashlib; ohne MD5 und SHA1 wie packaging/site/apt-inside.sh
+HASHES = (("SHA256", "SHA256", "sha256"), ("SHA512", "SHA512", "sha512"))
 
 
 def _ar_member(name, data):

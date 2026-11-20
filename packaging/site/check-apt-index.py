@@ -16,9 +16,9 @@ import tarfile
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-PACKAGES_HASHES = {"MD5sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
-RELEASE_HASHES = {"MD5Sum": "md5", "SHA1": "sha1", "SHA256": "sha256", "SHA512": "sha512"}
-BY_HASH = ("SHA256", "SHA512")  # the copies apt-ftparchive writes with DoByHash
+# Only these two, in Packages and in Release: apt-inside.sh turns MD5 and SHA1 off, so either one is refused.
+PACKAGES_HASHES = RELEASE_HASHES = {"SHA256": "sha256", "SHA512": "sha512"}
+BY_HASH = tuple(RELEASE_HASHES)  # the copies apt-ftparchive writes with DoByHash
 RELEASE_FIXED = {"Origin": "orbitop", "Label": "orbitop", "Architectures": "all", "Acquire-By-Hash": "yes"}
 RELEASE_DATE = "%a, %d %b %Y %H:%M:%S +0000"  # RFC 2822 in UTC, as apt-ftparchive writes it (C locale)
 DATE_SLACK = timedelta(minutes=10)  # host clock skew; apt itself allows Acquire::Max-FutureTime (10 s)

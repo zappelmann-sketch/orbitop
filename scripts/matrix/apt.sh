@@ -58,7 +58,7 @@ update_from() {
 }
 
 files_of() { dpkg -L orbitop orbitop-apt-source | grep -vx '/\.'; }
-owned() { dpkg -S -- "$1" > /dev/null 2>&1; }
+owned() { dpkg -S -- "$1" 2> /dev/null; }
 # packages: with the status, so that a removal that keeps the conffiles changes the list too.
 # shellcheck disable=SC2016  # the format of dpkg-query
 packages() { dpkg-query -W -f '${db:Status-Abbrev} ${binary:Package} ${Version}\n'; }

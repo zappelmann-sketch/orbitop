@@ -42,7 +42,9 @@ def test_accepts_the_signed_package_of_its_input(tmp_path, family):
     assert signed != unsigned
     r = same(tmp_path, signed, unsigned)
     assert r.returncode == 0, r.stderr
-    assert same(tmp_path, unsigned, unsigned).returncode == 0  # ein schon signiertes, wiederverwendetes RPM
+    # dieselben Bytes auf beiden Seiten, hier die unsignierten: so kommt ein RPM, das schon gültig signiert war (das
+    # wiederverwendete orbitop-release), unverändert aus rpm-inside.sh zurück
+    assert same(tmp_path, unsigned, unsigned).returncode == 0
 
 
 def test_refuses_another_package(tmp_path):

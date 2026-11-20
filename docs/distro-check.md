@@ -54,6 +54,9 @@ How the check runs:
      `Server = …/arch/$arch` at the end of `/etc/pacman.conf`.
   3. `install`: `apt update` (no `W:`, `E:` or `N:`) and `apt install orbitop`; `dnf install orbitop`;
      `zypper install orbitop`, and `zypper lr orbitop` shows `GPG Check: (rp) Yes`; `pacman -Syu orbitop`.
+     Afterwards `/usr/bin/pkexec`, which starts orbitop's helper, is a regular setuid file that a package owns; the
+     log names that package (`dpkg -S`, `rpm -qf`, `pacman -Qo`). On openSUSE it is the package `pkexec`, which
+     orbitop requires as `/usr/bin/pkexec`, because `polkit` there does not pull it in.
   4. `import`: import GTK 4 and WebKitGTK 6.0 through PyGObject.
   5. `tools`: install pytest, ShellCheck, desktop-file-utils and AppStream.
   6. `pytest`: `python3 -m pytest -q` as an ordinary user on a copy of the repository. The browser tests skip

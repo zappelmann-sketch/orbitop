@@ -1,11 +1,16 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-"""Arch-Paket: PKGBUILD und orbitop.install."""
+"""Arch-Paket: PKGBUILD, orbitop.install und ein Testbau mit build-inside.sh."""
 import os
+import shutil
 import subprocess
+import tarfile
 
-from orbitop import app
-from tests.packaging_common import PKG
+import pytest
+
+from orbitop import __version__, app
+from tests.packaging_common import PKG, ROOT
+from tests.site_stub import kill_agent, make_keys
 
 ARCH = PKG / "arch"
 
@@ -66,7 +71,62 @@ def test_install_script_without_keyring_only_hints(tmp_path):  # wie archlinux-k
     assert all("pacman-key --init" in o for o in out)
 
 
-def test_trusted_file_never_trusts_the_key_as_introducer():  # Owner-Trust 3: "never", nie 4 (marginal) oder höher
-    script = (ARCH / "build-inside.sh").read_text(encoding="utf-8")
-    assert """printf '%s:3:\\n' "$fpr" > "$work/orbitop-trusted"\n""" in script
-    assert script.count("orbitop-trusted") == 1
+# Die Werkzeuge von archlinux:latest, die build-inside.sh aufruft, für den Testbau in bwrap: pacman und useradd tun
+# nichts, runuser startet den Befehl nach "--", bsdtar liest wie GNU tar, makepkg baut wie makepkg(8) aus den Quellen
+# des PKGBUILD mit package() das Paket. shortcut: das Paket ist ein unkomprimiertes tar ohne .PKGINFO; es dient nur
+# dem Blick auf seine Dateien.
+STUBS = {
+    "pacman": "exit 0", "useradd": "exit 0", "namcap": "exit 0", "bsdtar": 'exec tar "$@"',
+    "python": 'exec python3 "$@"', "runuser": 'while [ "$1" != -- ]; do shift; done; shift; exec "$@"',
+    "makepkg": """[ "$1" != --geninteg ] || exit 0
+set -euo pipefail
+source ./PKGBUILD
+srcdir=$PWD/src pkgdir=$PWD/pkg
+mkdir "$srcdir" "$pkgdir"
+for s in "${source[@]}"; do case $s in *.tar) tar -C "$srcdir" -xf "$s" ;; *) cp -- "$s" "$srcdir/" ;; esac; done
+(cd "$srcdir" && package)
+tar -C "$pkgdir" -cf "$pkgname-$pkgver-$pkgrel-any.pkg.tar.zst" usr""",
+}
+
+
+def sandbox(tmp):
+    """bwrap statt docker run: root in einem eigenen User-Namespace, /.dockerenv, die Quellen schreibgeschützt unter
+    /src, beschreibbar nur /out und ein leeres /tmp, ohne Netz und ohne das Home-Verzeichnis."""
+    (tmp / "dockerenv").touch()
+    (tmp / "passwd").write_text("root:x:0:0::/tmp:/bin/bash\nbuilder:x:0:0::/tmp:/bin/bash\n")  # chown -R builder
+    (tmp / "out").mkdir()
+    (tmp / "stubs").mkdir()
+    for name, body in STUBS.items():
+        (tmp / "stubs" / name).write_text(f"#!/bin/bash\n{body}\n")
+        (tmp / "stubs" / name).chmod(0o755)
+    src = [a for d in ("bin", "data", "orbitop", "packaging") for a in ("--ro-bind", str(ROOT / d), f"/src/{d}")]
+    return ["bwrap", "--unshare-all", "--die-with-parent", "--uid", "0", "--gid", "0", "--ro-bind", "/usr", "/usr",
+            *[a for d in ("bin", "lib", "lib64", "sbin") for a in ("--symlink", f"usr/{d}", f"/{d}")],
+            "--ro-bind", "/etc", "/etc", "--ro-bind", str(tmp / "passwd"), "/etc/passwd", "--proc", "/proc",
+            "--dev", "/dev", "--tmpfs", "/tmp", "--ro-bind", str(tmp / "dockerenv"), "/.dockerenv", *src,
+            "--bind", str(tmp / "out"), "/out", "--ro-bind", str(tmp / "stubs"), "/stubs", "--clearenv",
+            "--setenv", "PATH", "/stubs:/usr/bin:/bin", "--setenv", "HOME", "/tmp", "--setenv", "OWNER", "0:0"]
+
+
+@pytest.fixture(scope="module")
+def built(tmp_path_factory):
+    """Das Paket, das build-inside.sh mit einem Wegwerfschlüssel baut, und der Fingerabdruck des Schlüssels."""
+    if not shutil.which("bwrap") or subprocess.run(["bwrap", "--unshare-user", "--ro-bind", "/", "/", "true"],
+                                                   capture_output=True).returncode:
+        pytest.skip("bwrap fehlt oder darf keinen User-Namespace anlegen")
+    tmp = tmp_path_factory.mktemp("arch")
+    key = make_keys(tmp / "gnupg")
+    kill_agent(key["home"])  # gebraucht wird nur der öffentliche Schlüssel
+    r = subprocess.run([*sandbox(tmp), "bash", "/src/packaging/arch/build-inside.sh", __version__, "1"],
+                       input=key["pub"].read_bytes(), capture_output=True, timeout=120)
+    assert r.returncode == 0, r.stderr.decode()
+    with tarfile.open(tmp / "out" / "arch" / f"orbitop-{__version__}-1-any.pkg.tar.zst") as pkg:
+        files = {m.name: pkg.extractfile(m).read() for m in pkg.getmembers() if m.isfile()}
+    return files, key
+
+
+def test_trusted_file_never_trusts_the_key_as_introducer(built):  # Owner-Trust 3: "never", nie 4 (marginal) oder höher
+    files, key = built
+    assert files["usr/share/pacman/keyrings/orbitop-trusted"] == f"{key['fpr']}:3:\n".encode()
+    assert files["usr/share/pacman/keyrings/orbitop.gpg"] == key["pub"].read_bytes()
+    assert files["usr/lib/orbitop/killhelper"] == (ROOT / "orbitop" / "killhelper.py").read_bytes()

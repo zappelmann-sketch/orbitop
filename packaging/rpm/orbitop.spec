@@ -20,6 +20,8 @@ Requires:       python3-gobject
 Requires:       typelib-1_0-Gtk-4_0
 Requires:       typelib-1_0-WebKit-6_0
 Requires:       python3-gobject-Gdk
+# pkexec is a package of its own here, which polkit does not pull in; on Fedora, polkit ships /usr/bin/pkexec.
+Requires:       /usr/bin/pkexec
 %else
 BuildRequires:  python3-devel
 Requires:       python3-gobject

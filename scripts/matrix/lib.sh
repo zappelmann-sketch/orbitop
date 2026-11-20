@@ -137,7 +137,7 @@ leftovers() {
     local path left=()
     while IFS= read -r path; do
         [ -e "$path" ] || [ -L "$path" ] || continue
-        if [ -d "$path" ] && [ ! -L "$path" ] && owned "$path"; then continue; fi
+        if [ -d "$path" ] && [ ! -L "$path" ] && owned "$path" > /dev/null; then continue; fi
         left+=("$path")
     done < "$1"
     [ ! -e /etc/orbitop ] || left+=(/etc/orbitop)

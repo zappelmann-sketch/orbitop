@@ -77,6 +77,10 @@ def forge(apt, case):
     elif case in ("future-date", "bad-date"):
         date = "Fri, 01 Jan 2100 00:00:00 +0000" if case == "future-date" else "01 Jan 2026 00:00:00 +0000"
         release.write_text(re.sub(r"(?m)^Date: .*$", f"Date: {date}", release.read_text()))
+    elif case == "packages-md5":  # was apt-ftparchive ohne APT::FTPArchive::MD5=false schriebe
+        write_index(apt, "stable", "main", "\n".join(f"{stanza(apt, d)}MD5sum: {'0' * 32}\n" for d in DEBS))
+    elif case == "release-sha1":
+        release.write_text(release.read_text() + f"SHA1:\n {'0' * 40} 1 main/binary-all/Packages\n")
     elif case in ("release-cr", "release-crlf"):  # apt liest \r als Teil des Werts, read_text() machte \n daraus
         old, new = (b"\nOrigin", b"\rOrigin") if case == "release-cr" else (b"\n", b"\r\n")
         release.write_bytes(release.read_bytes().replace(old, new))
@@ -91,7 +95,8 @@ def forge(apt, case):
     ("release-field", "Release fields"), ("space-line", "whitespace-only line"),
     ("tab-line", "whitespace-only line"), ("control-char", "control character"),
     ("future-date", "is in the future"), ("bad-date", "does not match format"),
-    ("release-cr", "control character"), ("release-crlf", "control character")])
+    ("release-cr", "control character"), ("release-crlf", "control character"),
+    ("packages-md5", "differs from its deb in ['MD5sum']"), ("release-sha1", "Release fields")])
 def test_refuses_a_forged_index(apt, case, reason):
     forge(apt, case)
     r = check(apt)
@@ -101,5 +106,5 @@ def test_refuses_a_forged_index(apt, case, reason):
 def test_release_fields_match_apt_inside():  # was der Container schreiben soll, verlangt die Prüfung
     inside = (PKG / "site" / "apt-inside.sh").read_text(encoding="utf-8")
     for option in ("Release::Origin=orbitop", "Release::Label=orbitop", "Release::Architectures=all",
-                   "Release::Acquire-By-Hash=yes"):
+                   "Release::Acquire-By-Hash=yes", "APT::FTPArchive::MD5=false", "APT::FTPArchive::SHA1=false"):
         assert option in inside

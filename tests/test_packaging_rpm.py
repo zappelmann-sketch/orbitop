@@ -6,8 +6,10 @@ import hashlib
 import re
 import subprocess
 
+import pytest
+
 from orbitop import app
-from tests.packaging_common import KEY_FILE, METAINFO, PKG, ROOT, load_changelog
+from tests.packaging_common import KEY_FILE, METAINFO, PKG, ROOT, load_changelog, pulls_orbitop
 
 RPM = PKG / "rpm"
 KEYRING = PKG / "keyring"
@@ -37,12 +39,32 @@ def values(spec, tag, branch):
     return [v for b, t, v in tags(spec) if t == tag and b in ("", branch)]
 
 
+# auch Requires(pre) usw. und Recommends, die dnf und zypper von sich aus mitinstallieren
+DEPENDS = re.compile(r"(?:Requires(?:\([\w,]+\))?|Recommends):\s+(.*)")
+
+
+def pulled_orbitop(spec):
+    """Die Abhängigkeiten in SPEC (jeder Zweig des %if), mit denen dnf oder zypper orbitop* mitinstallierte."""
+    return [m[1] for m in map(DEPENDS.fullmatch, spec.splitlines()) if m and pulls_orbitop(m[1])]
+
+
+@pytest.mark.parametrize("line, pulled", [
+    ("Requires:       orbitop-release", True), ("Requires:       orbitop-release >= 2026.11.18", True),
+    ("Requires:       (polkit or orbitop-release)", True), ("Requires(post): orbitop-release", True),
+    ("Recommends:     (orbitop-release if dnf)", True), ("Requires:       python3 >= 3.12", False),
+    ("Requires:       /usr/bin/pkexec", False), ("Suggests:       orbitop-release", False)])
+def test_k3_guard_sees_alternatives_and_versions(line, pulled):
+    assert bool(pulled_orbitop(f"Name: orbitop\n{line}\n")) is pulled
+
+
 def test_rpm_requires_match_app_packages():  # beide Zweige des %if, Namen wie in app.PACKAGES (K4)
-    for branch, manager in (("fedora", "dnf"), ("suse", "zypper")):
-        assert values("orbitop.spec", "Requires", branch) == ["python3 >= 3.12", *app.PACKAGES[manager], "polkit"]
+    # openSUSE: pkexec ist ein eigenes Paket, das polkit nicht nachzieht; Fedoras polkit enthält es (Probe 2026-11-20)
+    for branch, manager, pkexec in (("fedora", "dnf", []), ("suse", "zypper", ["/usr/bin/pkexec"])):
+        assert values("orbitop.spec", "Requires", branch) == [
+            "python3 >= 3.12", *app.PACKAGES[manager], *pkexec, "polkit"]
         assert values("orbitop.spec", "Suggests", branch) == ["igt-gpu-tools"]
         assert values("orbitop.spec", "BuildArch", branch) == ["noarch"]
-        assert not [v for v in values("orbitop.spec", "Requires", branch) if v.startswith("orbitop")]  # K3
+    assert not pulled_orbitop((RPM / "orbitop.spec").read_text(encoding="utf-8"))  # K3, in jedem Zweig
 
 
 def test_rpm_version_only_from_build():  # die Upstream-Version steht nur in orbitop/__init__.py

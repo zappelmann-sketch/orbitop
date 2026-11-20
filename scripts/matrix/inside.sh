@@ -8,7 +8,8 @@
 # source definitions under /etc point to file:// here (point); the packages keep the Pages address.
 # Prints "STEP <name> ok|fail". The helpers are in scripts/matrix/lib.sh, the commands of each package manager in
 # scripts/matrix/<manager>.sh; it provides NOISE and refresh, keyring ROOT, install_pkg, tools, installed, offered ROOT,
-# update_from ROOT, files_of, owned PATH, packages (for net in lib.sh), remove, purge, tamper and refresh_index.
+# update_from ROOT, files_of, owned PATH (prints the owner), packages (for net in lib.sh), remove, purge, tamper and
+# refresh_index.
 # shellcheck source-path=SCRIPTDIR disable=SC2317,SC2329  # step calls the functions
 set -euo pipefail
 
@@ -45,6 +46,12 @@ gi.require_version("WebKit", "6.0")
 from gi.repository import Gtk, WebKit
 def v(m): return f"{m.get_major_version()}.{m.get_minor_version()}.{m.get_micro_version()}"
 print("VERSIONS python", sys.version.split()[0], "pygobject", gi.__version__, "gtk", v(Gtk), "webkitgtk", v(WebKit))'
+}
+
+# install_pkg, then polkit's pkexec, which starts orbitop's helper: a regular setuid file that a package owns (the log
+# names it). openSUSE ships it in a package of its own, which orbitop requires as /usr/bin/pkexec.
+install_orbitop() {
+    install_pkg && [ -f /usr/bin/pkexec ] && [ ! -L /usr/bin/pkexec ] && [ -u /usr/bin/pkexec ] && owned /usr/bin/pkexec
 }
 
 as_tester() { runuser -u tester -- "$@"; }
@@ -95,7 +102,7 @@ useradd -m tester
 
 step refresh refresh
 step keyring keyring "$SITE"
-step install install_pkg
+step install install_orbitop
 [ "$failed" -eq 0 ] || exit 1  # without orbitop the remaining steps have nothing to check
 step import import_gi
 step tools tools

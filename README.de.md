@@ -245,9 +245,10 @@ Ohne Werkzeug zeigt orbitop die Auslastung der Intel-Grafik durch eigene Prozess
 
 | Distribution | Befehl |
 |---|---|
-| Ubuntu, Debian | `sudo apt install intel-gpu-tools` |
+| Ubuntu 26.04 | `sudo apt install igt-gpu-tools` |
+| Ubuntu 24.04, Debian 13 | `sudo apt install intel-gpu-tools` |
 | Fedora | `sudo dnf install igt-gpu-tools` |
-| openSUSE | `sudo zypper install igt-gpu-tools` |
+| openSUSE | `sudo zypper install intel-gpu-tools` |
 | Arch Linux | `sudo pacman -S intel-gpu-tools` |
 
 Die Zähler aller Prozesse liest `intel_gpu_top` nur mit der Freigabe unten. Ohne sie zeigt orbitop weiter die eigenen Prozesse und einen Hinweis.
@@ -394,10 +395,10 @@ Ohne installiertes Paket gehen zwei Dinge nicht: Prozesse anderer Benutzer zu be
 
 | Distribution | Paketmanager | Laufzeitpakete | Intel-GPU-Werkzeuge |
 |---|---|---|---|
-| Debian, Ubuntu | `apt-get` | `python3-gi` `gir1.2-gtk-4.0` `gir1.2-webkit-6.0` | `intel-gpu-tools` |
+| Debian, Ubuntu | `apt-get` | `python3-gi` `gir1.2-gtk-4.0` `gir1.2-webkit-6.0` | `intel-gpu-tools`, Ubuntu 26.04: `igt-gpu-tools` |
 | Fedora | `dnf` | `python3-gobject` `gtk4` `webkitgtk6.0` | `igt-gpu-tools` |
 | Arch Linux | `pacman` | `python-gobject` `gtk4` `webkitgtk-6.0` | `intel-gpu-tools` |
-| openSUSE | `zypper` | `python3-gobject` `typelib-1_0-Gtk-4_0` `typelib-1_0-WebKit-6_0` `python3-gobject-Gdk` | `igt-gpu-tools` |
+| openSUSE | `zypper` | `python3-gobject` `typelib-1_0-Gtk-4_0` `typelib-1_0-WebKit-6_0` `python3-gobject-Gdk` | `intel-gpu-tools` |
 
 Die Pakete von orbitop hängen von denselben Laufzeitpaketen und von polkit ab.
 

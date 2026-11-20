@@ -33,7 +33,7 @@ offered() { pacman -Qp "$1"/arch/x86_64/orbitop-*-any.pkg.tar.zst | awk '{ print
 update_from() { point "$CONF" "file://$1/" && net pacman -Syu --noconfirm; }
 
 files_of() { pacman -Qlq orbitop; }
-owned() { pacman -Qo -- "$1" > /dev/null 2>&1; }
+owned() { pacman -Qo -- "$1" 2> /dev/null; }
 packages() { pacman -Q; }
 
 # -Syy: pacman -Sy downloads a database only when it changed.

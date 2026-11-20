@@ -96,6 +96,22 @@ def test_readmes_name_the_package_names():
         assert all(n in EN and n in DE for n in names)
 
 
+# Paket mit /usr/bin/intel_gpu_top je Ziel (Container, 2026-11-20): Ubuntu 26.04 igt-gpu-tools (intel-gpu-tools ist
+# dort nur ein Metapaket), Ubuntu 24.04, Debian 13, openSUSE und Arch intel-gpu-tools, Fedora igt-gpu-tools.
+INTEL_TOOLS = [["Ubuntu 26.04", "`sudo apt install igt-gpu-tools`"],
+               ["Ubuntu 24.04, Debian 13", "`sudo apt install intel-gpu-tools`"],
+               ["Fedora", "`sudo dnf install igt-gpu-tools`"], ["openSUSE", "`sudo zypper install intel-gpu-tools`"],
+               ["Arch Linux", "`sudo pacman -S intel-gpu-tools`"]]
+INTEL_NAMES = {"Debian, Ubuntu": "`intel-gpu-tools`, Ubuntu 26.04: `igt-gpu-tools`", "Fedora": "`igt-gpu-tools`",
+               "Arch Linux": "`intel-gpu-tools`", "openSUSE": "`intel-gpu-tools`"}
+
+
+def test_readmes_name_the_package_of_intel_gpu_top():
+    for text, names in ((EN, "### Package names\n"), (DE, "### Paketnamen\n")):
+        assert table(text.split("### Intel\n", 1)[1].split("\n### ", 1)[0]) == INTEL_TOOLS
+        assert {row[0]: row[-1] for row in table(text.split(names, 1)[1].split("\n## ", 1)[0])} == INTEL_NAMES
+
+
 def test_images_are_the_same_and_exist():
     images = [re.findall(r"!\[[^\]]*\]\(([^)\s]+)\)", text) for text in (EN, DE)]
     assert images[0] and images[0] == images[1]

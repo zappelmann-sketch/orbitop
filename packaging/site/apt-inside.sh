@@ -2,8 +2,8 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Writes the unsigned index of the apt source inside a disposable debian:trixie container: Packages, Packages.gz, their
-# by-hash copies and Release (Architectures: all, Acquire-By-Hash, no Valid-Until). The host signs Release afterwards
-# (scripts/build-site.sh).
+# by-hash copies and Release (Architectures: all, Acquire-By-Hash, no Valid-Until, only SHA256 and SHA512). The host
+# signs Release afterwards (scripts/build-site.sh).
 # Usage: bash apt-inside.sh SUITE COMPONENT < KEY.pgp   only as root in the container that build-site.sh starts: the
 #        debs already in /out/pool, the public key of ORBITOP_KEY (binary) on stdin.
 set -euo pipefail
@@ -24,14 +24,16 @@ dpkg-deb --fsys-tarfile "${source_deb[0]}" | tar -xO ./etc/apt/keyrings/orbitop-
 cd /out
 index=dists/$suite/$component/binary-all
 mkdir -p "$index"
-apt-ftparchive packages pool > "$index/Packages"
+# Only SHA256 and SHA512 in Packages and Release (apt-ftparchive(1)): apt counts MD5 and SHA1 as weak hashes.
+hashes=(-o APT::FTPArchive::MD5=false -o APT::FTPArchive::SHA1=false)
+apt-ftparchive "${hashes[@]}" packages pool > "$index/Packages"
 # apt-ftparchive skips a file that is no package and still exits 0: the index must list exactly the two packages.
 names=$(sed -n 's/^Package: //p' "$index/Packages" | sort | paste -sd ' ')
 [ "$names" = "orbitop orbitop-apt-source" ] || die "Packages must list orbitop and orbitop-apt-source, not: $names"
 gzip -9nk "$index/Packages"
 # Origin and Label never change: apt asks the user to confirm a changed one. By-hash: GitHub Pages caches each file
 # for itself, so a client may get a new InRelease with an old Packages; by-hash names cannot mix up.
-apt-ftparchive -o APT::FTPArchive::Release::Origin=orbitop -o APT::FTPArchive::Release::Label=orbitop \
+apt-ftparchive "${hashes[@]}" -o APT::FTPArchive::Release::Origin=orbitop -o APT::FTPArchive::Release::Label=orbitop \
     -o APT::FTPArchive::Release::Suite="$suite" -o APT::FTPArchive::Release::Codename="$suite" \
     -o APT::FTPArchive::Release::Components="$component" -o APT::FTPArchive::Release::Architectures=all \
     -o APT::FTPArchive::Release::Acquire-By-Hash=yes -o APT::FTPArchive::DoByHash=true \
