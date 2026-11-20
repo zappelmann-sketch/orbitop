@@ -45,21 +45,25 @@ def test_procs_tick_every_2_s_drift_free_and_skips_missed():
     assert [t for _, t in s.calls] == pytest.approx([100.0, 105.0, 109.0])
 
 
-@pytest.mark.parametrize("shown_at,after", [(109.0, [110.0, 112.0]), (109.5, [112.0, 114.0])])
-def test_procs_tick_every_4_s_when_hidden_and_at_once_when_shown(shown_at, after):
-    """Ausgeblendet halbe Eigenlast des Prozess-Takts; beim Einblenden sofort frische Prozesse, dann wieder 2 s im
-    Raster ab dem Start (gleichauf mit dem Systemtakt), frühestens eine halbe Periode nach dem sofortigen Takt."""
+@pytest.mark.parametrize("shown_at,after", [
+    (111.0, [111.0, 113.0, 115.0]),  # letzter Takt 3 s alt: sofort, dann alle 2 s
+    (109.0, [110.0, 112.0, 114.0]),  # erst 1 s alt (wie kurz nach dem Start): 2 s nach dem letzten, wie sichtbar
+])
+def test_procs_tick_every_4_s_when_hidden_and_fresh_when_shown(shown_at, after):
+    """Ausgeblendet halbe Eigenlast des Prozess-Takts; eingeblendet sind die Prozesse höchstens PROCS_PERIOD_S alt.
+    Ein Takt kurz nach dem letzten gäbe verrauschte Raten über Bruchteile einer Sekunde."""
     clock = Clock()
     s = FakeSampler(clock)
     times = lambda: [t for k, t in s.calls if k == "procs"]  # noqa: E731
+    pending = [shown_at]
 
     def wait(timeout):
         assert timeout >= 0
         n = len(times())
         if n == 2:
             worker.update(visible=False)
-        if n == 4:
-            clock.t = shown_at  # mitten in der 4-s-Pause eingeblendet
+        if n == 4 and pending:
+            clock.t = pending.pop()  # mitten in der 4-s-Pause eingeblendet
             worker.update(visible=True)
             return True
         if n >= 7:
@@ -69,12 +73,13 @@ def test_procs_tick_every_4_s_when_hidden_and_at_once_when_shown(shown_at, after
     worker = Worker(s, [].append, clock=clock)
     worker.update(visible=True)
     worker.run_procs(wait)
-    assert times() == pytest.approx([100.0, 102.0, 104.0, 108.0, shown_at] + after)
+    assert times() == pytest.approx([100.0, 102.0, 104.0, 108.0] + after)
 
 
 def test_hidden_procs_period_keeps_rates_valid():
     from orbitop import app, system
-    assert app.PROCS_PERIOD_S < app.PROCS_PERIOD_HIDDEN_S < system.MAX_DT  # sonst gälten ausgeblendet alle Raten als ungültig
+    # sonst gälten ausgeblendet alle Raten als ungültig
+    assert app.PROCS_PERIOD_S < app.PROCS_PERIOD_HIDDEN_S < system.MAX_DT
 
 
 def test_worker_skips_missed_slots_instead_of_bursting():

@@ -150,7 +150,7 @@ class Worker:
         self._sampler, self._post, self._clock = sampler, post, clock
         self._lock = threading.Lock()  # schützt _visible, _shown, _ready, _view, _resend und _errors
         self._visible = self._ready = False
-        self._shown = False  # eingeblendet seit dem letzten Prozess-Takt: der nächste kommt sofort
+        self._shown = False  # eingeblendet seit dem letzten Prozess-Takt: der nächste spätestens PROCS_PERIOD_S danach
         self._view = {"tab": "overview", "pid": None, "start": None}
         # True: nächster Tick mit voller Prozessliste; sonst darf eine unveränderte fehlen, denn WebKit parst je Tick
         # das ganze Literal (~170 KB)
@@ -215,24 +215,23 @@ class Worker:
             self._wake.clear()
 
     def run_procs(self, wait=None) -> None:
-        """Prozess-Takt alle PROCS_PERIOD_S, ausgeblendet alle PROCS_PERIOD_HIDDEN_S, beim Einblenden sofort;
-        wait nur für Tests. Die übrigen Takte bleiben im Raster ab dem Start, gleichauf mit dem Systemtakt: Mit
-        verschobener Phase kostete der sichtbare Prozess-Reiter 0,3 Punkte mehr (Spec 2026-11-19, Messung Eigenlast)."""
+        """Prozess-Takt alle PROCS_PERIOD_S, ausgeblendet alle PROCS_PERIOD_HIDDEN_S; wait nur für Tests."""
         wait = wait or self._procs_wake.wait
-        start = due = self._clock()
+        due, last = self._clock(), None
         while not self._stop.is_set():
             with self._lock:
                 shown, self._shown = self._shown, False
                 visible = self._visible
                 shr = visible and self._ready and self._view.get("tab") == "procs"
             now = self._clock()
-            if shown or now >= due:
+            # eingeblendet: Prozesse höchstens PROCS_PERIOD_S alt, also oft sofort; nie kurz nach dem letzten Takt,
+            # denn Raten über Bruchteile einer Sekunde wären verrauscht (etwa kurz nach dem Start)
+            if shown and last is not None:
+                due = min(due, max(now, last + PROCS_PERIOD_S))
+            if now >= due:
+                last = now
                 self._guard(lambda: self._sampler.tick_procs(shr=shr))
-                if shown:  # zurück ins Raster, frühestens eine halbe Periode nach diesem Takt
-                    due = start + ((now - start) // PROCS_PERIOD_S + 1) * PROCS_PERIOD_S
-                    due += PROCS_PERIOD_S if due - now < PROCS_PERIOD_S / 2 else 0
-                else:
-                    due = self._next(due, PROCS_PERIOD_S if visible else PROCS_PERIOD_HIDDEN_S)
+                due = self._next(due, PROCS_PERIOD_S if visible else PROCS_PERIOD_HIDDEN_S)
             wait(max(0.0, due - self._clock()))
             self._procs_wake.clear()  # erst danach, wie in run(): _shown und _stop gehen so nie verloren
 

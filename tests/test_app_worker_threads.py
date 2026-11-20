@@ -34,18 +34,17 @@ def test_worker_thread_kicks_immediately_and_stops_fast():
 
 def test_procs_thread_ticks_at_once_when_window_is_shown(monkeypatch):
     from orbitop import app
+    monkeypatch.setattr(app, "PROCS_PERIOD_S", 0.2)
     monkeypatch.setattr(app, "PROCS_PERIOD_HIDDEN_S", 30.0)
     s = FakeSampler()
     procs = lambda: sum(k == "procs" for k, _ in s.calls)  # noqa: E731
     w = Worker(s, [].append)
     w.start()
     try:
-        deadline = time.monotonic() + 2
-        while not procs() and time.monotonic() < deadline:
-            time.sleep(0.01)
+        time.sleep(0.4)
         assert procs() == 1  # ausgeblendet: der nächste Takt erst in 30 s
-        w.update(visible=True)
-        deadline = time.monotonic() + 0.5
+        w.update(visible=True)  # der letzte Takt ist älter als PROCS_PERIOD_S: sofort
+        deadline = time.monotonic() + 0.15
         while procs() < 2 and time.monotonic() < deadline:
             time.sleep(0.01)
         assert procs() == 2
