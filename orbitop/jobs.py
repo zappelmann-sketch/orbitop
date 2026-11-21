@@ -62,8 +62,9 @@ class Jobs:
         self._closed = False
 
     def terminate(self, pid: int, start: int, force: bool) -> None:
-        # busy: still verwerfen wie in 0.2.0, die Seite zeigt erst das Ergebnis des laufenden Auftrags
-        self._start("terminate", self._terminate_thread, pid, start, force)
+        refused = self._start("terminate", self._terminate_thread, pid, start, force)
+        if refused:  # busy oder locked als Ergebnis: sonst wartete die Seite nach einer Ablehnung ewig darauf
+            self._send(encode({"type": "terminate_result", "pid": pid, "result": refused}))
 
     def counters(self, on: bool, tools) -> None:
         """tools (der Sampler): intel, ob es Intel-Grafik gibt, und recheck_tools() nach einer Freigabe (Q3)."""
@@ -106,23 +107,28 @@ class Jobs:
                 raise
         return refused
 
-    def _terminate_thread(self, pid: int, start: int, force: bool) -> None:  # pkexec blockiert bis zu 120 s
-        try:
-            result = actions.terminate(pid, start, force, run=self._run)
-        except Exception:  # sonst bliebe das Tor für immer zu
-            result = "error"
-        self._glib.idle_add(self._terminated, pid, start, force, result)
-
-    def _counters_thread(self, on: bool, tools) -> None:
-        codes: list[int | None] = []
-
+    def _counted(self, codes: list[int | None]) -> Callable[[list[str], float], subprocess.CompletedProcess]:
+        """_run, das je gestartetem pkexec den Exit-Code in codes einträgt, None ohne Ende (für das Tor)."""
         def run(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
             codes.append(None)  # gestartet, auch wenn _run gleich scheitert
             r = self._run(argv, timeout)
             codes[-1] = r.returncode
             return r
+        return run
+
+    def _terminate_thread(self, pid: int, start: int, force: bool) -> None:  # pkexec blockiert bis zu 120 s
+        codes: list[int | None] = []
         try:
-            result = actions.counters(on, run=run)
+            result = actions.terminate(pid, start, force, run=self._counted(codes))
+        except Exception:  # sonst bliebe das Tor für immer zu
+            result = "error"
+        # nur nach pkexec: der eigene Prozess fragt nie, auch sein denied (PermissionError) zählt nicht; sent ist nie ok
+        self._glib.idle_add(self._terminated, pid, start, force, result, _outcome(result, codes) if codes else "other")
+
+    def _counters_thread(self, on: bool, tools) -> None:
+        codes: list[int | None] = []
+        try:
+            result = actions.counters(on, run=self._counted(codes))
         except Exception:  # sonst bliebe das Tor für immer zu
             result = "error"
         # auch „schon so“ (die Merkdatei kann von außen gekommen sein: sudo counterhelper, sync) und nach den Exit-Codes
@@ -167,8 +173,8 @@ class Jobs:
                 with self._child_lock:
                     self._pkexec = None
 
-    def _terminated(self, pid: int, start: int, force: bool, result: str) -> None:
-        self._gate.end("terminate", "other")
+    def _terminated(self, pid: int, start: int, force: bool, result: str, outcome: str) -> None:
+        self._gate.end("terminate", outcome)
         self._send(encode({"type": "terminate_result", "pid": pid, "result": result}))
         if result == "sent" and not force:
             self._glib.timeout_add_seconds(CHECK_DELAY_S, self._check, pid, start)

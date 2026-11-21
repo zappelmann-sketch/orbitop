@@ -95,6 +95,18 @@ def threads(monkeypatch):
 
 
 @pytest.fixture
+def jobrig(threads):
+    """Jobs mit einer GLib-Attrappe, deren idle_add und timeout_add_seconds nur aufzeichnen; sent: an die Seite."""
+    from types import SimpleNamespace
+
+    from orbitop import jobs
+    sent, glib = [], SimpleNamespace(idle=[], timeouts=[])
+    glib.idle_add = lambda fn, *args: glib.idle.append((fn, args))
+    glib.timeout_add_seconds = lambda delay, fn, *args: glib.timeouts.append((delay, fn, args))
+    return SimpleNamespace(j=jobs.Jobs(sent.append, glib), sent=sent, glib=glib, threads=threads)
+
+
+@pytest.fixture
 def rig(monkeypatch, tmp_path, threads):
     """Hülle ohne Fenster mit Attrappen für Worker, WebView, Thread und GLib; nur nach check_runtime() nutzbar."""
     from types import SimpleNamespace

@@ -2,19 +2,20 @@
 # Copyright © 2026 zappelmann-sketch
 """Ein Tor für die Aufträge der Seite mit Passwortdialog (Security-Dokument 0.3.0, B2.7, M-10).
 
-Höchstens ein Auftrag zugleich. Für das Freigeben und das Installieren zusätzlich eine wachsende Sperre nach jeder
-Ablehnung. Rein, mit Uhr-Injektion, ohne Threads: nur der Hauptthread ruft begin und end."""
+Höchstens ein Auftrag zugleich, dazu eine wachsende Sperre nach jeder Ablehnung, gemeinsam für alle drei Aufträge.
+Rein, mit Uhr-Injektion, ohne Threads: nur der Hauptthread ruft begin und end."""
 import time
 
 WAITS = (10.0, 60.0)  # nach der ersten und der zweiten Ablehnung; nach der dritten gesperrt bis zum Neustart
-ESCALATING = ("counters", "install_tool")  # terminate bleibt wie in 0.2.0: nur einer zugleich, keine Sperre
+# Alle Aufträge mit Passwortdialog; terminate seit dem Schlussaudit 0.3.0, sonst öffnete eine Seite Dialoge ohne Ende
+ESCALATING = ("terminate", "counters", "install_tool")
 
 
 class Gate:
     def __init__(self, clock=time.monotonic):
         self._clock = clock
         self._running: str | None = None
-        # Ablehnungen seit dem letzten Erfolg, gemeinsam für beide Arten: höchstens drei Dialoge bis zum Neustart (R9)
+        # Ablehnungen seit dem letzten Erfolg, gemeinsam für alle Arten: höchstens drei Dialoge bis zum Neustart (R9)
         self._refusals = 0
         self._until = 0.0
 

@@ -20,19 +20,10 @@ from tests.roots import VM
 from tests.sampler_helpers import NoTools
 
 
-@pytest.fixture
-def jobrig(threads):
-    """Jobs mit einer GLib-Attrappe, deren idle_add und timeout_add_seconds nur aufzeichnen; sent: an die Seite."""
-    sent, glib = [], SimpleNamespace(idle=[], timeouts=[])
-    glib.idle_add = lambda fn, *args: glib.idle.append((fn, args))
-    glib.timeout_add_seconds = lambda delay, fn, *args: glib.timeouts.append((delay, fn, args))
-    return SimpleNamespace(j=jobs.Jobs(sent.append, glib), sent=sent, glib=glib, threads=threads)
-
-
 @pytest.mark.parametrize("force,result,check", [(False, "sent", True), (True, "sent", False),
                                                 (False, "denied", False), (False, "gone", False)])
 def test_check_only_after_plain_sent(jobrig, force, result, check):
-    jobrig.j._terminated(5, 6, force, result)
+    jobrig.j._terminated(5, 6, force, result, "other")
     assert jobrig.glib.timeouts == ([(5, jobrig.j._check, (5, 6))] if check else [])
 
 
@@ -222,9 +213,10 @@ def test_failed_exit_code_neither_resets_nor_counts(crig, rc, word):  # nur 0 se
 def test_two_jobs_give_one_run_and_one_busy(crig):
     crig.j.counters(True, crig.tools)
     crig.j.counters(True, crig.tools)
-    crig.j.terminate(5, 6, False)  # wie in 0.2.0: still verworfen
+    crig.j.terminate(5, 6, False)  # busy als Ergebnis: sonst wartete die Seite ewig darauf (Schlussaudit)
     assert len(crig.threads) == 1 and [json.loads(s) for s in crig.sent] == [
-        {"type": "counters_state", "counters": {"read": 1}, "result": "busy"}]
+        {"type": "counters_state", "counters": {"read": 1}, "result": "busy"},
+        {"type": "terminate_result", "pid": 5, "result": "busy"}]
     t = crig.threads.pop()
     t.target(*t.args)
     fn, args = crig.glib.idle.pop()

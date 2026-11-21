@@ -2,7 +2,8 @@
 # Copyright © 2026 zappelmann-sketch
 """Tor und wachsende Sperre (Security-Dokument 0.3.0, B2.7, M-10), rein mit Uhr-Injektion.
 
-Der Weg von pkexec 126 über Jobs bis ins Tor steht in test_jobs.py (test_gate_escalates)."""
+Der Weg von pkexec 126 über Jobs bis ins Tor steht in test_jobs.py (test_gate_escalates) und
+test_jobs_terminate.py."""
 import pytest
 
 from orbitop.gate import Gate
@@ -86,17 +87,14 @@ def test_counters_and_install_tool_share_one_count(clock):  # R9: höchstens dre
     assert g.begin("install_tool") == "locked"
 
 
-def test_terminate_keeps_its_0_2_0_rule(clock):
-    """Bei terminate bleibt alles wie in 0.2.0: nur einer zugleich, keine Sperre, auch nicht aus einer Ablehnung."""
+def test_terminate_shares_the_count(clock):  # seit 0.3.0 (Schlussaudit): R9 gilt für alle drei Arten
     g = Gate(clock)
-    for _ in range(5):
-        refuse(g, "terminate")
-    assert g.begin("terminate") is None
-    g.end("terminate", "other")
-    assert g.begin("counters") is None  # terminate zählt nicht für die Sperre
-    g.end("counters", "refused")
-    for t in (1e6, 2e6):
-        clock.now[0] = t
-        refuse(g)
-    assert g.begin("counters") == "locked"
-    assert g.begin("terminate") is None  # gesperrt ist nur das Freigeben und Installieren
+    refuse(g, "terminate")
+    assert g.begin("terminate") == "busy" and g.begin("counters") == "busy"
+    clock.now[0] = 110.0
+    refuse(g, "counters")
+    clock.now[0] = 170.0
+    refuse(g, "terminate")
+    clock.now[0] = 1e9
+    assert [g.begin(k) for k in ("terminate", "counters", "install_tool")] == ["locked"] * 3
+

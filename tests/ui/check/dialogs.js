@@ -50,8 +50,9 @@ export function checkTerminate() {
   eq(kill.classList.contains("alert"), true, "Hervorhebung bleibt über Ticks");
   receive({ type: "terminate_check", pid: 7, alive: false });
   eq($(".notice span").textContent, "ziel (PID 7): weg", "beendet: Meldung mit Prozess");
-  for (const [code, want] of [["denied", "verweigert"], ["nohelper", "Helfer fehlt"], ["constructor", "Fehler"],
-                              ["<b>x", "Fehler"]]) {
+  // busy und locked: die wachsende Sperre nach Ablehnungen gilt seit 0.3.0 auch für das Beenden (Schlussaudit)
+  for (const [code, want] of [["denied", "verweigert"], ["nohelper", "Helfer fehlt"], ["busy", "später"],
+                              ["locked", "gesperrt"], ["constructor", "Fehler"], ["<b>x", "Fehler"]]) {
     receive({ type: "terminate_result", pid: 7, result: code });
     eq($(".notice span").textContent, want, "Ergebnis " + code);
   }

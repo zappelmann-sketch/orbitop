@@ -131,7 +131,9 @@ def test_terminate_flood_starts_one_thread(rig):
         rig.s._on_message(None, terminate_msg(1, start))
     assert len(rig.threads) == 1
     assert rig.threads[0].args == (1, 0, False) and rig.threads[0].daemon
-    rig.s._jobs._terminated(1, 0, False, "mismatch")
+    assert rig.js == [receive({"type": "terminate_result", "pid": 1, "result": "busy"})] * 19  # nie ein zweites
+    rig.js.clear()
+    rig.s._jobs._terminated(1, 0, False, "mismatch", "other")
     assert rig.js == [receive({"type": "terminate_result", "pid": 1, "result": "mismatch"})]
     rig.s._on_message(None, terminate_msg(7, 8, True))  # nach dem Ergebnis ist wieder eines erlaubt
     assert len(rig.threads) == 2 and rig.threads[1].args == (7, 8, True)
@@ -155,13 +157,16 @@ def test_failed_thread_start_keeps_gate_open(rig, monkeypatch):
 
 @pytest.mark.parametrize("outcome,result", [("sent", "sent"), (RuntimeError("x"), "error")])
 def test_terminate_thread_posts_result(rig, monkeypatch, outcome, result):
+    seen = []
+
     def fake_terminate(pid, start, force, run):
-        assert (pid, start, force, run) == (5, 6, False, rig.s._jobs._run)  # über _run erreicht _shutdown das pkexec
+        seen.append((pid, start, force, run(["pkexec"], 120).returncode))  # über _run erreicht _shutdown das pkexec
         if isinstance(outcome, Exception):
             raise outcome
         return outcome
     monkeypatch.setattr(jobs.actions, "terminate", fake_terminate)
+    monkeypatch.setattr(rig.s._jobs, "_run", lambda argv, timeout: SimpleNamespace(returncode=0))
     rig.s._on_message(None, terminate_msg(5, 6))
     t = rig.threads[0]
     t.target(*t.args)
-    assert rig.glib.idle == [(rig.s._jobs._terminated, (5, 6, False, result))]
+    assert seen == [(5, 6, False, 0)] and rig.glib.idle == [(rig.s._jobs._terminated, (5, 6, False, result, "other"))]

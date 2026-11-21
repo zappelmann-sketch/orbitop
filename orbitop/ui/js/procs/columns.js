@@ -33,7 +33,7 @@ export const COLS = [
 ];
 export const MIN_W = 40, MIN_PROCESS_W = 120, MAX_W = 1200; // Spaltenbreiten in px
 export const FILTERS = { all: () => true, mine: (p) => p.own, flagged: (p) => p.state !== "working" && p.state !== "waiting" };
-export const RESULTS = ["sent", "gone", "mismatch", "zombie", "kernel", "denied", "nohelper", "error"];
+export const RESULTS = ["sent", "gone", "mismatch", "zombie", "kernel", "denied", "nohelper", "error", "busy", "locked"];
 
 export const keyOf = (p) => p.pid + ":" + p.start;
 export const same = (p, sel) => !!sel && p.pid === sel.pid && p.start === sel.start;
