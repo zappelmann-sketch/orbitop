@@ -255,7 +255,8 @@ Die genaue Bauweise legt das Dokument aus Teil B fest. Sichtbar für den Benutze
    - Der Controller baut nur das `.deb` als Testversion `0.3.0~rc1`. Es bleibt unsigniert, unveröffentlicht und kommt nicht nach `main`; wie es seine Nummer bekommt, entscheidet der Builder. `~rc1` sortiert bei dpkg vor `0.3.0`, deshalb kommt 0.3.0 danach als normales Update. Bei pacman sortiert `~rc1` nach `0.3.0` (zweite Prüfung der Security-Runde, M-11); eine Arch-Testversion gäbe es deshalb nur als `0.3.0rc1`.
    - Der User installiert sie mit `sudo apt install ./<datei>.deb`.
    - Er prüft den Schalter: an, aus, Passwortdialog, Zustand. Beim ersten „aus“ fällt die von Hand gesetzte Fähigkeit auf `intel_gpu_top` weg. Damit ist der Umstieg der Freigabe (Punkt 5) schon erledigt.
-   - Für den Knopf „Installieren“ entfernt er kurz die Intel-Werkzeuge (`sudo apt remove intel-gpu-tools`) und lässt orbitop sie neu installieren.
+   - Für den Knopf „Installieren“ entfernt er kurz die Intel-Werkzeuge (`sudo apt remove igt-gpu-tools intel-gpu-tools`) und lässt orbitop sie neu installieren.
+     - *Ergänzung Controller 2026-11-21 (Schlussprüfung, I-1):* Früher stand hier `sudo apt remove intel-gpu-tools`. Auf Ubuntu 26.04 ist `intel-gpu-tools` nur ein Metapaket, das `igt-gpu-tools` mitbringt; erst beide zu entfernen nimmt `intel_gpu_top` weg (Security-Dokument B2.6). Danach muss orbitop neu starten, sonst erscheint der Knopf nicht, denn ein laufendes orbitop sucht das Werkzeug nicht neu. Die vollständige Prüfliste mit allen Hardware-Prüfungen des Security-Dokuments steht in `docs/release.md` unter „Test version“.
    - Dazu kommt das Ausblenden und Einblenden der Hinweise.
    - Der Controller prüft Merkdatei, Fähigkeit, Rechte von `energy_uj` und Oberfläche.
    - Fehler werden behoben, mit Review und Audit. Dann folgt eine `~rc2`, bis alles passt.

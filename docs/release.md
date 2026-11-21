@@ -337,13 +337,50 @@ The result is `$rc/out/deb/orbitop_0.3.0~rc1-1_all.deb`; keep it and its `sha256
 
 Probe on 2026-11-20 of these steps, from the commit of version 0.3.0 with a throwaway key: the build exits 0 with the lintian findings of a release build (`no-manual-page`, `non-standard-dir-perm 0711 != 0755 [etc/orbitop/]`, Lint notes); `orbitop_0.3.0~rc1-1_all.deb` shows every item above, its helper equals `orbitop/counterhelper.py` byte for byte, its changelog starts with `orbitop (0.3.0~rc1-1)`, and the version check exits 0.
 
-Nothing of it is installed on the build machine. On the test machine, the user installs it with `sudo apt install ./orbitop_0.3.0~rc1-1_all.deb` and checks, as spec D0 lists:
+Nothing of it is installed on the build machine. The user works through this checklist on the test machine (Ubuntu 26.04 with Intel graphics, spec D0), and the controller compares every output and the window with the expected result. It holds every hardware test of the security document (B2.1 to B2.9). The two reboots are the only check of the udev rule at boot, because the container matrix sees no RAPL zones (residual risk R20). Commands without `sudo` run as the user; "444" means that every line of the `stat` output shows `444`. orbitop reads the state of the switch and of `intel_gpu_top` when it starts and after each job, so a change made by hand shows only after a restart of orbitop: "Quit orbitop" in the About dialog, then start orbitop again. A failed step is fixed with review and audit; then `0.3.0~rc2` follows the same way, and the checklist starts again.
 
-- The switch "Release counters": on, off, the password dialog every time, the lines below the switch. The first "off" also takes away a capability set by hand on `intel_gpu_top` (security document B2.9).
-- The button "Install": first `sudo apt remove igt-gpu-tools intel-gpu-tools`, because on Ubuntu 26.04 `intel-gpu-tools` is only a metapackage that brings `igt-gpu-tools`; then orbitop installs the Intel GPU tools again.
-- Hiding the hints and showing them again.
+1. **Install.** `sudo apt install ./orbitop_0.3.0~rc1-1_all.deb`, then restart orbitop so that the new version runs. Expected: `dpkg-query -W orbitop` shows `0.3.0~rc1-1`, and `stat -c '%U %a %F' /etc/orbitop/counters-released` says "No such file or directory": no installation turns the switch on.
+2. **polkit actions (B2.1).**
 
-The maintainer checks the marker `/etc/orbitop/counters-released`, the capability (`getcap /usr/bin/intel_gpu_top`), the modes of `energy_uj` (`stat -c '%a %n' /sys/class/powercap/intel-rapl:*/energy_uj`: `444` with the switch on, `400` with it off) and the window. A fault is fixed with review and audit, then `0.3.0~rc2` follows the same way, until everything passes. With the switch on, `rc1` → `rc2` → `0.3.0` keeps the release without a dialog, because an upgrade runs only `sync` (security document B2.8, E4).
+   ```sh
+   pkaction --action-id io.github.zappelmann-sketch.orbitop.counters-release --verbose
+   pkaction --action-id io.github.zappelmann-sketch.orbitop.counters-lock --verbose
+   ```
+
+   Expected for both: the lines `implicit any`, `implicit inactive` and `implicit active` show `no`, `no` and `auth_admin`, and the annotations are `org.freedesktop.policykit.exec.path -> /usr/lib/orbitop/counterhelper` and `org.freedesktop.policykit.exec.argv1 -> on` (`off` for `counters-lock`).
+3. **Capability set by hand (B2.9).** With the switch off: `getcap /usr/bin/intel_gpu_top`. The test machine may still have `cap_perfmon=ep` from the README of 0.2.0; if the output is empty, set it with `sudo setcap cap_perfmon=ep /usr/bin/intel_gpu_top` and restart orbitop. Expected: the switch is off, the line of the GPU counters shows "released by hand" ("von Hand freigegeben"), and the GPU tile shows the load of all processes, without the hint "intel_gpu_top may not read the GPU counters". The first "off" (step 12) removes this capability; that completes the move from 0.2.0.
+4. **Cancel and lockout of the switch (B2.1, B2.7).** Note the output of `stat -c '%a %n' /sys/class/powercap/intel-rapl:*/energy_uj`, `getcap /usr/bin/intel_gpu_top` and `stat -c '%U %a %F' /etc/orbitop/counters-released`. Turn the switch on, read the explanation, click "Release": the polkit dialog says "Every account on this computer will be able to read the GPU and energy counters. Risk: power side channels (Platypus, CVE-2020-8694)." Click "Cancel". Expected: "Cancelled. Nothing was changed.", the switch is off, and nothing changes: the three outputs are the same as before. Then:
+    - At once again: no dialog, "Not possible right now. Please wait a moment and try again."
+    - After 10 s the dialog comes again; Cancel. Now the switch waits 60 s; after that the dialog comes once more; Cancel.
+    - The next try opens no dialog and shows "refused too often – restart orbitop" ("zu oft abgelehnt – orbitop neu starten") until orbitop restarts. The three outputs are still the same.
+
+   Restart orbitop.
+5. **Lockout for terminating (B2.7).** Start a process of another user, only to cancel its termination: `sudo -b -u nobody sleep 900`. In orbitop select this `sleep` (user `nobody`), click "Terminate" and confirm. polkit asks for the admin password to terminate a process of another user: never enter it here, click "Cancel". Expected: "Termination was not permitted (cancelled or no permission)." Then, as in step 4: at once again no dialog and "Not possible right now. Please wait a moment and try again."; after 10 s a dialog, Cancel; then 60 s without a dialog; then a dialog, Cancel; the next try shows "refused too often – restart orbitop" without a dialog. `pgrep -u nobody -x sleep` still shows the process; it ends by itself after 900 s. Restart orbitop.
+6. **On (B2.1, B2.2, B2.3).** Turn the switch on, "Release", admin password. Expected:
+    - below the switch, both lines show "in effect" ("wirkt");
+    - `stat -c '%U %a %F' /etc/orbitop/counters-released`: `root 644 regular empty file`;
+    - `stat -c '%a %n' /sys/class/powercap/intel-rapl:*/energy_uj`: 444; the zones `intel-rapl-mmio:*` stay closed, `stat -c '%a %n' /sys/class/powercap/intel-rapl-mmio:*/energy_uj` shows 400;
+    - `getcap /usr/bin/intel_gpu_top`: `/usr/bin/intel_gpu_top cap_perfmon=ep`;
+    - `journalctl -b -t pkexec --no-pager | grep counterhelper` (with `sudo` for an account outside the group `adm`): the line `<user>: Executing command [USER=root] [TTY=…] [CWD=…] [COMMAND=/usr/lib/orbitop/counterhelper on]`.
+7. **Reboot with the switch on (B2.3, mandatory; B2.2).** Reboot the machine. Expected afterwards: `stat -c '%a %n' /sys/class/powercap/intel-rapl:*/energy_uj` shows 444 again, `getcap /usr/bin/intel_gpu_top` still shows `cap_perfmon=ep`, `stat -c '%U %a %F' /etc/orbitop/counters-released` still shows `root 644 regular empty file`, and orbitop shows "in effect". The kernel creates the zones with 400 at boot; the 444 comes from the udev rule `/usr/lib/udev/rules.d/70-orbitop-counters.rules`, and this is its only test (R20).
+8. **Reload the RAPL driver (B2.3), only if the user wants it, because it needs `sudo`.** With the switch on: `sudo modprobe -r intel_rapl_msr && sudo modprobe intel_rapl_msr`. Expected: `stat -c '%a %n' /sys/class/powercap/intel-rapl:*/energy_uj` shows 444; the udev rule acted on the new zones.
+9. **Reinstall the Intel GPU tools (B2.4, B2.5).** With the switch on, first `sudo setcap -r /usr/bin/intel_gpu_top` and restart orbitop: the line of the GPU counters shows "not in effect – switch off and on again". Then `sudo apt install --reinstall igt-gpu-tools` (on Ubuntu 24.04 `intel-gpu-tools`; `dpkg -S /usr/bin/intel_gpu_top` names the package). Expected: `getcap /usr/bin/intel_gpu_top` shows `cap_perfmon=ep` again, set by the dpkg trigger of orbitop (`counterhelper sync`), and after a restart orbitop shows "in effect".
+10. **Install button (B2.6).** With the switch on: `sudo apt remove igt-gpu-tools intel-gpu-tools`. Removing only `intel-gpu-tools` would leave `intel_gpu_top` in place, because on Ubuntu 26.04 it is a metapackage that brings `igt-gpu-tools`. A running orbitop keeps its `intel_gpu_top` and does not look for the tool again, so "Quit orbitop" in the About dialog and start orbitop again. Only then does the hint "intel_gpu_top is not installed" with the button "Install" appear, and the line of the GPU counters shows "intel_gpu_top is not installed". Click "Install": PackageKit asks for the password and installs the tools. Expected: without another restart, the hint disappears and the GPU tile shows the load of all processes; `getcap /usr/bin/intel_gpu_top` shows `cap_perfmon=ep`, set by the trigger.
+11. **Probe of R22, optional, only if a second local account exists.** As that account (a second login, or `su - <account>`), with the switch on:
+
+    ```sh
+    python3 -c 'f = open("/sys/class/powercap/intel-rapl:0/energy_uj"); input("Lock now, then press Enter: "); f.seek(0); print(f.read().strip())'
+    ```
+
+    While it waits, switch off as in step 12, then press Enter. Expected: it still prints a number, while `cat /sys/class/powercap/intel-rapl:0/energy_uj` as that account now says "Permission denied". This documents residual risk R22: "off" stops every new open, not a program that is already reading.
+12. **Off (B2.1, B2.3, B2.9).** Turn the switch off, "Lock": the polkit dialog says "Lock the GPU and energy counters again. Afterwards no account without admin rights can open them anew; programs that are already reading them keep their access until they end or the computer restarts." Click "Cancel": "Cancelled. Nothing was changed.", the switch stays on, and the outputs of step 6 stay the same. Wait 10 s, turn the switch off again, "Lock", admin password. Expected:
+    - both lines show "not released";
+    - `stat -c '%U %a %F' /etc/orbitop/counters-released` says "No such file or directory";
+    - `stat -c '%a %n' /sys/class/powercap/intel-rapl:*/energy_uj`: 400;
+    - `getcap /usr/bin/intel_gpu_top` gives no output: after "on" and "off", no capability is left, also none set by hand (B2.9).
+13. **Reboot with the switch off (B2.3, mandatory; B2.2).** Reboot the machine. Expected afterwards: `stat -c '%a %n' /sys/class/powercap/intel-rapl:*/energy_uj` still shows 400, `getcap /usr/bin/intel_gpu_top` gives no output, and there is no marker: the kernel default applies.
+14. **Hints.** Hide a hint with "Hide"; it stays hidden after a restart of orbitop. "Show hidden hints again" in the About dialog brings it back.
+15. **Upgrades (B2.8, E4).** Turn the switch on again. Every later version comes as an upgrade with the switch on, `rc1` → `rc2` → `0.3.0`: `0.3.0~rc2` with `sudo apt install ./orbitop_0.3.0~rc2-1_all.deb`, and `0.3.0` through the normal system update. Expected: without a dialog, the marker, `cap_perfmon=ep` and 444 stay, because an upgrade runs only `sync`.
 
 ## Sources
 
