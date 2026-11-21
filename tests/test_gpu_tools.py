@@ -1,6 +1,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 """Werkzeug-Leser: ToolReader (Start, Neustart, Stopp) und GpuTools (Hinweise, Aufrufe, Zuordnung)."""
+import os
 import shutil
 import sys
 import threading
@@ -9,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from orbitop import gpu_tools
+from orbitop import counters, gpu_tools
 from orbitop.gpu import GpuInfo, discover_gpus
 from orbitop.gpu_tools import GpuTools, ToolReader, parse_intel
 from tests.gpu_tools_helpers import LOOP, OBJ, ONCE, wait_until
@@ -116,10 +117,14 @@ def test_nvidia_lookup_by_normalized_pci(monkeypatch):
     t.stop()
 
 
-# /dev/dri/card1: im Container sind sysfs und intel_gpu_top da, das Gerät nicht; der Test meint nur den Referenzrechner
-@pytest.mark.skipif(not shutil.which("intel_gpu_top", path=gpu_tools.TOOL_PATH)
-                    or not Path("/sys/class/drm/card1").exists() or not Path("/dev/dri/card1").exists(),
-                    reason="intel_gpu_top oder Intel-GPU card1 fehlt")
+# /dev/dri/card1: im Container sind sysfs und intel_gpu_top da, das Gerät nicht; der Test meint nur den Referenzrechner.
+# Ohne Freigabe (Schalter aus, keine Fähigkeit) darf intel_gpu_top die Zähler nicht lesen: dann gibt es nichts zu messen.
+_TOOL = shutil.which("intel_gpu_top", path=gpu_tools.TOOL_PATH)
+
+
+@pytest.mark.skipif(not _TOOL or not Path("/sys/class/drm/card1").exists() or not Path("/dev/dri/card1").exists()
+                    or not (os.geteuid() == 0 or counters.perf_capable(_TOOL)),
+                    reason="intel_gpu_top, Intel-GPU card1 oder die Freigabe fehlt")
 def test_real_intel_gpu_top_delivers_within_3s():
     t = GpuTools(discover_gpus("/"))
     try:
