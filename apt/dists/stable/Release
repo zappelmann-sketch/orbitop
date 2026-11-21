@@ -2,19 +2,13 @@ Acquire-By-Hash: yes
 Architectures: all
 Codename: stable
 Components: main
-Date: Thu, 19 Nov 2026 18:42:45 +0000
+Date: Sat, 21 Nov 2026 15:26:26 +0000
 Label: orbitop
 Origin: orbitop
 Suite: stable
-MD5Sum:
- f86c419407b9c21aa9c9d563586133ab             1979 main/binary-all/Packages
- ce24e21e5bc5219759c37e77772d67de             1030 main/binary-all/Packages.gz
-SHA1:
- 6de685f558a01d5793c52498bcbf212f9689f7d3             1979 main/binary-all/Packages
- f1c3f4f68effa75828f704d10f6a222b94c077db             1030 main/binary-all/Packages.gz
 SHA256:
- 62690ff54ddc6748a949e3001fd190363a2461d248534d0757547f5f2b798b40             1979 main/binary-all/Packages
- 3b631435913facbd92dd23ae199c319956d5bea8aa3b2476728efc12026deab5             1030 main/binary-all/Packages.gz
+ 300904f83056fef5cf68385228ccd3859eebcf0d5e0f5245293348933dc0a546             1803 main/binary-all/Packages
+ 66aa3954ea82396a24e109998d717ddf8b9cab9dd9aee3bb67cda7787604ecd5              927 main/binary-all/Packages.gz
 SHA512:
- f11a5d7cf2b55c2fda7d6e0e8b134556e3e75da172ce64e0496e064e971e7ad8b2186a76cde5b580f499b25e7e74f75d1da0d949edc1d9d329baddadcfadb775             1979 main/binary-all/Packages
- b6f4ab366ef3471e51931ba0f81d1904f9d904212d3b42407acc88a822e644c1835eeaea2c3f4272ec935f09e75ac3ac85be54b02b5eddcb26a7d1be9c622e9a             1030 main/binary-all/Packages.gz
+ 66aac7b016a99e83928628db13303d8871449584efacd5924006b41d3fba12c5788781d1945d2c30d739fccde84f7b1eea5cffb151ea24b49c5a959c94e54180             1803 main/binary-all/Packages
+ 7eb6ea975048f43246fce06ff54e97e9832bbe6100432e426f45a5152b31b83622ea7492f50c96f133a97af47c98a06169ebc5d30ba917073aee5b9a22edfbf6              927 main/binary-all/Packages.gz

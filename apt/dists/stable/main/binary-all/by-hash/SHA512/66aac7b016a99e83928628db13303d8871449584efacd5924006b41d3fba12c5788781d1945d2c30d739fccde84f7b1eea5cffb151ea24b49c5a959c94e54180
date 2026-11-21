@@ -1,0 +1,37 @@
+Package: orbitop-apt-source
+Architecture: all
+Version: 2026.11.18
+Priority: optional
+Section: misc
+Maintainer: zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>
+Installed-Size: 20
+Filename: pool/main/o/orbitop-apt-source/orbitop-apt-source_2026.11.18_all.deb
+Size: 2880
+SHA256: 97b349da940608d1983f33274cde6779e3f4a11881920ea8a1426aca99790ef7
+SHA512: 7d6460628191ac4b097eec1e37074f3900cc41d86feefbb09472c209c097f20b87ef767ee54c9c3cc6ed75b6aca2185604d5805f294345b33c021cdc104dc565
+Homepage: https://github.com/zappelmann-sketch/orbitop
+Description: OpenPGP key and apt source of the orbitop package repository
+ Installs the signing key of the orbitop package repository and the apt
+ source that uses it, so that new versions of orbitop arrive with the
+ regular system update. It also pins the origin of the repository to
+ priority 100 (apt_preferences(5)), so that its packages never replace
+ packages of the distribution.
+
+Package: orbitop
+Architecture: all
+Version: 0.3.0-1
+Priority: optional
+Section: utils
+Maintainer: zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>
+Installed-Size: 507
+Depends: python3:any, python3 (>= 3.12), python3-gi, gir1.2-gtk-4.0, gir1.2-webkit-6.0, pkexec
+Suggests: intel-gpu-tools
+Filename: pool/main/o/orbitop/orbitop_0.3.0-1_all.deb
+Size: 137000
+SHA256: 7c9fe24fd0b164d0d8110c899495a5499f2830ee5c257bfa0667d3ef419f4ac6
+SHA512: 59d6bab8a48a700a5b0665f7b2fe8a116817759827263c866cb391c952b3f4f7317b37cf352c8fba6bebe951cdbaea26649b82855c87cb5d00e49ca7a84f981a
+Homepage: https://github.com/zappelmann-sketch/orbitop
+Description: System monitor for CPU, memory, GPU, network and processes
+ orbitop shows the load of your computer at a glance: processor, memory,
+ graphics card, network, disks, sensors and the running processes.
+

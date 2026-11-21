@@ -7,8 +7,6 @@ Maintainer: zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.
 Installed-Size: 20
 Filename: pool/main/o/orbitop-apt-source/orbitop-apt-source_2026.11.18_all.deb
 Size: 2880
-MD5sum: 1b817d8412ff4a8b7f8486b608afbb44
-SHA1: e1fda33e0fce5e3afc693c3adaedd9c0328bcb6d
 SHA256: 97b349da940608d1983f33274cde6779e3f4a11881920ea8a1426aca99790ef7
 SHA512: 7d6460628191ac4b097eec1e37074f3900cc41d86feefbb09472c209c097f20b87ef767ee54c9c3cc6ed75b6aca2185604d5805f294345b33c021cdc104dc565
 Homepage: https://github.com/zappelmann-sketch/orbitop
@@ -21,19 +19,17 @@ Description: OpenPGP key and apt source of the orbitop package repository
 
 Package: orbitop
 Architecture: all
-Version: 0.2.0-1
+Version: 0.3.0-1
 Priority: optional
 Section: utils
 Maintainer: zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>
-Installed-Size: 382
+Installed-Size: 507
 Depends: python3:any, python3 (>= 3.12), python3-gi, gir1.2-gtk-4.0, gir1.2-webkit-6.0, pkexec
 Suggests: intel-gpu-tools
-Filename: pool/main/o/orbitop/orbitop_0.2.0-1_all.deb
-Size: 112276
-MD5sum: ce6e10d8de080b281ec8b16e0aad7c77
-SHA1: 58a56e162be0146d56550fd47e40dcb94363afc4
-SHA256: 780c4fc4906d87e28b8d3e83190c10b50ec0bf715035bc6350a504067e3e6ab2
-SHA512: e7b0034cbfab994019cae10570730255d2e6424548526bbda10b40069b6d7040f477beb471281474f289bbaf876b0f57762f69ffccb5c96a5988557b640defb6
+Filename: pool/main/o/orbitop/orbitop_0.3.0-1_all.deb
+Size: 137000
+SHA256: 7c9fe24fd0b164d0d8110c899495a5499f2830ee5c257bfa0667d3ef419f4ac6
+SHA512: 59d6bab8a48a700a5b0665f7b2fe8a116817759827263c866cb391c952b3f4f7317b37cf352c8fba6bebe951cdbaea26649b82855c87cb5d00e49ca7a84f981a
 Homepage: https://github.com/zappelmann-sketch/orbitop
 Description: System monitor for CPU, memory, GPU, network and processes
  orbitop shows the load of your computer at a glance: processor, memory,
