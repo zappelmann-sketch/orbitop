@@ -51,7 +51,7 @@ def world(monkeypatch):
     state = {"tool": None, "cap": False, "cmds": [], "procs": []}
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: state["tool"] if n == "intel_gpu_top" else None)
     monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 1000)
-    monkeypatch.setattr(gpu_tools.counters, "perfmon_cap", lambda p: state["cap"])
+    monkeypatch.setattr(gpu_tools.counters, "perf_capable", lambda p: state["cap"])
     real = gpu_tools.subprocess.Popen
 
     def popen(cmd, **kw):
@@ -156,7 +156,7 @@ def fake_readers(monkeypatch):
     monkeypatch.setattr(gpu_tools, "ToolReader", Reader)
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: s.tool if n == "intel_gpu_top" else None)
     monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: s.uid)  # root liest ohne Fähigkeit
-    monkeypatch.setattr(gpu_tools.counters, "perfmon_cap", lambda path: s.cap)
+    monkeypatch.setattr(gpu_tools.counters, "perf_capable", lambda path: s.cap)
     return s
 
 

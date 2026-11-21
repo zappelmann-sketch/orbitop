@@ -48,6 +48,13 @@ def perfmon_cap(path: str, getxattr=os.getxattr) -> bool:
     return bool(_permitted(path, getxattr) >> CAP_PERFMON & 1)
 
 
+def perf_capable(path: str, getxattr=os.getxattr) -> bool:
+    """True für cap_perfmon oder cap_sys_admin, wirksam und erlaubt: mit beiden liest intel_gpu_top die Zähler. Nur
+    für den Start des Lesers; cap_sys_admin von Hand (ältere Anleitungen) zeigt der Zustand als „von Hand“ (M-1)."""
+    caps = _permitted(path, getxattr)
+    return bool(caps >> CAP_PERFMON & 1 or caps >> CAP_SYS_ADMIN & 1)
+
+
 def _marker(root: str, lstat) -> str:
     """on nur für eine reguläre Datei von root in einem Verzeichnis von root, das Gruppe und andere weder schreiben
     noch lesen dürfen (dieselbe Regel wie der Helfer, B2.2). Ohne /etc/orbitop (Start ohne Paket) ist es off."""
@@ -78,10 +85,9 @@ def _perfmon(root: str, getxattr, lstat) -> str:
         return "missing"
     except OSError:
         return "none"
-    caps = _permitted(path, getxattr)
-    if caps >> CAP_PERFMON & 1:
+    if perfmon_cap(path, getxattr):  # genau die Wirkung des Helfers
         return "works"
-    return "other" if caps >> CAP_SYS_ADMIN & 1 else "none"  # für „von Hand“ zählt zusätzlich Bit 21 (B2.5)
+    return "other" if perf_capable(path, getxattr) else "none"  # für „von Hand“ zählt zusätzlich Bit 21 (B2.5)
 
 
 def _other_readable(path: str, lstat) -> bool:

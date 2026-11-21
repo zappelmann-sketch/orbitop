@@ -209,7 +209,7 @@ class GpuTools:
         path = shutil.which("intel_gpu_top", path=TOOL_PATH)
         if not path:
             return None, "hint.igt_missing"
-        if os.geteuid() != 0 and not counters.perfmon_cap(path):  # root liest die Zähler auch ohne Fähigkeit
+        if os.geteuid() != 0 and not counters.perf_capable(path):  # root liest die Zähler auch ohne Fähigkeit
             return path, "hint.igt_noperm"
         return path, None
 

@@ -8,7 +8,7 @@ import struct
 
 import pytest
 
-from orbitop import counterhelper
+from orbitop import counterhelper, counters
 from orbitop.counters import perfmon_cap
 
 PERFMON, NET_RAW, SYS_ADMIN = 38, 13, 21
@@ -73,6 +73,23 @@ def test_reads_security_capability_without_following_symlinks():
     get = returning(v2(PERFMON))
     perfmon_cap("/usr/bin/intel_gpu_top", get)
     assert get.seen == [("/usr/bin/intel_gpu_top", "security.capability", False)]
+
+
+@pytest.mark.parametrize("data,start,strict", [
+    (v2(PERFMON), True, True),
+    (v2(SYS_ADMIN), True, False),               # eine ältere Anleitung: damit liest intel_gpu_top wie in 0.2.0 (M-1)
+    (v3(SYS_ADMIN, rootid=0), True, False),
+    (v2(PERFMON, SYS_ADMIN), True, True),
+    (v2(NET_RAW), False, False),                # weder noch
+    (v2(), False, False),
+    (v2(SYS_ADMIN, magic=V2), False, False),    # ohne Effective-Bit
+    (v3(SYS_ADMIN, rootid=1000), False, False),  # wirkt im Init-Namespace nicht
+    (errno.ENODATA, False, False),
+], ids=["perfmon", "sys_admin", "sys_admin_v3", "both", "net_raw", "none", "no_effective", "rootid_1000", "enodata"])
+def test_perf_capable_takes_perfmon_or_sys_admin(data, start, strict):
+    """perf_capable für den Start des Lesers; perfmon_cap bleibt streng (nur Bit 38), es vergleicht mit dem Helfer."""
+    assert counters.perf_capable("/usr/bin/intel_gpu_top", returning(data)) is start
+    assert perfmon_cap("/usr/bin/intel_gpu_top", returning(data)) is strict
 
 
 def test_real_file_without_capability_is_false(tmp_path):

@@ -62,15 +62,30 @@ def test_hints_missing_tools(monkeypatch):
 
 
 def test_hint_noperm_does_not_start(monkeypatch):
-    """Ohne root entscheidet der strenge Parser (B2.5): eine fremde Fähigkeit genügt nicht mehr."""
+    """Ohne root entscheidet der Parser (B2.5, M-1): eine fremde Fähigkeit genügt nicht mehr."""
     _no_popen(monkeypatch)
     monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: "/usr/bin/" + n)
     monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 1000)
     seen = []
-    monkeypatch.setattr(gpu_tools.counters, "perfmon_cap", lambda p: seen.append(p) or False)
+    monkeypatch.setattr(gpu_tools.counters, "perf_capable", lambda p: seen.append(p) or False)
     t = GpuTools(_gpus("intel"))
     assert t.hints() == ["hint.igt_noperm"] and t.intel("card0") is None
     assert seen == ["/usr/bin/intel_gpu_top"]
+
+
+@pytest.mark.parametrize("bits,starts", [((38,), True), ((21,), True), ((21, 38), True), ((13,), False), ((), False)])
+def test_reader_starts_with_perfmon_or_sys_admin(monkeypatch, bits, starts):
+    """M-1: cap_sys_admin von Hand (eine ältere Anleitung) startet den Leser wie in 0.2.0, passend zu „von Hand
+    freigegeben“ in den Einstellungen; eine andere Fähigkeit nicht. Nur das Permitted-Set ist gefälscht."""
+    monkeypatch.setattr(gpu_tools.shutil, "which", lambda n, path=None: "/usr/bin/" + n)
+    monkeypatch.setattr(gpu_tools.os, "geteuid", lambda: 1000)
+    monkeypatch.setattr(gpu_tools.counters, "_permitted", lambda path, getxattr: sum(1 << b for b in bits))
+    started = []
+    monkeypatch.setattr(gpu_tools.ToolReader, "start", lambda self: started.append(self._cmd))
+    t = GpuTools(_gpus("intel"))
+    assert t.hints() == ([] if starts else ["hint.igt_noperm"])
+    assert started == ([["/usr/bin/intel_gpu_top", "-J", "-s", "2000"]] if starts else [])
+    t.stop()
 
 
 def test_hint_failed_and_device_argument(monkeypatch):
