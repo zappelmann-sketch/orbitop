@@ -33,8 +33,10 @@ def trig(jobrig, monkeypatch, tmp_path):
             raise t.own
         return t.own
 
-    def run(argv, timeout):
+    def run(argv, timeout):  # rc als Ausnahme: was Jobs._run wirft, etwa TimeoutExpired nach p.kill()
         t.runs.append(argv)
+        if isinstance(t.rc, Exception):
+            raise t.rc
         return subprocess.CompletedProcess(argv, t.rc)
     monkeypatch.setattr(actions.killhelper, "send", send)
     monkeypatch.setattr(t.j, "_run", run)
@@ -62,7 +64,11 @@ def kill(t, pid=FOREIGN):
     return [json.loads(s)["result"] for s in t.sent]
 
 
-@pytest.mark.parametrize("rc,word", [(126, "denied"), (127, "denied"), (-15, "error")])
+TIMEOUT = subprocess.TimeoutExpired("pkexec", 120)  # Dialog bis zum Ablauf offen gelassen (N1)
+
+
+@pytest.mark.parametrize("rc,word", [(126, "denied"), (127, "denied"), (-15, "error"), (TIMEOUT, "denied")],
+                         ids=["126", "127", "signal", "timeout"])
 def test_refused_terminates_escalate_until_locked(trig, rc, word):
     """Höchstens drei Dialoge bis zum Neustart; dazwischen 10 s und 60 s. Die Seite bekommt busy oder locked als
     Ergebnis, sonst wartete sie ewig. Der Tod von pkexec durch ein Signal zählt wie bei counters (fail closed)."""
@@ -87,9 +93,11 @@ def test_own_process_without_pkexec_never_counts(trig, own, word):
     assert kill(trig) == ["denied"] and len(trig.runs) == 2
 
 
-def test_own_process_is_never_locked_and_never_waits(trig):
+@pytest.mark.parametrize("rc", [126, TIMEOUT], ids=["126", "timeout"])
+def test_own_process_is_never_locked_and_never_waits(trig, rc):
     """Nachtrag: Den eigenen Prozess beendet orbitop ohne pkexec und ohne Dialog, die Sperre hätte dort keinen Nutzen.
     Er wartet nie die 10 s oder 60 s und ist nach der Sperre weiter möglich; fremde bleiben gesperrt."""
+    trig.rc = rc
     assert kill(trig) == ["denied"] and kill(trig, OWN) == ["sent"]  # in der Wartezeit von 10 s
     trig.now = 10.0
     assert kill(trig) == ["denied"] and kill(trig, OWN) == ["sent"]  # in der Wartezeit von 60 s

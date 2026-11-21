@@ -40,9 +40,14 @@ def test_exit_code_mapping(rc, want, foreign):
     assert terminate(4242, 77, False, root=foreign, run=fake([], rc), lstat=TRUSTED, opener=ELF) == want
 
 
-@pytest.mark.parametrize("exc", [subprocess.TimeoutExpired("pkexec", 120), FileNotFoundError("pkexec")])
+@pytest.mark.parametrize("exc", [FileNotFoundError("pkexec"), subprocess.SubprocessError("x")])
 def test_pkexec_failures_are_error(exc, foreign):
     assert terminate(4242, 77, False, root=foreign, run=fake([], exc=exc), lstat=TRUSTED, opener=ELF) == "error"
+
+
+def test_dialog_left_open_until_the_timeout_is_denied(foreign):  # N1: zählt wie ein Abbruch, wie bei counters (R9)
+    exc = subprocess.TimeoutExpired("pkexec", 120)
+    assert terminate(4242, 77, False, root=foreign, run=fake([], exc=exc), lstat=TRUSTED, opener=ELF) == "denied"
 
 
 def test_foreign_wrong_start_is_mismatch_without_prompt():

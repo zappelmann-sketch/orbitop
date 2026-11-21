@@ -18,7 +18,8 @@ _COUNTERHELPER = "/usr/lib/orbitop/counterhelper"  # je Wort eine eigene polkit-
 PKEXEC = "/usr/bin/pkexec"
 _RESULT = {0: "sent", 3: "mismatch", 4: "gone", 5: "zombie", 6: "kernel", 126: "denied", 127: "denied"}
 # Je Exit-Code der Freigabe ein festes Wort (B2.1; 3 = Ort oder Umgebung unsicher, 4 = nur teilweise); was wirkt,
-# zeigt der frisch gelesene Zustand. Als Ablehnung zählen nur 126 und 127 (jobs._outcome)
+# zeigt der frisch gelesene Zustand. Als Ablehnung zählen 126, 127, der Ablauf des Dialogs und der Tod durch ein
+# Signal (jobs._outcome)
 _COUNTERS = {0: "ok", 1: "error", 2: "error", 3: "unsafe", 4: "partial", 126: "cancelled", 127: "denied"}
 
 
@@ -121,6 +122,8 @@ def terminate(pid: int, start: int, force: bool, root="/", run=subprocess.run, l
         return "nohelper"
     try:
         r = run([PKEXEC, _HELPER, str(pid), str(start), sig], timeout=120)
+    except subprocess.TimeoutExpired:  # Dialog offen gelassen: pkexec ist beendet, das zählt wie ein Abbruch (R9, N1)
+        return "denied"
     except (OSError, subprocess.SubprocessError):
         return "error"
     return _RESULT.get(r.returncode, "error")
