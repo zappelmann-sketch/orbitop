@@ -34,6 +34,11 @@ def _own(pid: int, root: str) -> bool | None:
     return None
 
 
+def is_own(pid: int, root="/") -> bool:
+    """True nur, wenn pid jetzt ein eigener Prozess ist: dieselbe Regel wie terminate, das ihn ohne pkexec beendet."""
+    return _own(pid, root) is True
+
+
 def trusted(path: str, lstat=os.lstat) -> bool:
     """True, wenn path eine ausführbare reguläre Datei und kein Symlink ist und jedes Glied von ihr bis / root gehört
     und für Gruppe und andere nicht beschreibbar ist. Sonst könnte ein Prozess des Users austauschen, was pkexec als

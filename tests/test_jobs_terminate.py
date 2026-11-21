@@ -25,7 +25,7 @@ def trig(jobrig, monkeypatch, tmp_path):
     foreign_proc(tmp_path, FOREIGN, START, "S")
     foreign_proc(tmp_path, OWN, START, "S")
     (tmp_path / "proc" / str(OWN) / "status").write_text(f"Name:\tx\nUid:\t{os.getuid()}\t0\t0\t0\n")
-    t = SimpleNamespace(rc=126, own=0, now=0.0, runs=[], **vars(jobrig))
+    t = SimpleNamespace(rc=126, own=0, now=0.0, runs=[], tree=tmp_path, **vars(jobrig))
     t.j._gate = gate.Gate(lambda: t.now)
 
     def send(pid, start, sig, root):
@@ -40,19 +40,25 @@ def trig(jobrig, monkeypatch, tmp_path):
     monkeypatch.setattr(t.j, "_run", run)
     monkeypatch.setattr(jobs.actions, "terminate", functools.partial(actions.terminate, root=str(tmp_path),
                                                                      lstat=as_root(tmp_path), opener=opener()))
+    monkeypatch.setattr(jobs.actions, "is_own", functools.partial(actions.is_own, root=str(tmp_path)))
     return t
 
 
-def kill(t, pid=FOREIGN):
-    """Ein terminate der Seite bis zur Antwort; Thread und idle-Aufrufe laufen hier sofort. Die Ergebniswörter."""
-    t.sent.clear()
-    t.j.terminate(pid, START, False)
+def run_jobs(t):
+    """Thread und idle-Aufrufe laufen hier sofort, wie in der Hülle nacheinander."""
     while t.threads:
         th = t.threads.pop(0)
         th.target(*th.args)
     while t.glib.idle:
         fn, args = t.glib.idle.pop(0)
         fn(*args)
+
+
+def kill(t, pid=FOREIGN):
+    """Ein terminate der Seite bis zur Antwort; die Ergebniswörter."""
+    t.sent.clear()
+    t.j.terminate(pid, START, False)
+    run_jobs(t)
     return [json.loads(s)["result"] for s in t.sent]
 
 
@@ -79,3 +85,31 @@ def test_own_process_without_pkexec_never_counts(trig, own, word):
     assert kill(trig) == ["denied"]  # die erste Ablehnung: danach nur 10 s, nicht gesperrt
     trig.now = 10.0
     assert kill(trig) == ["denied"] and len(trig.runs) == 2
+
+
+def test_own_process_is_never_locked_and_never_waits(trig):
+    """Nachtrag: Den eigenen Prozess beendet orbitop ohne pkexec und ohne Dialog, die Sperre hätte dort keinen Nutzen.
+    Er wartet nie die 10 s oder 60 s und ist nach der Sperre weiter möglich; fremde bleiben gesperrt."""
+    assert kill(trig) == ["denied"] and kill(trig, OWN) == ["sent"]  # in der Wartezeit von 10 s
+    trig.now = 10.0
+    assert kill(trig) == ["denied"] and kill(trig, OWN) == ["sent"]  # in der Wartezeit von 60 s
+    trig.now = 70.0
+    assert kill(trig) == ["denied"]
+    trig.now = 1e9
+    assert kill(trig) == ["locked"] and kill(trig, OWN) == ["sent"] and kill(trig) == ["locked"]
+    assert len(trig.runs) == 3
+
+
+def test_own_process_keeps_one_job_at_a_time(trig):
+    trig.j.terminate(OWN, START, False)  # läuft noch, der Thread ist nur aufgezeichnet
+    trig.j.terminate(OWN, START, False)
+    assert [json.loads(s)["result"] for s in trig.sent] == ["busy"] and len(trig.threads) == 1
+
+
+def test_own_before_the_gate_never_reaches_pkexec(trig):
+    """Vor dem Tor eigen, im Thread fremd (etwa eine neu vergebene PID): kein pkexec, also nie ein Dialog am Tor
+    vorbei. Die Seite kann die Wahl nicht treffen, sie sendet nur pid und start."""
+    trig.j.terminate(OWN, START, False)
+    (trig.tree / "proc" / str(OWN) / "status").write_text("Name:\tx\nUid:\t0\t0\t0\t0\n")
+    run_jobs(trig)
+    assert [json.loads(s)["result"] for s in trig.sent] == ["error"] and trig.runs == []

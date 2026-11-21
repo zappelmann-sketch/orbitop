@@ -47,6 +47,11 @@ def _outcome(result: str, codes: list[int | None]) -> str:
     return "ok" if result == "ok" and codes else "other"
 
 
+def _no_pkexec(argv: list[str], timeout: float) -> subprocess.CompletedProcess:
+    """run für einen Auftrag, den das Tor als eigenen Prozess durchließ: nie pkexec, für actions.terminate ein error."""
+    raise subprocess.SubprocessError("not an own process any more")
+
+
 class Jobs:
     def __init__(self, send: Callable[[str], None], glib):
         self._send, self._glib = send, glib
@@ -62,7 +67,10 @@ class Jobs:
         self._closed = False
 
     def terminate(self, pid: int, start: int, force: bool) -> None:
-        refused = self._start("terminate", self._terminate_thread, pid, start, force)
+        # Den eigenen Prozess beendet orbitop ohne pkexec und ohne Dialog: nur einer zugleich, nie die Sperre (B2.7).
+        # Entschieden hier nach derselben Regel wie actions.terminate, nie von der Seite, die nur pid und start sendet
+        own = actions.is_own(pid)
+        refused = self._start("terminate_own" if own else "terminate", self._terminate_thread, pid, start, force, own)
         if refused:  # busy oder locked als Ergebnis: sonst wartete die Seite nach einer Ablehnung ewig darauf
             self._send(encode({"type": "terminate_result", "pid": pid, "result": refused}))
 
@@ -116,13 +124,14 @@ class Jobs:
             return r
         return run
 
-    def _terminate_thread(self, pid: int, start: int, force: bool) -> None:  # pkexec blockiert bis zu 120 s
+    def _terminate_thread(self, pid: int, start: int, force: bool, own: bool) -> None:  # pkexec bis zu 120 s
         codes: list[int | None] = []
-        try:
-            result = actions.terminate(pid, start, force, run=self._counted(codes))
+        try:  # vor dem Tor eigen, jetzt fremd (eine neu vergebene PID): kein pkexec, sonst ein Dialog ohne Sperre
+            result = actions.terminate(pid, start, force, run=_no_pkexec if own else self._counted(codes))
         except Exception:  # sonst bliebe das Tor für immer zu
             result = "error"
-        # nur nach pkexec: der eigene Prozess fragt nie, auch sein denied (PermissionError) zählt nicht; sent ist nie ok
+        # nur nach pkexec: der eigene Prozess fragt nie, auch sein denied (PermissionError) zählt nicht; nie ok.
+        # Für terminate_own endet das Tor so mit other wie jedes Ende, das nicht zählt
         self._glib.idle_add(self._terminated, pid, start, force, result, _outcome(result, codes) if codes else "other")
 
     def _counters_thread(self, on: bool, tools) -> None:

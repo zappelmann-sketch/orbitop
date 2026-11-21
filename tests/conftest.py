@@ -117,6 +117,7 @@ def rig(monkeypatch, tmp_path, threads):
     log = []
     glib = FakeGLib()
     monkeypatch.setattr(shell, "GLib", glib)  # vor Shell(): die Hülle baut ihre Jobs selbst, mit dieser Attrappe
+    monkeypatch.setattr(jobs.actions, "is_own", lambda pid: False)  # nie /proc des Rechners: jede PID fremd
     s = shell.Shell(False)
     s._worker, s._view = FakeWorker(log), FakeView()
     s._init_fields, s._layouts = {"type": "init"}, LayoutFile(str(tmp_path / "layout.json"))

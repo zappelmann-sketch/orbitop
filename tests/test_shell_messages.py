@@ -130,13 +130,13 @@ def test_terminate_flood_starts_one_thread(rig):
     for start in range(20):
         rig.s._on_message(None, terminate_msg(1, start))
     assert len(rig.threads) == 1
-    assert rig.threads[0].args == (1, 0, False) and rig.threads[0].daemon
+    assert rig.threads[0].args == (1, 0, False, False) and rig.threads[0].daemon
     assert rig.js == [receive({"type": "terminate_result", "pid": 1, "result": "busy"})] * 19  # nie ein zweites
     rig.js.clear()
     rig.s._jobs._terminated(1, 0, False, "mismatch", "other")
     assert rig.js == [receive({"type": "terminate_result", "pid": 1, "result": "mismatch"})]
     rig.s._on_message(None, terminate_msg(7, 8, True))  # nach dem Ergebnis ist wieder eines erlaubt
-    assert len(rig.threads) == 2 and rig.threads[1].args == (7, 8, True)
+    assert len(rig.threads) == 2 and rig.threads[1].args == (7, 8, True, False)
 
 
 def test_failed_thread_start_keeps_gate_open(rig, monkeypatch):
@@ -152,7 +152,7 @@ def test_failed_thread_start_keeps_gate_open(rig, monkeypatch):
     monkeypatch.setattr(jobs, "threading", SimpleNamespace(Thread=lambda **kw: SimpleNamespace(
         start=lambda: rig.threads.append(kw))))
     rig.s._on_message(None, terminate_msg(3, 4))  # das Tor ist noch offen
-    assert rig.threads == [{"target": rig.s._jobs._terminate_thread, "args": (3, 4, False), "daemon": True}]
+    assert rig.threads == [{"target": rig.s._jobs._terminate_thread, "args": (3, 4, False, False), "daemon": True}]
 
 
 @pytest.mark.parametrize("outcome,result", [("sent", "sent"), (RuntimeError("x"), "error")])

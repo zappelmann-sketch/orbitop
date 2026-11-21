@@ -7,7 +7,8 @@ Rein, mit Uhr-Injektion, ohne Threads: nur der Hauptthread ruft begin und end.""
 import time
 
 WAITS = (10.0, 60.0)  # nach der ersten und der zweiten Ablehnung; nach der dritten gesperrt bis zum Neustart
-# Alle Aufträge mit Passwortdialog; terminate seit dem Schlussaudit 0.3.0, sonst öffnete eine Seite Dialoge ohne Ende
+# Alle Aufträge mit Passwortdialog; terminate seit dem Schlussaudit 0.3.0, sonst öffnete eine Seite Dialoge ohne Ende.
+# terminate_own (eigener Prozess, ohne pkexec) gehört nicht dazu: nur einer zugleich, nie gesperrt
 ESCALATING = ("terminate", "counters", "install_tool")
 
 
