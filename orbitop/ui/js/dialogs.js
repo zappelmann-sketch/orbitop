@@ -107,7 +107,7 @@ export function ask(force, opener) {
 function confirmed() {
   const t = state.target;
   closeDialog(ui.confirm);
-  if (!t || state.pending) return; // Python verwirft ein zweites terminate ohnehin still
+  if (!t || state.pending) return; // ein zweites terminate bekäme von Python ohnehin nur busy oder locked
   state.pending = state.lastTerm = t;
   state.alert = null;
   post({ type: "terminate", pid: t.pid, start: t.start, force: t.force });
