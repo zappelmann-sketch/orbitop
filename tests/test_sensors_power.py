@@ -2,9 +2,11 @@
 # Copyright © 2026 zappelmann-sketch
 """Leistung und Akku: hwmon-Leistung, RaplReader und read_battery."""
 import os
+from pathlib import Path
 
 import pytest
 
+from orbitop import counterhelper, sensors
 from orbitop.sensors import RaplReader, read_battery, read_sensors
 from tests.roots import AMD, ARM, INTEL, VM
 from tests.sensors_helpers import hwmon, write
@@ -168,3 +170,8 @@ def test_rapl_counter_reset_is_gap(intel_copy):
     assert r.read(1.0) is None
     _zone(intel_copy, "intel-rapl:0", 2_000_000, mx=1_000_000_000)
     assert r.read(2.0)["package-0"] == pytest.approx(1.0)
+
+
+def test_one_rapl_glob_for_release_state_and_reading():  # M-6: die Freigabe öffnet genau, was RaplReader liest
+    assert sensors.RAPL_ZONES == os.path.dirname(counterhelper.RAPL) == "/sys/class/powercap/intel-rapl:*"
+    assert '"/sys/class/powercap/' not in Path(sensors.__file__).read_text(encoding="utf-8")  # kein zweiter Glob

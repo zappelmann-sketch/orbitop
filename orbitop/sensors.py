@@ -7,6 +7,7 @@ import re
 from dataclasses import dataclass
 
 from orbitop import sysfs
+from orbitop.counterhelper import RAPL
 from orbitop.system import MAX_DT
 
 GPU_CHIPS = {"amdgpu", "radeon", "nouveau"}
@@ -14,6 +15,7 @@ TEMP_MIN, TEMP_MAX = -40.0, 150.0   # °C, Obergrenze exklusiv
 SLOW_CHIPS = {"dell_smm"}  # jeder Lesezugriff ist ein BIOS-SMM-Aufruf (gemessen: 3,7 ms CPU, 58 ms Wartezeit)
 SLOW_EVERY_S = 5.0  # langsame Chips höchstens so oft lesen
 _THERMAL_CPU = re.compile(r"x86_pkg_temp|cpu|soc")
+RAPL_ZONES = os.path.dirname(RAPL)  # die Zonen intel-rapl:* ohne MMIO, genau die der Freigabe (B2.3)
 
 
 @dataclass
@@ -172,7 +174,7 @@ def read_sensors(root: str, held: dict | None = None, now: float = 0.0) -> Senso
 
 def _energies(root: str) -> dict[str, int | None]:
     """energy_uj je Zone intel-rapl:*, None wo nicht lesbar."""
-    return {z: sysfs.read_int(z + "/energy_uj") for z in sysfs.glob(root, "/sys/class/powercap/intel-rapl:*")}
+    return {z: sysfs.read_int(z + "/energy_uj") for z in sysfs.glob(root, RAPL_ZONES)}
 
 
 def _noperm(energies: dict[str, int | None]) -> bool:
