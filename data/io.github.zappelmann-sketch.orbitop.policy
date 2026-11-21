@@ -33,8 +33,8 @@
   <action id="io.github.zappelmann-sketch.orbitop.counters-lock">
     <description>Lock the GPU and energy counters again</description>
     <description xml:lang="de">Grafik- und Energiezähler wieder sperren</description>
-    <message>Lock the GPU and energy counters again</message>
-    <message xml:lang="de">Grafik- und Energiezähler wieder sperren</message>
+    <message>Lock the GPU and energy counters again. Afterwards no account without admin rights can open them anew; programs that are already reading them keep their access until they end or the computer restarts.</message>
+    <message xml:lang="de">Grafik- und Energiezähler wieder sperren. Danach kann kein Konto ohne Admin-Rechte sie neu öffnen; Programme, die sie schon lesen, behalten den Zugriff, bis sie enden oder der Rechner neu startet.</message>
     <defaults>
       <allow_any>no</allow_any>
       <allow_inactive>no</allow_inactive>

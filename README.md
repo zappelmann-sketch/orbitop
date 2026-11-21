@@ -270,7 +270,7 @@ sudo /usr/lib/orbitop/counterhelper on
 sudo /usr/lib/orbitop/counterhelper off
 ```
 
-"On" is a rule for the whole machine, kept in the empty file `/etc/orbitop/counters-released`. What comes later is released as well: when the Intel GPU tools are installed, reinstalled or updated, orbitop's package scripts give the new `intel_gpu_top` the capability, and at boot the udev rule `/usr/lib/udev/rules.d/70-orbitop-counters.rules` makes the energy counters readable. Without that file, neither does anything. "Off" deletes the file first, then takes the capability off `/usr/bin/intel_gpu_top` and makes the energy counters readable only for root again, as the kernel sets them. An update of orbitop keeps the switch as it is.
+"On" is a rule for the whole machine, kept in the empty file `/etc/orbitop/counters-released`. What comes later is released as well: when the Intel GPU tools are installed, reinstalled or updated, orbitop's package scripts give the new `intel_gpu_top` the capability, and at boot the udev rule `/usr/lib/udev/rules.d/70-orbitop-counters.rules` makes the energy counters readable. Without that file, neither does anything. "Off" deletes the file first, then takes the capability off `/usr/bin/intel_gpu_top` and makes the energy counters readable only for root again, as the kernel sets them. Afterwards no account can open the counters anew; programs that were already reading, such as an `intel_gpu_top` started while the switch was on or a program that opened an energy counter then, keep their access until they end or the machine restarts. An update of orbitop keeps the switch as it is.
 
 Below the switch, one line per part says whether it is in effect:
 

@@ -177,6 +177,13 @@ def test_lock_text_names_the_manual_rule():  # Fix 1, M-4: „Sperren“ klingt 
         assert rule not in d["settings.lock_text"]
 
 
+def test_lock_texts_do_not_promise_to_revoke_open_access():  # Schlussaudit, R22: nur neues Öffnen ist gesperrt
+    for lang, words in (("de", ("neu öffnen", "neu startet")), ("en", ("anew", "restarts"))):
+        d = json_of(lang)
+        assert all(w in d[k] for k in ("settings.lock_text", "settings.lock_text_rule", "polkit.counters_lock")
+                   for w in words), lang
+
+
 def test_english_lock_words_are_distinct():  # Fix 1, M-4: Knopf „Lock“, Zustand und Sperre nach Ablehnungen
     en = json_of("en")
     assert en["settings.lock"] == "Lock"
