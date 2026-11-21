@@ -555,13 +555,13 @@ Gemessen mit `scripts/measure-load.py` auf dem Referenzlaptop (Intel Core i7-760
 
 | Lage | CPU, % eines Kerns | PSS |
 |---|---|---|
-| Fenster ausgeblendet | 2,85 | 133 bis 134 MB |
-| Reiter „Übersicht“ | 7,06 bis 7,20 | 189 bis 192 MB |
-| Reiter „Prozesse“, Standardspalten | 7,81 bis 7,88 | 190 bis 193 MB |
-| Reiter „Prozesse“, alle 15 Spalten, nach 1 min | 8,51 bis 8,80 | 194 bis 198 MB |
-| Reiter „Prozesse“, alle 15 Spalten, nach 5 min | 9,00 bis 9,41 | 198 bis 201 MB |
+| Fenster ausgeblendet | 2,42 bis 2,47 | 132 bis 134 MB |
+| Reiter „Übersicht“ | 7,21 bis 7,24 | 198 bis 201 MB |
+| Reiter „Prozesse“, Standardspalten | 7,80 bis 7,86 | 192 MB |
+| Reiter „Prozesse“, alle 15 Spalten, nach 1 min | 8,74 bis 8,81 | 197 bis 198 MB |
+| Reiter „Prozesse“, alle 15 Spalten, nach 5 min | 9,41 bis 9,60 | 200 bis 201 MB |
 
-orbitops eigene Grenzen: höchstens 3 % eines Kerns bei ausgeblendetem Fenster, höchstens 9 % bei sichtbarem Fenster und PSS unter 275 MB. Mit den Standardspalten bleibt orbitop darin. Mit allen Spalten liegt die Last nach 5 Minuten bei 9,0 bis 9,4 %, knapp über 9 %. Alle Spalten sind nur auf Wunsch eingeblendet, deshalb ist das eine hingenommene Überschreitung. Etwa 1 % eines Kerns entfällt in jeder Lage auf `intel_gpu_top`.
+orbitops eigene Grenzen: höchstens 3 % eines Kerns bei ausgeblendetem Fenster, höchstens 9 % bei sichtbarem Fenster und PSS unter 275 MB. Mit den Standardspalten bleibt orbitop darin. Mit allen Spalten liegt die Last nach 5 Minuten bei 9,4 bis 9,6 %, knapp über 9 %. Alle Spalten sind nur auf Wunsch eingeblendet, deshalb ist das eine hingenommene Überschreitung. Etwa 1 % eines Kerns entfällt in jeder Lage auf `intel_gpu_top`.
 
 ## Lizenz
 

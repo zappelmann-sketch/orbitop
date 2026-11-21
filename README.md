@@ -555,13 +555,13 @@ Measured with `scripts/measure-load.py` on the reference laptop (Intel Core i7-7
 
 | Situation | CPU, % of one core | PSS |
 |---|---|---|
-| Window hidden | 2.85 | 133 to 134 MB |
-| Overview tab | 7.06 to 7.20 | 189 to 192 MB |
-| Process tab, default columns | 7.81 to 7.88 | 190 to 193 MB |
-| Process tab, all 15 columns, after 1 min | 8.51 to 8.80 | 194 to 198 MB |
-| Process tab, all 15 columns, after 5 min | 9.00 to 9.41 | 198 to 201 MB |
+| Window hidden | 2.42 to 2.47 | 132 to 134 MB |
+| Overview tab | 7.21 to 7.24 | 198 to 201 MB |
+| Process tab, default columns | 7.80 to 7.86 | 192 MB |
+| Process tab, all 15 columns, after 1 min | 8.74 to 8.81 | 197 to 198 MB |
+| Process tab, all 15 columns, after 5 min | 9.41 to 9.60 | 200 to 201 MB |
 
-orbitop's own limits are at most 3 % of one core with the window hidden, at most 9 % with the window visible, and PSS under 275 MB. With the default columns, orbitop stays within them. With all columns shown, the load after 5 minutes is 9.0 to 9.4 %, slightly above 9 %. All columns are only shown on request, so this is an accepted exceedance. About 1 % of one core in every case is `intel_gpu_top`.
+orbitop's own limits are at most 3 % of one core with the window hidden, at most 9 % with the window visible, and PSS under 275 MB. With the default columns, orbitop stays within them. With all columns shown, the load after 5 minutes is 9.4 to 9.6 %, slightly above 9 %. All columns are only shown on request, so this is an accepted exceedance. About 1 % of one core in every case is `intel_gpu_top`.
 
 ## License
 

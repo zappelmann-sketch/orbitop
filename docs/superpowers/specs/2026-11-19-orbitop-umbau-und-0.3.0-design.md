@@ -363,3 +363,32 @@ Messung nach der Entscheidung, 2026-11-20, zweite Sitzung. Verfahren wie oben, a
   - Ursache war der Ablauf der Messung: Kurz nach dem Start gab der sofortige Takt Raten über Bruchteile einer Sekunde. Die Sichtprüfung (`#procs`) wählte deshalb orbitop statt PID 1 als gewählten Prozess, und dessen Detailansicht kostet mehr Zeichenarbeit.
   - Die Vermutung, die Phase gegenüber dem Systemtakt sei schuld (3a8ffd3), hat die Messung widerlegt.
   - 86bc21d nimmt 3a8ffd3 zurück und tickt beim Einblenden nur sofort, wenn der letzte Takt älter als 2 s ist. Der Start verhält sich so wie in `main`.
+
+## Messung Eigenlast (0.3.0)
+
+Gemessen am 2026-11-21 als letzter Schritt der Schlussprüfung (b290b27), Verfahren wie unter „Messung Eigenlast (Umbau)“: `scripts/measure-load.py --pid <orbitop> --seconds 60` über den Prozessbaum, 60 s nach 60 s Aufwärmen, Fenster 1600×1000, Skalierung 1,25. „Alle Spalten“ = Layout mit allen 15 Spalten sichtbar; für die README dazu „alle Spalten“ nach 5 min Aufwärmen. Jede Lage in eigener Instanz mit eigenem `XDG_CONFIG_HOME` und eigener D-Bus-Sitzung. Zweig und `main` (9485b82, Laufzeitdateien gleich `v0.2.0`, per `git archive` ausgepackt) liefen je Lage abwechselnd in derselben Sitzung (Zweig, `main`, `main`, Zweig), „alle Spalten nach 5 min“ mit einem dritten Paar (Zweig, `main`). Aufteilung je Thread aus `/proc/<pid>/task/*/stat` über dasselbe Fenster. Alle Läufe sind ungestört (GTK-Hauptthread ≤ 0,15 %, Compositor ≤ 0,12 %), keiner wurde verworfen.
+
+Lage des Rechners, vor jedem Paar geprüft: ruhig, kein Container, kein Testlauf, kein Bau. Lastmittel (1 min) 0,10 bis 1,63, meist unter 1. Rund 355 Prozesse ohne die Mess-Instanz, 380 bis 384 mit ihr, rund 2 030 Threads; je Minute 118 bis 226 neue Prozesse. Zum Vergleich der ersten Messung in Task 9 (2026-11-20): 419 bis 429 Prozesse, rund 2 400 Threads, 290 bis 480 neue je Minute.
+
+CPU in % eines Kerns, in Klammern PSS in MB:
+
+| Stand | Ausgeblendet | Übersicht kurz | Prozesse Standard kurz | Prozesse alle Spalten kurz | Prozesse alle Spalten nach 5 min |
+|---|---|---|---|---|---|
+| 0.3.0 (b290b27) | 2,42 (132); 2,47 (134) | 7,24 (201); 7,21 (198) | 7,86 (192); 7,80 (192) | 8,74 (198); 8,81 (197) | 9,53 (200); 9,60 (201); 9,41 (201) |
+| `main` (Stand 0.2.0), abwechselnd in derselben Sitzung | 2,92 (133); 2,90 (133) | 7,21 (201); 7,23 (197) | 7,80 (192); 7,78 (194) | 8,74 (195); 8,81 (195) | 9,44 (198); 9,33 (200); 9,34 (200) |
+| **Budget (User)** | **≤ 3** | **≤ 9** | **≤ 9** | **≤ 9** | Ausnahme bis etwa 9,4; PSS **< 275** |
+
+Mittel 0.3.0 / `main`: ausgeblendet 2,45 / 2,91, Übersicht 7,23 / 7,22, Prozesse Standard 7,83 / 7,79, alle Spalten kurz 8,78 / 8,78, alle Spalten nach 5 min 9,51 / 9,37.
+
+Aufteilung je Prozess und Thread (Mittel), 0.3.0 / `main`:
+- Ausgeblendet: orbitop 1,37 / 1,80 (`orbitop-worker` 0,85 / 0,87, `orbitop-procs` 0,47 / 0,87, GTK-Hauptthread 0,00), `intel_gpu_top` 1,08 / 1,11, WebKit 0.
+- Übersicht: WebKit 3,53 / 3,54, orbitop 2,55 / 2,54 (`orbitop-worker` 1,14 / 1,16, `orbitop-procs` 0,90 / 0,88, GTK-Hauptthread 0,15 / 0,14), `intel_gpu_top` 1,15 / 1,15.
+- Prozesse Standard: orbitop 3,60 / 3,59 (`orbitop-worker` 2,15 / 2,14, `orbitop-procs` 1,03 / 1,03, GTK-Hauptthread 0,11 / 0,11), WebKit 3,13 / 3,10, `intel_gpu_top` 1,11 / 1,10.
+- Prozesse alle Spalten kurz: WebKit 4,09 / 4,07, orbitop 3,61 / 3,62 (`orbitop-worker` 2,15 / 2,17, `orbitop-procs` 1,05 / 1,07, GTK-Hauptthread 0,12 / 0,11), `intel_gpu_top` 1,09 / 1,09.
+- Prozesse alle Spalten nach 5 min: WebKit 4,23 / 4,18, orbitop 4,13 / 4,04 (`orbitop-worker` 2,61 / 2,58, `orbitop-procs` 1,09 / 1,06, GTK-Hauptthread 0,13 / 0,11), `intel_gpu_top` 1,16 / 1,16.
+
+**Ergebnis:** Alle Lagen liegen im Rahmen, PSS höchstens 201 MB.
+- Ausgeblendet spart 0.3.0 gegenüber `main` 0,46 Punkte, denn der 4-s-Prozess-Takt halbiert `orbitop-procs` (0,47 statt 0,87). Sichtbar liegt 0.3.0 nach 1 min gleich auf mit `main` (höchstens +0,04).
+- „Alle Spalten“ nach 1 min liegt jetzt unter 9 % (8,74 bis 8,81). Nach 5 min liegt 0.3.0 bei 9,41 bis 9,60 und damit bei „etwa 9,4“ der Ausnahme, im Mittel 0,1 darüber. `main` liegt bei 9,33 bis 9,44. Die Bereiche berühren sich, je Thread sind es wenige Ticks (`orbitop-worker` +0,03, WebKit +0,05). Den Anstieg von 1 auf 5 min trägt in beiden Ständen vor allem `orbitop-worker` (2,15 auf 2,61, `main` 2,17 auf 2,58).
+- Gegenüber der ersten Messung in Task 9 liegen alle Werte 0,7 bis 1,1 Punkte niedriger, bei gleichem Code. Am stärksten sinkt `intel_gpu_top` (1,05 bis 1,17 statt 1,47 bis 1,72). Das bestätigt „Ausgeblendet untersucht (A7.1)“: Die Last folgt der Zahl der Prozesse und der neuen Prozesse je Minute.
+- PSS ausgeblendet 132 bis 134 MB, in beiden Ständen gleich (Task 9: 128 bis 129 MB, nach dem Umbau 169 bis 170 MB).
