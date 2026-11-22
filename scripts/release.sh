@@ -2,16 +2,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
 # Builds, checks and publishes a release of orbitop (spec 5, docs/release.md "Release").
-# Usage: GNUPGHOME=DIR ORBITOP_KEY=FINGERPRINT bash release.sh VERSION [--dry-run]
-#        On a clean main whose orbitop/__init__.py has VERSION; GNUPGHOME holds the archive key and nothing else.
+# Usage: GNUPGHOME=DIR ORBITOP_KEY=FINGERPRINT ORBITOP_TAG_KEY=FILE bash release.sh VERSION [--dry-run]
+#        On a clean main whose orbitop/__init__.py has VERSION; GNUPGHOME holds the archive key and nothing else;
+#        ORBITOP_TAG_KEY is the private SSH key of the tags, whose public half .github/allowed_signers lists.
 #        --dry-run runs steps 1 to 3, the release files (docs/distro-check.md is written, not committed) and the
 #        identity check of the gh-pages worktree, and only prints the commands of steps 4 to 8.
 # Steps: 1 checks (release/checks.sh), HEAD pinned; 2 packages and signed source of the pinned HEAD, twice (the
 #        second with --suffix check1), in a work directory that is removed on exit; 3 container matrix with the files
 #        of the pinned HEAD and docs/distro-check.md; the release files from its commit (release/build.sh) and the
 #        gh-pages worktree with its identity checked;
-#        4 annotated tag of that commit, if HEAD has not moved since step 1; 5 push of main and tag, GitHub release
-#        as a draft;
+#        4 annotated tag of that commit, if HEAD has not moved since step 1, signed with ORBITOP_TAG_KEY and checked;
+#        5 push of main and tag, GitHub release as a draft;
 #        6 gh-pages; 7 GitHub Pages on the first release; 8 wait until Pages serves the new source, then publish
 #        the release (release/publish.sh).
 set -euo pipefail
@@ -24,12 +25,13 @@ set -euo pipefail
 # shellcheck source-path=SCRIPTDIR source=release/publish.sh
 . "$repo/scripts/release/publish.sh"
 
-USAGE="GNUPGHOME=DIR ORBITOP_KEY=FINGERPRINT $0 VERSION [--dry-run]"
+USAGE="GNUPGHOME=DIR ORBITOP_KEY=FINGERPRINT ORBITOP_TAG_KEY=FILE $0 VERSION [--dry-run]"
 if [[ $# -lt 1 || $# -gt 2 || ! $1 =~ ^[0-9]+(\.[0-9]+)*$ || ${2---dry-run} != --dry-run ]]; then usage; fi
 version=$1
 dry=${2:+1}
 fpr=${ORBITOP_KEY:-}
 fpr=${fpr^^}
+tag_key=${ORBITOP_TAG_KEY:-}
 keyring_version=$(cat -- "$repo/packaging/keyring.version")
 [[ $keyring_version =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}$ ]] || die "packaging/keyring.version must be YYYY.MM.DD"
 # The script stops and starts the agent of GNUPGHOME, so it must be the archive key's directory of its own.
@@ -73,6 +75,7 @@ check_tree
 check_date
 check_origin
 check_key
+check_tag_key
 check_readme
 [ -n "$dry" ] || check_github
 remote_state

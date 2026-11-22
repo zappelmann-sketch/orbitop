@@ -1,16 +1,17 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 # Copyright © 2026 zappelmann-sketch
-# Step 1 of scripts/release.sh, before anything is built: the tree, the versions, the key, the README and GitHub.
+# Step 1 of scripts/release.sh, before anything is built: the tree, the versions, the keys, the README and GitHub.
 # Sourced by release.sh after container-common.sh (die, fingerprint), which sets repo, version, dry, fpr (ORBITOP_KEY
-# in upper case) and tmp. Provides APP, GH_REPO, gpg, check_tree ($pinned), check_date, check_origin, check_key
-# ($tmp/key.asc and $tmp/key.pgp), check_committed, check_readme, check_github, remote_state ($pages_rev), run_tests
-# and check_head.
-# shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr and tmp come from release.sh
+# in upper case), tag_key (ORBITOP_TAG_KEY) and tmp. Provides APP, GH_REPO, SIGNERS, gpg, check_tree ($pinned),
+# check_date, check_origin, check_key ($tmp/key.asc and $tmp/key.pgp), check_committed, check_tag_key, check_readme,
+# check_github, remote_state ($pages_rev), run_tests and check_head.
+# shellcheck shell=bash disable=SC2154  # repo, version, dry, fpr, tag_key and tmp come from release.sh
 
 APP=io.github.zappelmann_sketch.orbitop
 GH_REPO=zappelmann-sketch/orbitop
 IDENT="zappelmann-sketch <235797375+zappelmann-sketch@users.noreply.github.com>"  # of every commit and tag
 WARN_DAYS=180  # spec 4: the key's remaining time
+SIGNERS=.github/allowed_signers  # the public key of the tags, for git tag -v and for anyone who checks a tag
 # The push and the fetch URL of origin, the one repository a release pushes to and reads from: GH_REPO on GitHub, over
 # https or ssh.
 ORIGIN_URL='(https://github\.com/|git@github\.com:|ssh://git@github\.com/)zappelmann-sketch/orbitop(\.git)?'
@@ -123,6 +124,19 @@ check_committed() {
             "and raise packaging/keyring.version (docs/release.md, Renewal)"
 }
 
+# check_tag_key: ORBITOP_TAG_KEY is the private SSH key that signs the tag (tag_release), with its public half
+# ORBITOP_TAG_KEY.pub next to it. SIGNERS lists that public key, and only it, for the noreply address of IDENT, the
+# tagger, in the namespace git, so that git tag -v (step 4) and anyone with the repository accept the tag.
+check_tag_key() {
+    local mail=${IDENT#*<} want
+    mail=${mail%>}
+    [[ -n $tag_key && -f $tag_key && -f $tag_key.pub ]] ||
+        die "ORBITOP_TAG_KEY must be the private SSH key of the tags, its .pub next to it (docs/release.md, Tag key)"
+    want="$mail namespaces=\"git\" $(cut -d' ' -f1,2 -- "$tag_key.pub")"
+    [ "$(grep -v -e '^#' -e '^$' -- "$repo/$SIGNERS" | cut -d' ' -f1-4)" = "$want" ] ||
+        die "$SIGNERS must list the public half of ORBITOP_TAG_KEY, and only it, for $mail"
+}
+
 # check_readme: every fingerprint in README.md and README.de.md, in one piece or grouped as gpg prints it, is
 # ORBITOP_KEY. A README without the fingerprint, or with the placeholder <FINGERPRINT>, stops a release; a dry run
 # only warns.
@@ -160,12 +174,12 @@ remote_state() {
     pages_rev=refs/remotes/origin/gh-pages
 }
 
-# run_tests: the strict test suite (CLAUDE.md), with the environment of an ordinary run: without GNUPGHOME and
-# ORBITOP_KEY, so that no test reaches the archive key, and without ORBITOP_REV, so that every test builds its own
-# files.
+# run_tests: the strict test suite (CLAUDE.md), with the environment of an ordinary run: without GNUPGHOME,
+# ORBITOP_KEY and ORBITOP_TAG_KEY, so that no test reaches a release key, and without ORBITOP_REV, so that every test
+# builds its own files.
 run_tests() {
-    (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY -u ORBITOP_REV python3 -m pytest -q -W error::ResourceWarning \
-        -W error::DeprecationWarning) || die "the strict test suite failed"
+    (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY -u ORBITOP_TAG_KEY -u ORBITOP_REV python3 -m pytest -q \
+        -W error::ResourceWarning -W error::DeprecationWarning) || die "the strict test suite failed"
 }
 
 # check_head (before the tag): HEAD is still release_rev, the commit of the release files (step 3), and that is the

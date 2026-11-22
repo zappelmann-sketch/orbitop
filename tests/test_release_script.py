@@ -13,7 +13,7 @@ import time
 import pytest
 
 from tests.packaging_common import KEY_FILE, ROOT
-from tests.release_stub import VERSION, git, make_repo, run
+from tests.release_stub import VERSION, git, make_repo, run, tag_key
 from tests.site_stub import gpg, kill_agent, make_keys, needs_git
 
 pytestmark = needs_git
@@ -86,6 +86,9 @@ CASES = {  # Fall: (README, Trockenlauf, Umgebung, erwarteter Text)
     "gh-login": ("fpr", False, {"GH_AUTH_RC": "1"}, "gh is not logged in"),
     "gh-admin": ("fpr", False, {"GH_ADMIN": "false"}, "no admin rights on zappelmann-sketch/orbitop"),
     "info-attributes": ("fpr", True, {}, "info/attributes is not empty"),  # Audit M3, Plan 2026-11-19, Task 9
+    "no-tag-key": ("fpr", True, {"ORBITOP_TAG_KEY": ""}, "ORBITOP_TAG_KEY must be the private SSH key"),
+    "other-tag-key": ("fpr", True, {}, ".github/allowed_signers must list the public half of ORBITOP_TAG_KEY"),
+    "extra-signer": ("fpr", True, {}, ".github/allowed_signers must list the public half of ORBITOP_TAG_KEY"),
 }
 
 
@@ -111,6 +114,12 @@ def test_refuses_before_building(tmp_path, keys, case):
         git(repo["repo"], "commit", "-qam", "version")
     elif case == "info-attributes":  # git archive läse export-ignore daraus, an jedem Commit vorbei
         (repo["repo"] / ".git" / "info" / "attributes").write_text("README.md export-ignore\n")
+    elif case == "other-tag-key":
+        env = {"ORBITOP_TAG_KEY": str(tag_key(tmp_path / "other-key"))}
+    elif case == "extra-signer":  # nur der eine Schlüssel darf Tags zeichnen
+        with (repo["repo"] / ".github" / "allowed_signers").open("a") as f:
+            f.write('alice@example.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== x\n')
+        git(repo["repo"], "commit", "-qam", "signer")
     r, calls = run(tmp_path, repo, keys, version, *(["--dry-run"] if dry else []), env=env)
     refused_before_building(r, calls, text)
 

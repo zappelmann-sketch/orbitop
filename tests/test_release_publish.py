@@ -10,7 +10,7 @@ import tarfile
 
 import pytest
 
-from tests.release_stub import GH, KV, NAME, NOREPLY, REAL, VERSION, git, make_repo, run, sha256, stub
+from tests.release_stub import GH, KV, NAME, NOREPLY, REAL, VERSION, environ, git, make_repo, run, sha256, stub
 from tests.site_stub import kill_agent, make_keys, needs_git
 
 pytestmark = needs_git
@@ -49,8 +49,11 @@ def test_push_names_refs_explicitly(tmp_path, keys, repo):
         assert args[args.index("origin") + 1:] and set(args[args.index("origin") + 1:]) <= REFS, args
         assert not {"--all", "--mirror", "--force", "-f", "--tags", "--follow-tags"} & set(args)
         assert not any(a.startswith(("+", "--force")) for a in args)
-    tags = [c for c in calls["git"] if "tag" in c and "-a" in c]
-    assert len(tags) == 1 and "--no-sign" in tags[0]  # tag.gpgSign signierte sonst mit einem anderen Schlüssel
+    tags = [c for c in calls["git"] if "tag" in c and "-s" in c]  # Format, Programm und Schlüssel nie aus der Konfig
+    assert len(tags) == 1 and {"gpg.format=ssh", "gpg.ssh.program=ssh-keygen",
+                               f"user.signingKey={tmp_path / 'tag-key'}"} <= set(tags[0])
+    verify = [i for i, c in enumerate(calls["git"]) if "tag" in c and "-v" in c]
+    assert len(verify) == 1 and verify[0] < next(i for i, c in enumerate(calls["git"]) if "push" in c)
     commits = [c for c in calls["git"] if "commit" in c]
     assert len(commits) == 2 and all("--no-gpg-sign" in c for c in commits)
     remote = repo["remote"]
@@ -58,6 +61,10 @@ def test_push_names_refs_explicitly(tmp_path, keys, repo):
     assert git(remote, "rev-parse", "main").strip() == head
     assert git(remote, "cat-file", "-t", f"v{VERSION}").strip() == "tag"  # annotiert
     assert git(remote, "rev-parse", f"v{VERSION}^{{commit}}").strip() == head
+    signers = repo["repo"] / ".github" / "allowed_signers"  # so prüft jeder mit dem Repository den Tag
+    v = subprocess.run([REAL["git"], "-c", f"gpg.ssh.allowedSignersFile={signers}", "tag", "-v", f"v{VERSION}"],
+                       cwd=remote, capture_output=True, text=True, env=environ())
+    assert v.returncode == 0 and f'Good "git" signature for {NOREPLY}' in v.stderr, v.stderr
     subject = git(repo["repo"], "log", "-1", "--format=%s").strip()
     assert subject == f"docs: Distributionsprüfung für orbitop {VERSION}"
     assert git(repo["repo"], "show", "--name-only", "--format=", "HEAD").split() == ["docs/distro-check.md"]
@@ -72,7 +79,7 @@ def test_release_assets_list(tmp_path, keys, repo):
     files = create[i + 2:]
     assert create[:i + 1] == ["release", "create", f"v{VERSION}", "--repo", "zappelmann-sketch/orbitop",
                               "--verify-tag", "--draft", "--title", f"orbitop {VERSION}", "--notes-file"]
-    tag_message = git(repo["remote"], "tag", "-l", "--format=%(contents)", f"v{VERSION}")
+    tag_message = git(repo["remote"], "tag", "-l", "--format=%(contents:subject)%0a%0a%(contents:body)", f"v{VERSION}")
     assert (tmp_path / "notes").read_text().strip() == tag_message.strip() != ""
     assert sorted(f.rsplit("/", 1)[1] for f in files) == sorted([*ASSETS, "SHA256SUMS", "SHA256SUMS.asc"])
     assets = tmp_path / "assets"

@@ -5,7 +5,8 @@
 # following tags. A dry run prints the commands (run) instead of running them. Sourced by release.sh after checks.sh
 # and build.sh. Provides tag_release, release_github, pages_worktree, pages_tree, pages_on, wait_pages and
 # publish_release.
-# shellcheck shell=bash disable=SC2154  # repo, version, dry, tmp, pages_rev, release_rev, assets, APP, GH_REPO
+# shellcheck shell=bash disable=SC2154  # from release.sh: repo, version, dry, tmp, tag_key, pages_rev, release_rev,
+# assets, APP, GH_REPO and SIGNERS
 
 PAGES=https://zappelmann-sketch.github.io/orbitop/
 WAIT=600  # seconds: GitHub Pages caches each file for about 10 minutes (docs/release.md)
@@ -14,13 +15,18 @@ SERVED=(apt/dists/stable/InRelease rpm/fedora/repodata/repomd.xml rpm/fedora/rep
     rpm/opensuse/repodata/repomd.xml rpm/opensuse/repodata/repomd.xml.asc arch/x86_64/orbitop.db
     arch/x86_64/orbitop.db.sig)
 
-# tag_release: the annotated, unsigned tag v<version> of release_rev, the commit of the release files, once
-# check_head found HEAD unmoved; its message, the changes of the metainfo, becomes the release notes.
+# tag_release: the annotated tag v<version> of release_rev, the commit of the release files, once check_head found
+# HEAD unmoved, signed with ORBITOP_TAG_KEY (check_tag_key) and checked against SIGNERS before anything is pushed; its
+# message, the changes of the metainfo, becomes the release notes. Format, program and key are given here, so that no
+# gpg.format, gpg.ssh.program or user.signingKey of the git configuration signs with something else.
 tag_release() {
     check_head
     { echo "orbitop $version" && echo && python3 -I "$repo/packaging/changelog.py" notes \
         "$repo/data/$APP.metainfo.xml" "$version"; } > "$tmp/notes" || die "no release notes for $version"
-    run git -C "$repo" tag -a --no-sign --cleanup=whitespace -F "$tmp/notes" "v$version" "$release_rev"
+    run git -C "$repo" -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c user.signingKey="$tag_key" \
+        tag -s --cleanup=whitespace -F "$tmp/notes" "v$version" "$release_rev"
+    run git -C "$repo" -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile="$repo/$SIGNERS" \
+        tag -v "v$version"
 }
 
 # release_github: main and the tag in one atomic push, then a draft release from the tag with exactly the assets; it

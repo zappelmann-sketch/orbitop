@@ -99,8 +99,8 @@ matrix() {
     [ "$key" = "$fpr" ] || die "the matrix ran with the key ${key:-none}, not ORBITOP_KEY=$fpr"
     python3 -I "$repo/scripts/release/distro-check.py" "$repo/$doc" "$version" "$keyring_version" ${dry:+"--dry-run"} \
         < "$tmp/matrix.log" || die "cannot write the results to $doc"
-    (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY -u ORBITOP_REV python3 -m pytest -q tests/test_readme.py) ||
-        die "the README does not match the results in $doc"
+    (cd "$repo" && env -u GNUPGHOME -u ORBITOP_KEY -u ORBITOP_TAG_KEY -u ORBITOP_REV \
+        python3 -m pytest -q tests/test_readme.py) || die "the README does not match the results in $doc"
     [ -z "$dry" ] || return 0
     ! git -C "$repo" diff --quiet -- "$doc" || return 0
     git -C "$repo" commit -q --no-gpg-sign -m "docs: Distributionsprüfung für orbitop $version" -- "$doc"

@@ -134,7 +134,7 @@ def test_tags_the_commit_of_the_release_files(tmp_path, keys):
     assert r.returncode == 0, r.stderr
     tagged = git(repo["remote"], "rev-parse", f"v{VERSION}^{{commit}}").strip()
     assert git(repo["remote"], "rev-parse", f"{tagged}^").strip() == pinned
-    (tag,) = [c for c in calls["git"] if "tag" in c and "-a" in c]
+    (tag,) = [c for c in calls["git"] if "tag" in c and "-s" in c]
     assert tag[-2:] == [f"v{VERSION}", tagged]  # der Commit selbst, nicht HEAD
 
 

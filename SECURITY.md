@@ -32,6 +32,8 @@ These are not new vulnerabilities:
 
 The package source (on Fedora, openSUSE and Arch also every package) and the release files are signed with the archive key `B6F10E7E76A63D9D569DE0674B5D133F71445C01`. How to check it is in the [README, section "Signing key"](README.md#signing-key).
 
+From the next release on, every release tag is signed with an SSH key that `.github/allowed_signers` lists; in a checkout of `main`, `git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v v<version>` checks a tag. The tags up to `v0.3.0` are not signed.
+
 ---
 
 # Sicherheitsrichtlinie
@@ -65,3 +67,5 @@ Das sind keine neuen Lücken:
 ## Signierschlüssel
 
 Die Paketquelle (unter Fedora, openSUSE und Arch auch jedes Paket) und die Release-Dateien sind mit dem Archivschlüssel `B6F10E7E76A63D9D569DE0674B5D133F71445C01` signiert. Wie Sie ihn prüfen, steht in der [README, Abschnitt „Signierschlüssel“](README.de.md#signierschlüssel).
+
+Ab dem nächsten Release ist jeder Release-Tag mit einem SSH-Schlüssel signiert, den `.github/allowed_signers` nennt; in einem Checkout von `main` prüft `git -c gpg.ssh.allowedSignersFile=.github/allowed_signers tag -v v<version>` einen Tag. Die Tags bis `v0.3.0` sind nicht signiert.

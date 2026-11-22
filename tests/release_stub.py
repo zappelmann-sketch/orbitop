@@ -85,7 +85,7 @@ SUITE = """import os
 
 
 def test_ok():
-    assert not {"GNUPGHOME", "ORBITOP_KEY", "ORBITOP_REV"} & set(os.environ)
+    assert not {"GNUPGHOME", "ORBITOP_KEY", "ORBITOP_TAG_KEY", "ORBITOP_REV"} & set(os.environ)
 """
 LOGGED = """#!/bin/sh
 printf '%s\\n' "$@" ---- >> "$LOG_DIR/{tool}.log"
@@ -217,6 +217,12 @@ def stub(directory, name, text):
     (directory / name).chmod(0o755)
 
 
+def tag_key(path):
+    """Ein Wegwerf-SSH-Schlüssel ohne Passphrase für die Tags (ORBITOP_TAG_KEY), PATH.pub daneben."""
+    subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "test", "-f", str(path)], check=True)
+    return path
+
+
 def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY, date=None):
     """Wegwerf-Repository auf main mit den Release-Skripten und Stellvertretern für die Bau-Skripte, origin ein
     lokales bare-Repository, Identität USER <EMAIL>; die Matrix meldet den Schlüssel FPR, die READMEs nennen README
@@ -235,6 +241,9 @@ def make_repo(tmp_path, fpr, readme=None, user=NAME, email=NOREPLY, date=None):
     date = date or time.strftime("%Y-%m-%d", time.gmtime())
     metainfo.write_text(re.sub(r'(<release version="[^"]+" date=")[0-9-]+', rf"\g<1>{date}", metainfo.read_text(),
                                count=1))
+    pub = (tag_key(tmp_path / "tag-key").parent / "tag-key.pub").read_text().split()
+    (repo / ".github").mkdir()  # SIGNERS von checks.sh mit dem Wegwerfschlüssel von run
+    (repo / ".github" / "allowed_signers").write_text(f'{NOREPLY} namespaces="git" {pub[0]} {pub[1]} test\n')
     (repo / "tests").mkdir()
     for name in ("test_ok.py", "test_readme.py"):  # die strenge Suite und der README-Abgleich nach der Matrix
         (repo / "tests" / name).write_text(SUITE)
@@ -281,7 +290,8 @@ def run(tmp_path, paths, key, *args, env=()):
     env = {**environ(), "PATH": f"{paths['bin']}:{os.environ['PATH']}", "LOG_DIR": str(tmp_path),
            "REAL_GIT": REAL["git"], "REMOTE": str(paths["remote"]), "RPM_BIN": str(paths["rpm_bin"]),
            "REPO": str(paths["repo"]),
-           "GNUPGHOME": str(key["home"]), "ORBITOP_KEY": key["fpr"], "TMPDIR": str(tmp_path / "tmp"), **dict(env)}
+           "GNUPGHOME": str(key["home"]), "ORBITOP_KEY": key["fpr"], "ORBITOP_TAG_KEY": str(tmp_path / "tag-key"),
+           "TMPDIR": str(tmp_path / "tmp"), **dict(env)}
     r = subprocess.run(["bash", str(paths["repo"] / "scripts" / "release.sh"), *args], capture_output=True,
                        text=True, cwd=tmp_path, env=env, timeout=180)
     calls = {}
