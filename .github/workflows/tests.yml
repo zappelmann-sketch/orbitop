@@ -1,0 +1,28 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# Public test run on every push and pull request: the system Python of Ubuntu 24.04 with PyGObject and the typelibs
+# from apt, like the container matrix. Read-only token, actions pinned to commits, no secrets: signing stays local.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  pytest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+      - name: System packages
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 \
+            python3-pytest shellcheck desktop-file-utils appstream
+      - name: Tests
+        run: /usr/bin/python3 -m pytest -q -W error::ResourceWarning -W error::DeprecationWarning
