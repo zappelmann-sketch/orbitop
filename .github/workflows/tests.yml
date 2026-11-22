@@ -19,10 +19,11 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
+          fetch-depth: 0  # with the tags: tests/site_stub.py builds from the tag v0.2.0
       - name: System packages
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 \
             python3-pytest shellcheck desktop-file-utils appstream
       - name: Tests
-        run: /usr/bin/python3 -m pytest -q -W error::ResourceWarning -W error::DeprecationWarning
+        run: /usr/bin/python3 -m pytest -q -rs -W error::ResourceWarning -W error::DeprecationWarning
