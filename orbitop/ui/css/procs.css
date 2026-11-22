@@ -69,12 +69,22 @@
   text-transform: uppercase;
   color: var(--mut);
   white-space: nowrap;
+  padding: 1px 4px; /* fest statt Vorgabe des Browsers: der sortierte Kopf passt so in die 64 px von %MEM */
 }
 .ptable th button:hover, .ptable th[aria-sort] button { color: var(--ink); }
 .ptable th button:focus-visible { outline-offset: -2px; } /* innen: die Zelle schneidet sonst den Ring ab */
-.ptable th[aria-sort] button::after { margin-left: 2px; letter-spacing: 0; } /* passt so auch in schmale Zahlenspalten */
-.ptable th[aria-sort="descending"] button::after { content: "▾"; }
-.ptable th[aria-sort="ascending"] button::after { content: "▴"; }
+/* Pfeil als Fläche statt Zeichen: Oxanium hat kein ▾, die Ersatzschrift und damit die Breite wären je System andere */
+.ptable th[aria-sort] button::after {
+  content: "";
+  display: inline-block;
+  width: 6px;
+  height: 4px;
+  margin-left: 3px;
+  vertical-align: middle;
+  background: currentColor;
+  clip-path: polygon(0 0, 100% 0, 50% 100%);
+}
+.ptable th[aria-sort="ascending"] button::after { clip-path: polygon(50% 0, 100% 100%, 0 100%); }
 /* Griff am rechten Rand jeder Kopfzelle: Strich erst beim Zeigen auf den Kopf, beim Ziehen Cyan */
 .grip { position: absolute; top: 0; right: 0; bottom: 0; width: 6px; cursor: col-resize; touch-action: none; }
 .grip::after { content: ""; position: absolute; top: 6px; bottom: 6px; right: 0; width: 1px; }
