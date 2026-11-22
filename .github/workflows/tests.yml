@@ -2,6 +2,7 @@
 # Copyright © 2026 zappelmann-sketch
 # Public test run on every push and pull request: the system Python of Ubuntu 24.04 with PyGObject and the typelibs
 # from apt, like the container matrix. Read-only token, actions pinned to commits, no secrets: signing stays local.
+# Xvfb gives GTK a display, so the WebView tests (tests/test_shell_webview.py, needs_display) run here as well.
 name: tests
 
 on:
@@ -24,6 +25,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends python3-gi gir1.2-gtk-4.0 gir1.2-webkit-6.0 \
-            python3-pytest shellcheck desktop-file-utils appstream
+            python3-pytest shellcheck desktop-file-utils appstream xvfb xauth
       - name: Tests
-        run: /usr/bin/python3 -m pytest -q -rs -W error::ResourceWarning -W error::DeprecationWarning
+        run: xvfb-run -a /usr/bin/python3 -m pytest -q -rs -W error::ResourceWarning -W error::DeprecationWarning
