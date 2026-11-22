@@ -69,6 +69,7 @@ def test_refuses_version_mismatch(tmp_path, keys, repo):
     refused_before_building(r, calls, f"has the version {VERSION}, not 9.9.9")
 
 
+SIGNERS_TEXT = ".github/allowed_signers must list the public half of ORBITOP_TAG_KEY"
 CASES = {  # Fall: (README, Trockenlauf, Umgebung, erwarteter Text)
     "branch": ("fpr", True, {}, "only from the branch main"),
     "tag": ("fpr", True, {}, "exists already"),
@@ -86,9 +87,14 @@ CASES = {  # Fall: (README, Trockenlauf, Umgebung, erwarteter Text)
     "gh-login": ("fpr", False, {"GH_AUTH_RC": "1"}, "gh is not logged in"),
     "gh-admin": ("fpr", False, {"GH_ADMIN": "false"}, "no admin rights on zappelmann-sketch/orbitop"),
     "info-attributes": ("fpr", True, {}, "info/attributes is not empty"),  # Audit M3, Plan 2026-11-19, Task 9
-    "no-tag-key": ("fpr", True, {"ORBITOP_TAG_KEY": ""}, "ORBITOP_TAG_KEY must be the private SSH key"),
-    "other-tag-key": ("fpr", True, {}, ".github/allowed_signers must list the public half of ORBITOP_TAG_KEY"),
-    "extra-signer": ("fpr", True, {}, ".github/allowed_signers must list the public half of ORBITOP_TAG_KEY"),
+    "no-tag-key": ("fpr", True, {"ORBITOP_TAG_KEY": ""}, "ORBITOP_TAG_KEY must be the absolute path"),
+    "relative-tag-key": ("fpr", True, {"ORBITOP_TAG_KEY": "tag-key"}, "ORBITOP_TAG_KEY must be the absolute path"),
+    "no-pub": ("fpr", True, {}, "ORBITOP_TAG_KEY must be the absolute path"),
+    "other-tag-key": ("fpr", True, {}, SIGNERS_TEXT),
+    "extra-signer": ("fpr", True, {}, SIGNERS_TEXT),
+    "other-principal": ("fpr", True, {}, SIGNERS_TEXT),
+    "other-namespace": ("fpr", True, {}, SIGNERS_TEXT),
+    "untracked-signers": ("fpr", True, {}, ".github/allowed_signers is not committed"),
 }
 
 
@@ -116,10 +122,19 @@ def test_refuses_before_building(tmp_path, keys, case):
         (repo["repo"] / ".git" / "info" / "attributes").write_text("README.md export-ignore\n")
     elif case == "other-tag-key":
         env = {"ORBITOP_TAG_KEY": str(tag_key(tmp_path / "other-key"))}
-    elif case == "extra-signer":  # nur der eine Schlüssel darf Tags zeichnen
-        with (repo["repo"] / ".github" / "allowed_signers").open("a") as f:
-            f.write('alice@example.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA== x\n')
+    elif case == "no-pub":
+        (tmp_path / "tag-key.pub").unlink()
+    elif case in ("extra-signer", "other-principal", "other-namespace"):  # ein Schlüssel, ein Principal, Namespace git
+        signers = repo["repo"] / ".github" / "allowed_signers"
+        line = signers.read_text()
+        signers.write_text({"extra-signer": line + 'alice@example.com namespaces="git" ssh-ed25519 AAAAC3Nz x\n',
+                            "other-principal": "alice@example.com " + line.split(" ", 1)[1],
+                            "other-namespace": line.replace('namespaces="git"', 'namespaces="file"')}[case])
         git(repo["repo"], "commit", "-qam", "signer")
+    elif case == "untracked-signers":  # liegt im Arbeitsbaum, ignoriert, aber nicht im Commit
+        git(repo["repo"], "rm", "-q", "--cached", ".github/allowed_signers")
+        (repo["repo"] / ".git" / "info" / "exclude").write_text(".github/allowed_signers\n")
+        git(repo["repo"], "commit", "-qm", "untracked")
     r, calls = run(tmp_path, repo, keys, version, *(["--dry-run"] if dry else []), env=env)
     refused_before_building(r, calls, text)
 

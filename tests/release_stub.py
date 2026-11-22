@@ -184,7 +184,8 @@ def sha256(data):
 def environ():
     """os.environ ohne GIT_AUTHOR_* und GIT_COMMITTER_* der Shell, mit GIT_ENV: Commits und Tags der Tests tragen nur
     die Identität ihres Repositorys (oder die, die ein Test ausdrücklich setzt)."""
-    return {**{k: v for k, v in os.environ.items() if not k.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_"))}, **GIT_ENV}
+    return {**{k: v for k, v in os.environ.items()  # kein echter ssh-agent (SSH_AUTH_SOCK) für die Tags
+               if not k.startswith(("GIT_AUTHOR_", "GIT_COMMITTER_")) and k != "SSH_AUTH_SOCK"}, **GIT_ENV}
 
 
 def git(cwd, *args):

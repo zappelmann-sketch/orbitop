@@ -5,6 +5,7 @@ ohne Signatur- und Tag-Folge-Überraschungen, die Anhänge des Releases, der Ent
 veröffentlicht wird, die Identität im Worktree von gh-pages, ein liegengebliebener Zweig gh-pages und der
 Stellvertreter für gh."""
 import os
+import shutil
 import subprocess
 import tarfile
 
@@ -40,8 +41,12 @@ def blob(remote, path):
 
 
 def test_push_names_refs_explicitly(tmp_path, keys, repo):
-    r, calls = run(tmp_path, repo, keys, VERSION)
+    stub(repo["bin"], "ssh-keygen", '#!/bin/sh\necho "${SSH_AUTH_SOCK-unset} $1 $2" >> "$LOG_DIR/ssh-keygen.log"\n'
+         f'exec {shutil.which("ssh-keygen")} "$@"\n')
+    r, calls = run(tmp_path, repo, keys, VERSION, env={"SSH_AUTH_SOCK": str(tmp_path / "agent.sock")})
     assert r.returncode == 0, r.stderr
+    # signiert wird ohne ssh-agent: der Agent von GNOME fragte im Dialog und hielte den Schlüssel danach offen
+    assert "unset -Y sign" in (tmp_path / "ssh-keygen.log").read_text().splitlines()
     done = [c[c.index("push") + 1:] for c in calls["git"] if "push" in c]
     assert len(done) == 2, done
     for args in done:

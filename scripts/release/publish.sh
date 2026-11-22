@@ -16,17 +16,20 @@ SERVED=(apt/dists/stable/InRelease rpm/fedora/repodata/repomd.xml rpm/fedora/rep
     arch/x86_64/orbitop.db.sig)
 
 # tag_release: the annotated tag v<version> of release_rev, the commit of the release files, once check_head found
-# HEAD unmoved, signed with ORBITOP_TAG_KEY (check_tag_key) and checked against SIGNERS before anything is pushed; its
-# message, the changes of the metainfo, becomes the release notes. Format, program and key are given here, so that no
-# gpg.format, gpg.ssh.program or user.signingKey of the git configuration signs with something else.
+# HEAD unmoved, signed with ORBITOP_TAG_KEY (check_tag_key) and checked against SIGNERS of that commit before anything
+# is pushed; its message, the changes of the metainfo, becomes the release notes. Format, program and key are given
+# here, so that no gpg.format, gpg.ssh.program or user.signingKey of the git configuration signs with something else.
+# The signature runs without SSH_AUTH_SOCK: ssh-keygen would let a running ssh-agent sign with the key, and the agent
+# of a GNOME session (gcr) asks in a dialog and keeps the key unlocked for every process until logout. So ssh-keygen
+# reads the key file and asks for its passphrase on the terminal.
 tag_release() {
     check_head
     { echo "orbitop $version" && echo && python3 -I "$repo/packaging/changelog.py" notes \
         "$repo/data/$APP.metainfo.xml" "$version"; } > "$tmp/notes" || die "no release notes for $version"
-    run git -C "$repo" -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen -c user.signingKey="$tag_key" \
-        tag -s --cleanup=whitespace -F "$tmp/notes" "v$version" "$release_rev"
-    run git -C "$repo" -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile="$repo/$SIGNERS" \
-        tag -v "v$version"
+    run env -u SSH_AUTH_SOCK git -C "$repo" -c gpg.format=ssh -c gpg.ssh.program=ssh-keygen \
+        -c user.signingKey="$tag_key" tag -s --cleanup=whitespace -F "$tmp/notes" "v$version" "$release_rev"
+    git -C "$repo" cat-file blob "$release_rev:$SIGNERS" > "$tmp/signers" || die "$SIGNERS is not in $release_rev"
+    run git -C "$repo" -c gpg.ssh.program=ssh-keygen -c gpg.ssh.allowedSignersFile="$tmp/signers" tag -v "v$version"
 }
 
 # release_github: main and the tag in one atomic push, then a draft release from the tag with exactly the assets; it

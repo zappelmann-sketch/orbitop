@@ -124,16 +124,19 @@ check_committed() {
             "and raise packaging/keyring.version (docs/release.md, Renewal)"
 }
 
-# check_tag_key: ORBITOP_TAG_KEY is the private SSH key that signs the tag (tag_release), with its public half
-# ORBITOP_TAG_KEY.pub next to it. SIGNERS lists that public key, and only it, for the noreply address of IDENT, the
-# tagger, in the namespace git, so that git tag -v (step 4) and anyone with the repository accept the tag.
+# check_tag_key: ORBITOP_TAG_KEY is the absolute path of the private SSH key that signs the tag (tag_release), with
+# its public half ORBITOP_TAG_KEY.pub next to it (git -C resolves a relative path elsewhere and takes one that starts
+# with ssh- for a literal key). SIGNERS of the pinned commit, not of the working tree, lists that public key, and only
+# it, for the noreply address of IDENT, the tagger, in the namespace git, so that git tag -v (step 4) and anyone with
+# the repository accept the tag.
 check_tag_key() {
     local mail=${IDENT#*<} want
     mail=${mail%>}
-    [[ -n $tag_key && -f $tag_key && -f $tag_key.pub ]] ||
-        die "ORBITOP_TAG_KEY must be the private SSH key of the tags, its .pub next to it (docs/release.md, Tag key)"
+    [[ $tag_key == /* && -f $tag_key && -s $tag_key.pub ]] || die "ORBITOP_TAG_KEY must be the absolute path of" \
+        "the private SSH key of the tags, its .pub next to it (docs/release.md, Tag key)"
     want="$mail namespaces=\"git\" $(cut -d' ' -f1,2 -- "$tag_key.pub")"
-    [ "$(grep -v -e '^#' -e '^$' -- "$repo/$SIGNERS" | cut -d' ' -f1-4)" = "$want" ] ||
+    git -C "$repo" cat-file blob "$pinned:$SIGNERS" > "$tmp/signers" 2> /dev/null || die "$SIGNERS is not committed"
+    [ "$(grep -v -e '^#' -e '^$' -- "$tmp/signers" | cut -d' ' -f1-4)" = "$want" ] ||
         die "$SIGNERS must list the public half of ORBITOP_TAG_KEY, and only it, for $mail"
 }
 
