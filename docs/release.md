@@ -272,6 +272,8 @@ The release assets, as the README downloads them from `releases/latest/download/
 
 Every package is the file `SITE` serves, the RPMs with their signature. Before anything is published, the script checks the assets as the README tells users to: `gpgv --keyring <SITE>/orbitop-archive-keyring.pgp SHA256SUMS.asc SHA256SUMS` must report `VALIDSIG` with `ORBITOP_KEY`, and `sha256sum -c SHA256SUMS` must pass. `rpm -K` checks the same RPM bytes in the matrix (step `keyring`).
 
+The repository has two rulesets (GitHub, Settings → Rules → Rulesets): `branches` keeps `main` and `gh-pages` from being deleted or force-pushed, `release tags` keeps every tag `v*` from being deleted or moved; creating a new tag stays allowed, and a release pushes only fast-forward (`pages_worktree` builds `gh-pages` on the published commit). Nobody may bypass them. Where a step below deletes a public tag, turn `release tags` off for that step and on again right after it.
+
 If a step fails, by where it stopped:
 
 - Up to step 3 nothing has left the machine. If `git log -1 --format=%s` is `docs: Distributionsprüfung für orbitop <version>`, `git reset --keep HEAD^` drops that commit of step 3 (and only then: `--keep` refuses to touch local changes); fix the cause and run again.
