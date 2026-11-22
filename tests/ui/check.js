@@ -18,11 +18,13 @@ import { checkSettings } from "./check/settings.js";
 import { posted } from "./check/stubs.js";
 import { checkLongNames, checkTiles } from "./check/tiles.js";
 
-document.addEventListener("DOMContentLoaded", () => {
+document.addEventListener("DOMContentLoaded", async () => {
   if (typeof window.orbitop?.receive !== "function") { // die erste Nachricht von Python ginge sonst verloren
     document.title = "FAIL window.orbitop.receive fehlt vor DOMContentLoaded";
     return;
   }
+  // Maße in den Schriften der App, nicht in der Ersatzschrift des Rechners (die lädt sonst erst nach den Checks)
+  await Promise.all(["13px Oxanium", "13px Orbitron"].map((font) => document.fonts.load(font)));
   eq(posted[0], '{"type":"ready"}', "ready");
   receive({ type: "init", lang: "de", texts, version: "9.9.9" });
   if (location.hash === "#narrow") { // zweiter Lauf mit 1000×800 (test_ui.py): gestapelt wie bisher, ohne Trenner
