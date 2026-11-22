@@ -1,0 +1,4 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Copyright © 2026 zappelmann-sketch
+# The SSH key that signs the release tags (docs/release.md, "Tag key"; ssh-keygen(1), ALLOWED SIGNERS). One line only.
+235797375+zappelmann-sketch@users.noreply.github.com namespaces="git" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOYll5te+h1HBevtncbob594rAvmd7SUzAwHSm4QyZYq orbitop release tags
