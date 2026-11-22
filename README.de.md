@@ -497,6 +497,7 @@ Die Pakete von orbitop hängen von denselben Laufzeitpaketen und von polkit ab.
 
 ### Sicherheitsmodell
 
+- Sicherheitslücken bitte vertraulich melden, wie in [SECURITY.md](SECURITY.md) beschrieben, nicht in einem öffentlichen Issue.
 - Die Seite spricht mit Python nur über `parse_message` in `orbitop/messages.py`. Die Schleuse nimmt die Nachrichten `ready`, `view`, `layout`, `terminate`, `autostart`, `counters`, `install_tool`, `hide_hint`, `show_hints` und `quit` an, prüft jeden Wert auf Typ und Wertebereich, verwirft unbekannte Schlüssel und begrenzt die Größe auf 4096 Zeichen. Alles andere wird verworfen. Keine Nachricht trägt einen Pfad, einen Paketnamen oder freien Text; die Seite bekommt nur feste Wörter zurück.
 - Prozessnamen, Befehlszeilen und Benutzer kommen nur als Text (`textContent`) in die Seite, nie als HTML.
 - orbitop öffnet keinen Port und baut keine Netzwerkverbindung auf. Updates kommen nur über die Paketverwaltung.

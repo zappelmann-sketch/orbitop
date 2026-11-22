@@ -198,7 +198,11 @@ def test_readmes_name_the_fingerprint_of_the_key_file(tmp_path):
     for text in (EN, DE):
         assert "<FINGERPRINT>" not in text and fingerprint(text) == fpr
         # jeder Fingerabdruck, am Stück oder gruppiert wie gpg ihn zeigt (wie check_readme in scripts/release/checks.sh)
-        assert {m.replace(" ", "") for m in re.findall(r"\b[0-9A-F]{4}(?: {0,2}[0-9A-F]{4}){9}\b", text)} == {fpr}
+        assert fingerprints(text) == {fpr}
+
+
+def fingerprints(text):
+    return {m.replace(" ", "") for m in re.findall(r"\b[0-9A-F]{4}(?: {0,2}[0-9A-F]{4}){9}\b", text)}
 
 
 ARCH_KEYS = (  # Fingerabdrücke der Hauptschlüssel mit genau dieser User-ID, geprüft, bevor pacman-key sie sieht;

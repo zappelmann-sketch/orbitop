@@ -497,6 +497,7 @@ The packages of orbitop depend on the same runtime packages and on polkit.
 
 ### Security model
 
+- Please report vulnerabilities privately as described in [SECURITY.md](SECURITY.md), not in a public issue.
 - The page talks to Python only through `parse_message` in `orbitop/messages.py`. It accepts the messages `ready`, `view`, `layout`, `terminate`, `autostart`, `counters`, `install_tool`, `hide_hint`, `show_hints` and `quit`, checks every value for type and range, drops unknown keys and limits the size to 4096 characters. Anything else is ignored. No message carries a path, a package name or free text; the page gets back only fixed words.
 - Process names, command lines and users reach the page only as text (`textContent`), never as HTML.
 - orbitop opens no port and makes no network connections. Updates come only through the package manager.
