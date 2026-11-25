@@ -11,7 +11,7 @@ from orbitop import sampler as sampler_mod
 from orbitop.gpu import discover_gpus
 from orbitop.sampler import Sampler
 from orbitop.sensors import Battery, Temp, read_sensors
-from orbitop.system import NetDev, NetReader
+from orbitop.netdisk import NetDev, NetReader
 from tests.procs_helpers import make_proc
 from tests.roots import AMD, ARM, INTEL, VM
 from tests.sampler_helpers import OVERVIEW, NoTools, fake_clock, kinds, power_of, run, sens, tile

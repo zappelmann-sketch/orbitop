@@ -8,7 +8,8 @@ import pytest
 from orbitop import tiles
 from orbitop.sampler import Sampler
 from orbitop.sensors import Battery, Fan, Temp
-from orbitop.system import Disk, Mem, NetDev
+from orbitop.netdisk import Disk, NetDev
+from orbitop.system import Mem
 from tests.roots import AMD, INTEL, VM
 from tests.sampler_helpers import OVERVIEW, NoTools, fake_clock, power_of, run, sens, tile
 

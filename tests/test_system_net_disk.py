@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from orbitop.system import DiskReader, NetReader
+from orbitop.netdisk import DiskReader, NetReader
 from tests.roots import AMD, ARM, INTEL, VM
 
 HEADER = (

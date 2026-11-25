@@ -13,7 +13,8 @@ from orbitop.gpu_tools import GpuTools
 from orbitop.messages import encode
 from orbitop.procs import ProcTable
 from orbitop.sensors import TEMP_MAX, RaplReader, Temp, read_battery, read_sensors
-from orbitop.system import CpuReader, DiskReader, NetReader, read_memory
+from orbitop.netdisk import DiskReader, NetReader
+from orbitop.system import CpuReader, read_memory
 
 POINTS, THREAD_POINTS = 300, 60
 DISK_CHIPS = {"nvme", "drivetemp"}
