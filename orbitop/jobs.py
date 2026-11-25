@@ -68,7 +68,7 @@ class Jobs:
 
     @property
     def closed(self) -> bool:
-        """Für init (B2): nach Neuladen zeigt die Seite dann gleich den Befehl statt des Knopfs."""
+        """Für init (0.4.0, #31): nach Neuladen zeigt die Seite dann gleich den Befehl statt des Knopfs."""
         return self._closed
 
     def terminate(self, pid: int, start: int, force: bool) -> None:

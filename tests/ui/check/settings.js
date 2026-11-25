@@ -208,14 +208,15 @@ function checkHints() {
   receive({ type: "hints_state", hidden_hints: ["hint.nvsmi_missing"] });
   eq(document.activeElement === $(".foot"), true, "M-2: letzter Hinweis weg, Zeile bleibt: Fokus auf der Fußzeile");
   receive({ type: "hints_state", hidden_hints: [] });
+  eq(document.activeElement === $(".foot"), true, "#34: Fußzeile neu gebaut, bleibt sichtbar: Fokus bleibt auf ihr");
   receive(tick([]));
   eq($(".foot").hidden + "/" + (document.activeElement === $(".info")), "true/true",
-     "B3: Fokus auf der Fußzeile selbst, sie wird ausgeblendet: Fokus auf „Über“, nie body");
+     "#34: Fokus auf der Fußzeile selbst, sie wird ausgeblendet: Fokus auf „Über“, nie body");
   eq(sent(from).length, 2, "Ausblenden und wieder zeigen senden je genau einmal");
 }
 
 function checkAgain() {
-  // ---- B1: Schalter an, der Teil wirkt aber nicht (broken, etwa nach einem Update): aus- und wieder einschalten ----
+  // ---- 0.4.0: Schalter an, der Teil wirkt aber nicht (broken, etwa nach einem Update): aus- und wieder einschalten ----
   const foot = () => [...$$(".foot .hint")].map((p) => p.firstChild.textContent).join("|");
   const BROKEN = [P("perfmon", "broken"), P("rapl", "broken")];
   initWith({ counters: C("off", "yes", NONE), hidden_hints: [] });
@@ -232,9 +233,9 @@ function checkAgain() {
     [C("on", "yes", "x"), "hint.igt_noperm|hint.rapl_noperm", "parts keine Liste"],
     [C("on", "yes", [null, P("constructor", "broken")]), "hint.igt_noperm|hint.rapl_noperm", "unbekannte Teile"]]) {
     state(counters, "ok");
-    eq(foot(), want, "B1 " + what);
+    eq(foot(), want, "wirkt nicht: " + what);
   }
-  eq($$(".foot .hide").length, 2, "B1: auch der neue Text mit Ausblenden");
+  eq($$(".foot .hide").length, 2, "wirkt nicht: auch der neue Text mit Ausblenden");
   state(C("off", "yes", NONE), "ok");
 }
 

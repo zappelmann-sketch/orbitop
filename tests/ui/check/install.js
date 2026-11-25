@@ -54,7 +54,7 @@ function checkWhere() {
   }
   initWith({ usable: false, command: '<img src=x onerror="window.pwned=1">' });
   eq($$(".foot img").length + "/" + note(), '0/Befehl: <img src=x onerror="window.pwned=1">', "Befehl nur als Text");
-  // B2 (#31): nach Neuladen der Seite meldet init, dass die Sitzung schon einen Lauf hatte
+  // 0.4.0, #31: nach Neuladen der Seite meldet init, dass die Sitzung schon einen Lauf hatte
   initWith({ ...USABLE, closed: true });
   hints("igt_missing");
   eq(view() + "/" + $(".live").textContent, "0|Befehl: " + CMD + "/",
@@ -123,7 +123,7 @@ function checkResults() {
   hints("igt_missing", "rapl_noperm");
   eq(view(), "0|install.installed", "installiert, Hinweis noch da: kein Knopf, Text zum Neustart");
   initWith({ ...USABLE, closed: true }); // so folgt es auf installed: refresh schickt init mit closed
-  eq(view(), "0|install.installed", "B2: das Ergebnis geht vor init closed");
+  eq(view(), "0|install.installed", "#31: das Ergebnis geht vor init closed");
   hints("rapl_noperm");
   eq(view(), "0|", "installiert und neu erkannt: Hinweis weg");
   eq($$(".foot img").length, 0, "kein HTML aus Ergebnissen");

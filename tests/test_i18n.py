@@ -149,7 +149,7 @@ def test_noperm_hints_name_the_switch():  # Q4: der Schalter statt der README; d
             assert "README" in d[key + "_readme"], (lang, key)
 
 
-def test_again_hints_say_switch_off_and_on():  # B1: Schalter an, wirkt aber nicht; die Seite wählt sie (footer.js)
+def test_again_hints_say_switch_off_and_on():  # 0.4.0: Schalter an, wirkt aber nicht; die Seite wählt sie (footer.js)
     for lang, about, again in (("en", "About", "off and on again"), ("de", "Über", "aus- und wieder einschalten")):
         d = json_of(lang)
         for key in ("hint.igt_noperm_again", "hint.rapl_noperm_again"):

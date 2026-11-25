@@ -11,13 +11,12 @@ import { fill, text } from "./format.js";
 import { post } from "./post.js";
 import { state, ui } from "./state.js";
 
-// Klärung Q4: ohne nutzbaren Schalter (Start ohne Paket, fremdes pkexec) verweisen sie auf die README
-const README = { "hint.igt_noperm": "hint.igt_noperm_readme", "hint.rapl_noperm": "hint.rapl_noperm_readme" };
-// B1: Schalter an, der Teil wirkt aber nicht (broken, etwa nach einem Update): aus- und wieder einschalten
-const AGAIN_TEXT = { "hint.igt_noperm": ["perfmon", "hint.igt_noperm_again"],
-                     "hint.rapl_noperm": ["rapl", "hint.rapl_noperm_again"] };
+// Hinweise zu fehlenden Rechten: [Teil, Text ohne nutzbaren Schalter (Klärung Q4: Start ohne Paket, fremdes pkexec,
+// dann die README), Text bei Schalter an ohne Wirkung (Teil broken, etwa nach einem Update; 0.4.0)]
+const NOPERM = { "hint.igt_noperm": ["perfmon", "hint.igt_noperm_readme", "hint.igt_noperm_again"],
+                 "hint.rapl_noperm": ["rapl", "hint.rapl_noperm_readme", "hint.rapl_noperm_again"] };
 // Unbekanntes gilt als failed. closed: die Sitzung hatte schon einen Lauf, ohne eigenen Text, nur der Befehl; nach
-// Neuladen der Seite meldet init das (install.closed, B2). locked heißt allein „zu oft abgelehnt“
+// Neuladen der Seite meldet init das (install.closed, 0.4.0, #31). locked heißt allein „zu oft abgelehnt“
 const RESULTS = ["denied", "busy", "locked", "failed", "unavailable", "installed", "closed"];
 const AGAIN = [null, "denied", "busy"]; // danach ist der Knopf (wieder) da; locked bis zum Neustart, installed einmal
 const COMMAND = ["failed", "unavailable", "closed"]; // danach der Befehl der Distribution
@@ -50,15 +49,15 @@ export function renderFooter() {
   ui.footer.replaceChildren(...lines.map((s) => el("p", "", null, s)), ...hints.map(([k, s]) => hintLine(k, s, inst)));
   ui.footer.hidden = !lines.length && !hints.length;
   if (line) refocus(at, line.dataset.key, active.classList.contains("install"));
-  else if (active === ui.footer && ui.footer.hidden) ui.infoBtn.focus(); // B3: sonst fiele der Fokus auf body
+  else if (active === ui.footer && ui.footer.hidden) ui.infoBtn.focus(); // 0.4.0, #34: sonst fiele der Fokus auf body
 }
 
-/** Der Text zum Hinweis k: README ohne nutzbaren Schalter (Q4), „wieder einschalten“ bei an ohne Wirkung (B1). */
+/** Der Text zum Hinweis k: README ohne nutzbaren Schalter (Q4), „wieder einschalten“ bei an ohne Wirkung. */
 function hintKey(k) {
   const c = state.counters && typeof state.counters === "object" ? state.counters : {};
-  if (!Object.hasOwn(README, k)) return k;
-  if (c.usable !== "yes") return README[k];
-  const [part, again] = AGAIN_TEXT[k];
+  if (!Object.hasOwn(NOPERM, k)) return k;
+  const [part, readme, again] = NOPERM[k];
+  if (c.usable !== "yes") return readme;
   const broken = Array.isArray(c.parts) && c.parts.some((p) => p && p.part === part && p.state === "broken");
   return c.marker === "on" && broken ? again : k;
 }
