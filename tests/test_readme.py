@@ -288,6 +288,8 @@ def test_cleanup_and_setcap_notes(name):
     text = EN if name == "README.md" else DE
     rm = [ln for block in code_blocks(text) for ln in block.splitlines() if ln.startswith("rm -rf")]
     assert rm == ['rm -rf -- "$config/orbitop"'] and "case ${XDG_CONFIG_HOME-} in /*) config=$XDG_CONFIG_HOME" in text
+    # 0.4.0 D1 (#32): auch die Autostart-Befehle nehmen XDG_CONFIG_HOME nur absolut, wie die App (userfile.config_home)
+    assert "${XDG_CONFIG_HOME:-" not in text and 'mkdir -p "$config/autostart"' in text
     for part in (section(text, COUNTERS[name]["move"]), section(text, COUNTERS[name]["remove"])):
         assert "has no capability to remove" in part
     assert all(f"`{p}`" in section(text, COUNTERS[name]["remove"]) for p in ("libcap2-bin", "libcap-progs", "libcap"))

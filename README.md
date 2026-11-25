@@ -203,14 +203,16 @@ orbitop is in the application menu, and `orbitop` starts it from a terminal. The
 Turn on "Start at login" in the About dialog (the info button in the header). From the next login on, orbitop starts hidden (`--hidden`); starting it from the menu shows the window. The switch does the same as these commands:
 
 ```sh
-mkdir -p "${XDG_CONFIG_HOME:-$HOME/.config}/autostart"
-cp /usr/share/orbitop/autostart.desktop "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
+case ${XDG_CONFIG_HOME-} in /*) config=$XDG_CONFIG_HOME ;; *) config=$HOME/.config ;; esac
+mkdir -p "$config/autostart"
+cp /usr/share/orbitop/autostart.desktop "$config/autostart/io.github.zappelmann_sketch.orbitop.desktop"
 ```
 
-To turn it off, use the switch or remove the file:
+The first line takes `$XDG_CONFIG_HOME` only if it is an absolute path, as orbitop does. To turn it off, use the switch or remove the file:
 
 ```sh
-rm "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/io.github.zappelmann_sketch.orbitop.desktop"
+case ${XDG_CONFIG_HOME-} in /*) config=$XDG_CONFIG_HOME ;; *) config=$HOME/.config ;; esac
+rm "$config/autostart/io.github.zappelmann_sketch.orbitop.desktop"
 ```
 
 ### For all users
@@ -243,7 +245,7 @@ Load, memory, temperature, power and clock come from `nvidia-smi`, which comes w
 
 ### Intel
 
-Without any tool, orbitop shows the Intel graphics usage of your own processes. The load of all processes and the package power come from `intel_gpu_top` in the Intel GPU tools. The packages only suggest them. On a machine with Intel graphics, the hint "intel_gpu_top is not installed" has a button "Install": it installs the package of your distribution through PackageKit, with the password prompt of the package manager. On Fedora the package manager installs for admins without a password prompt (rule of the distribution). Without PackageKit, without the installed package of orbitop, or if the installation fails, the hint shows the command instead. Quitting orbitop cancels a running installation, except on openSUSE, where PackageKit cannot cancel it and it goes on to its end. You can also install them yourself:
+Without any tool, orbitop shows the Intel graphics usage of your own processes. The load of all processes and the package power come from `intel_gpu_top` in the Intel GPU tools. The packages only suggest them. On a machine with Intel graphics, the hint "intel_gpu_top is not installed" has a button "Install": it installs the package of your distribution through PackageKit, with the password prompt of the package manager. On Fedora the package manager installs for admins without a password prompt (rule of the distribution). Without the installed package of orbitop, the hint shows the command instead of the button; without PackageKit, or if the installation fails, it shows the command after a click on "Install". Quitting orbitop cancels a running installation, except on openSUSE, where PackageKit cannot cancel it and it goes on to its end. You can also install them yourself:
 
 | Distribution | Command |
 |---|---|
@@ -280,7 +282,7 @@ Below the switch, one line per part says whether it is in effect:
 - "released by hand": the switch is off, but a capability or a udev rule set by hand releases this part (see [Moving from 0.2.0](#moving-from-020)).
 - "not released": the switch is off, and so is the part.
 
-Two results need a closer look. "Not released: unsafe location or environment" means that the helper refused to release: `/etc/orbitop` is not a directory of root with the mode `drwx--x--x` (0711) from the package, a directory above it or above `/usr/bin/intel_gpu_top` is writable for other accounts, or orbitop runs in a user namespace such as a rootless container. If `/etc/orbitop` itself is unsafe, for example writable for other accounts or not owned by root, "Off" still takes the capability and the read bits of the energy counters away, but it leaves the marker: at the next boot the udev rule releases the energy counters again, until the directory is fixed. Fix it with `sudo chmod 0711 /etc/orbitop` and `sudo chown root:root /etc/orbitop`, then switch off again. If an admin only made `/etc/orbitop` readable for others, "Off" removes the marker as well; `sudo chmod 0711 /etc/orbitop` restores the mode. "Only partly in effect" means that one part failed with an error of the system, for example on a read-only `/usr` or because `/usr/bin/intel_gpu_top` is a symbolic link; the lines below the switch show which part.
+Two results need a closer look. "Not released: unsafe location or environment" means that the helper refused to release, for one of these reasons: `/etc/orbitop` is not a directory of root, or it or a directory above it is writable for other accounts; `/usr/bin/intel_gpu_top` is not a regular file of root, is writable for other accounts, has more than one hard link, or a directory above it is writable for other accounts; something other than orbitop's own marker, a regular file of root, lies at `/etc/orbitop/counters-released`; an energy counter `energy_uj` is not a regular file; or orbitop runs in a user namespace such as a rootless container. If `/etc/orbitop` itself is unsafe, for example writable for other accounts or not owned by root, "Off" still takes the capability and the read bits of the energy counters away, but it leaves the marker: at the next boot the udev rule releases the energy counters again, until the directory is fixed. Fix it with `sudo chmod 0711 /etc/orbitop` and `sudo chown root:root /etc/orbitop`, then switch off again. If an admin only made `/etc/orbitop` readable for others, "Off" removes the marker as well; `sudo chmod 0711 /etc/orbitop` restores the mode. "Only partly in effect" means that one part failed with an error of the system, for example on a read-only `/usr` or because `/usr/bin/intel_gpu_top` is a symbolic link; the lines below the switch show which part.
 
 ### Without the package
 
@@ -527,7 +529,7 @@ python3 -m pytest -q
 /proc  /sys  intel_gpu_top  nvidia-smi
    |
    v
-sysfs.py  system.py  sensors.py  gpu.py  gpu_tools.py  procs.py  classify.py
+sysfs.py  system.py  netdisk.py  sensors.py  gpu.py  gpu_tools.py  procs.py  classify.py
    |
    v
 sampler.py tiles.py rates, histories, tiles, JSON snapshot
