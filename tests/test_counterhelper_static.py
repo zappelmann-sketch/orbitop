@@ -44,8 +44,8 @@ BANNED = {"getattr", "setattr", "delattr", "importlib", "eval", "exec", "compile
 # Attribute, über die man ein Modul oder einen Prozess erreicht, an welchem Wert auch immer (etwa p.os.system)
 REACH = {"os", "sys", "subprocess", "builtins", "importlib", "modules", "system", "environ", "environb", "popen"}
 # Frame- und Code-Objekte: über f_globals oder f_builtins erreicht man jedes Modul, ohne Dunder (Triage #1)
-FRAME = {"gi_frame", "gi_code", "cr_frame", "ag_frame", "tb_frame", "tb_next", "f_back", "f_globals", "f_locals",
-         "f_builtins", "f_code", "co_consts"}
+FRAME = {"gi_frame", "gi_code", "cr_frame", "cr_code", "ag_frame", "ag_code", "tb_frame", "tb_next", "f_back",
+         "f_globals", "f_locals", "f_builtins", "f_code", "co_consts"}
 
 
 def chain(node):
@@ -62,7 +62,8 @@ def problems(source):
     - ein Import außer `import x` aus ALLOWED (kein from, kein as);
     - ein Modul anders als am Anfang einer Kette aus CHAINS (also auch nie an einen Namen gebunden, wie p = os.path);
     - ein Attribut aus REACH oder FRAME, ein Dunder-Attribut oder ein Dunder-Name außer __name__;
-    - ein Name aus BANNED."""
+    - ein Name aus BANNED;
+    - ein Klassenmuster in match: es liest Attribute über Namen als Text (kwd_attrs), ohne ast.Attribute."""
     nodes = list(ast.walk(ast.parse(source)))
     found = []
     inner = {id(n.value) for n in nodes if isinstance(n, ast.Attribute)}
@@ -72,6 +73,8 @@ def problems(source):
         elif isinstance(n, ast.Import):
             found += [f"import {a.name}" + (f" as {a.asname}" if a.asname else "") for a in n.names
                       if a.name not in ALLOWED or a.asname]
+        elif isinstance(n, ast.MatchClass):
+            found.append("match class pattern")
         elif isinstance(n, ast.Attribute):
             if n.attr.startswith("__") or n.attr in REACH or n.attr in FRAME:
                 found.append(f".{n.attr}")
@@ -107,7 +110,9 @@ def test_only_listed_calls_no_programs_no_environment():
     "os.open.__self__.system('x')", "os.path.dirname.__globals__['os']", "__loader__.load_module('subprocess')",
     "__spec__", "__builtins__['eval']", "sys.stderr.buffer", "os.O_RDONLY.real", "stat.S_ISREG.x",
     "g.gi_frame.f_globals", "t.tb_frame.f_back", "c.cr_frame.f_locals", "a.ag_frame", "g.gi_code.co_consts",
-    "t.tb_next", "f.f_builtins['eval']", "f.f_code"])
+    "t.tb_next", "f.f_builtins['eval']", "f.f_code", "c.cr_code", "a.ag_code",
+    'match g:\n case object(gi_frame=object(f_globals={"os": object(system=s)})):\n  s("x")',
+    'match main:\n case object(__globals__={"os": object(system=s)}):\n  s("x")'])
 def test_the_check_finds_forbidden_forms(snippet):  # Gegenprobe: die Positivliste lässt keine dieser Formen durch
     assert problems(snippet)
 

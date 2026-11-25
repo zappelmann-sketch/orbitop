@@ -200,9 +200,11 @@ def test_cancel_from_another_thread_ends_the_install():  # beim Beenden von orbi
     assert bus.calls[-1][0] == bus.calls[-2][0]  # die laufende Transaktion, nicht eine neue
 
 
-@pytest.mark.parametrize("during", ["SetHints", "InstallPackages"])
-def test_cancel_during_the_calls_reaches_the_transaction_after_them(during):  # cancel() fand noch keine Transaktion
-    bus = FakeBus(install=Step(exit=None))
+@pytest.mark.parametrize("during,tail", [
+    ("SetHints", ["SetHints"]),  # M-1: der Schritt geht nicht mehr hinaus; ohne Rolle braucht sie kein Cancel (NoRole)
+    ("InstallPackages", ["SetHints", "InstallPackages", "Cancel"])], ids=["SetHints", "InstallPackages"])
+def test_cancel_during_the_calls_reaches_the_transaction_after_them(during, tail):
+    bus = FakeBus(install=Step(exit=None))  # cancel() kommt, bevor es eine laufende Transaktion gibt
     job = packagekit.Install(bus_factory=lambda: bus, distro="apt-get")
     real = bus.call_sync
 
@@ -212,8 +214,8 @@ def test_cancel_during_the_calls_reaches_the_transaction_after_them(during):  # 
         return real(*a)
     bus.call_sync = call_sync
     assert job.run() == "denied"
-    assert [m for _, m, _ in bus.calls[-3:]] == ["SetHints", "InstallPackages", "Cancel"]
-    assert len({p for p, _, _ in bus.calls[-3:]}) == 1
+    assert [m for _, m, _ in bus.calls[-len(tail) - 1:]] == ["CreateTransaction", *tail]
+    assert len({p for p, _, _ in bus.calls[-len(tail):]}) == 1
 
 
 def test_cancel_before_the_run_makes_no_bus_call():  # C2 (#37): Get VersionMajor weckte packagekitd beim Beenden

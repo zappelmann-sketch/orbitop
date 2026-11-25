@@ -146,6 +146,8 @@ class Install:
         timeout.attach(ctx)
         try:
             _call(bus, path, TX, "SetHints", GLib.Variant("(as)", ([f"interactive={str(interactive).lower()}"],)))
+            if self._stopped():  # cancel() kam während SetHints: ohne Rolle braucht sie kein Cancel (NoRole)
+                return [], [ERROR_CANCELLED], EXIT_CANCELLED
             _call(bus, path, TX, method, GLib.Variant("(tas)", (flags, names)))
             with self._lock:  # erst jetzt läuft sie: ein Cancel davor lehnt PackageKit ab (NoRole, Probe 26.04)
                 self._tx = path
