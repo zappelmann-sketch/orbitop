@@ -222,7 +222,7 @@ def test_quit_right_after_install_tool_cancels_the_job(irig):  # Fix 1/3: stop()
     irig.j.install_tool(irig.tools, lambda: None)
     irig.j.stop()  # quit gleich danach, der Thread lief noch nicht
     run_jobs(irig)
-    assert [m for m, _ in irig.bus.methods() if m != "Get"] == [] and irig.j._install is None
+    assert irig.bus.methods() == [] and irig.j._install is None  # C2 (#37): auch kein Get VersionMajor
 
 
 @pytest.mark.parametrize("intel,usable,want", [(True, "yes", True), (True, "nopkexec", True),

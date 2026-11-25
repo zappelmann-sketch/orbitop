@@ -59,6 +59,8 @@ class Install:
         self._cancelled = False
 
     def run(self) -> str:
+        if self._stopped():  # orbitop endet schon: nicht einmal der Bus, sonst weckte Get das packagekitd
+            return "denied"
         try:
             self._bus = bus = self._bus_factory()
             version = _call(bus, PATH, "org.freedesktop.DBus.Properties", "Get",
@@ -92,6 +94,10 @@ class Install:
         if path is not None:
             _cancel(bus, path)
 
+    def _stopped(self) -> bool:
+        with self._lock:
+            return self._cancelled
+
     def _resolve(self, bus) -> str | None:
         """Paket-ID des ersten festen Namens, für den genau ein Package mit genau diesem Namen kommt (B2.6, 3)."""
         packages, errors, end = self._transaction(bus, False, "Resolve", NOT_INSTALLED | NEWEST | ARCH,
@@ -109,9 +115,8 @@ class Install:
                      ) -> tuple[list, list, int | None]:
         """Eine neue Transaktion bis Finished: (Package-Signale, ErrorCode-Werte, Exit; None nach WAIT_S). names: die
         Namen für Resolve, sonst die Paket-IDs."""
-        with self._lock:
-            if self._cancelled:  # orbitop endet: keine neue Transaktion, auch kein CreateTransaction
-                return [], [ERROR_CANCELLED], EXIT_CANCELLED
+        if self._stopped():  # orbitop endet: keine neue Transaktion, auch kein CreateTransaction
+            return [], [ERROR_CANCELLED], EXIT_CANCELLED
         ctx = GLib.MainContext.new()
         ctx.push_thread_default()  # Gio liefert die Signale dieses Abonnements nur an diesen Kontext
         try:
@@ -123,6 +128,8 @@ class Install:
 
     def _run_transaction(self, bus, ctx, interactive, method, flags, names):
         path = _call(bus, PATH, NAME, "CreateTransaction", None)[0]
+        if self._stopped():  # cancel() kam während CreateTransaction: kein Aufruf mehr an ihr, auch kein Cancel
+            return [], [ERROR_CANCELLED], EXIT_CANCELLED
         packages, errors, end = [], [], []
 
         def on_signal(_bus, _sender, _path, _iface, signal, params):

@@ -216,11 +216,41 @@ def test_cancel_during_the_calls_reaches_the_transaction_after_them(during):  # 
     assert len({p for p, _, _ in bus.calls[-3:]}) == 1
 
 
+def test_cancel_before_the_run_makes_no_bus_call():  # C2 (#37): Get VersionMajor weckte packagekitd beim Beenden
+    bus, opened = FakeBus(), []
+    job = packagekit.Install(bus_factory=lambda: opened.append(bus) or bus, distro="apt-get")
+    job.cancel()
+    assert job.run() == "denied" and opened == [] and bus.calls == []
+
+
 def test_cancel_before_a_step_starts_no_new_transaction():  # Fix 1/5: nicht einmal CreateTransaction
     bus = FakeBus()
     job = packagekit.Install(bus_factory=lambda: bus, distro="apt-get")
-    job.cancel()
-    assert job.run() != "installed" and [m for m, _ in bus.methods()] == ["Get"]
+    real = bus.signal_unsubscribe
+
+    def signal_unsubscribe(sub):  # Resolve ist zu Ende, die Simulation hat noch nicht begonnen
+        job.cancel()
+        real(sub)
+    bus.signal_unsubscribe = signal_unsubscribe
+    assert job.run() == "failed"
+    assert [m for m, _ in bus.methods()] == ["Get", "CreateTransaction", "SetHints", "Resolve"]
+
+
+@pytest.mark.parametrize("n,want", [(1, "unavailable"), (2, "failed"), (3, "denied")],
+                         ids=["resolve", "simulate", "install"])
+def test_cancel_during_create_transaction_makes_no_call_on_it(n, want):  # C2 (#36)
+    bus = FakeBus()
+    job = packagekit.Install(bus_factory=lambda: bus, distro="apt-get")
+    real = bus.call_sync
+
+    def call_sync(*a):
+        reply = real(*a)
+        if a[3] == "CreateTransaction" and [m for m, _ in bus.methods()].count("CreateTransaction") == n:
+            job.cancel()  # die Antwort ist unterwegs: cancel() findet noch keine Transaktion
+        return reply
+    bus.call_sync = call_sync
+    assert job.run() == want
+    assert bus.calls[-1][1] == "CreateTransaction"  # kein SetHints, kein Schritt, kein Cancel an ihr
 
 
 def test_each_transaction_releases_its_callback():  # Fix 1/4: sonst hielte jeder Kontext Rückruf und Listen
