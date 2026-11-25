@@ -566,6 +566,8 @@ Gemessen mit `scripts/measure-load.py` auf dem Referenzlaptop (Intel Core i7-760
 
 orbitops eigene Grenzen: höchstens 3 % eines Kerns bei ausgeblendetem Fenster, höchstens 9 % bei sichtbarem Fenster und PSS unter 275 MB. Mit den Standardspalten bleibt orbitop darin. Mit allen Spalten liegt die Last nach 5 Minuten bei 9,4 bis 9,6 %, knapp über 9 %. Alle Spalten sind nur auf Wunsch eingeblendet, deshalb ist das eine hingenommene Überschreitung. Etwa 1 % eines Kerns entfällt in jeder Lage auf `intel_gpu_top`.
 
+Gemessen wurden die Werte mit 0.3.0. orbitop 0.4.0 lief im Wechsel dagegen auf demselben Laptop (ohne `intel_gpu_top`, dessen Zähler nicht freigegeben waren): in jeder Lage dieselbe Last und derselbe PSS.
+
 ## Lizenz
 
 GPL-3.0-or-later, siehe `LICENSE`. Copyright © 2026 zappelmann-sketch.

@@ -566,6 +566,8 @@ Measured with `scripts/measure-load.py` on the reference laptop (Intel Core i7-7
 
 orbitop's own limits are at most 3 % of one core with the window hidden, at most 9 % with the window visible, and PSS under 275 MB. With the default columns, orbitop stays within them. With all columns shown, the load after 5 minutes is 9.4 to 9.6 %, slightly above 9 %. All columns are only shown on request, so this is an accepted exceedance. About 1 % of one core in every case is `intel_gpu_top`.
 
+The values were measured with 0.3.0. orbitop 0.4.0 was measured against it in alternating runs on the same laptop (without `intel_gpu_top`, whose counters were not released): the same load and PSS in every situation.
+
 ## License
 
 GPL-3.0-or-later, see `LICENSE`. Copyright © 2026 zappelmann-sketch.
