@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 // Copyright © 2026 zappelmann-sketch
-// Fußzeile: fehlende Sensoren und Hinweise zu den Kacheln. Jeder Hinweis hat „Ausblenden“ (Spec C3); hide_hint sendet
-// nur dieses Modul, und ausgeblendet ist erst, was Python mit hints_state bestätigt. Ein neuer Schlüssel erscheint
-// auch, wenn ein alter ausgeblendet ist. Beim Hinweis hint.igt_missing der Knopf „Installieren“ (C2): nur, wenn init
-// install.usable meldet (Intel-Grafik, Paket); sonst und nach failed, unavailable oder closed (auch install.closed aus
-// init) der Befehl der Distribution.
+// Fußzeile: fehlende Sensoren und Hinweise zu den Kacheln. Jeder Hinweis hat „Ausblenden“ (Spec 0.3.0, C3); hide_hint
+// sendet nur dieses Modul, und ausgeblendet ist erst, was Python mit hints_state bestätigt. Ein neuer Schlüssel
+// erscheint auch, wenn ein alter ausgeblendet ist. Beim Hinweis hint.igt_missing der Knopf „Installieren“ (Spec 0.3.0,
+// C2): nur, wenn init install.usable meldet (Intel-Grafik, Paket); sonst und nach failed, unavailable oder closed (auch
+// install.closed aus init) der Befehl der Distribution.
 // install_tool sendet nur install(), ohne Namen; die Vorbedingungen prüft Python.
 import { button, el, setText } from "./dom.js";
 import { fill, text } from "./format.js";
@@ -81,7 +81,7 @@ function installView() {
   const r = answer === null ? (inst.closed === true ? "closed" : null) : RESULTS.includes(answer) ? answer : "failed";
   const usable = inst.usable === true;
   const note = [r === null || r === "closed" ? "" : text("install." + r)];
-  if (!usable || COMMAND.includes(r)) note.push(command); // Review Focus 5, Spec C2
+  if (!usable || COMMAND.includes(r)) note.push(command); // Spec 0.3.0: Review Focus 5, C2
   const shown = note.filter(Boolean).join(" ");
   // closed als Antwort: angesagt wird der Befehl, denn der Knopf ist weg; closed aus init sagt nichts an (kein Klick)
   return { button: usable && AGAIN.includes(r) ? state.instBusy : null, note: shown,

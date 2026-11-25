@@ -201,7 +201,7 @@ def test_cancel_from_another_thread_ends_the_install():  # beim Beenden von orbi
 
 
 @pytest.mark.parametrize("during,tail", [
-    ("SetHints", ["SetHints"]),  # M-1: der Schritt geht nicht mehr hinaus; ohne Rolle braucht sie kein Cancel (NoRole)
+    ("SetHints", ["SetHints"]),  # Review T3 M-1 (0.4.0): kein Schritt mehr; ohne Rolle kein Cancel (NoRole)
     ("InstallPackages", ["SetHints", "InstallPackages", "Cancel"])], ids=["SetHints", "InstallPackages"])
 def test_cancel_during_the_calls_reaches_the_transaction_after_them(during, tail):
     bus = FakeBus(install=Step(exit=None))  # cancel() kommt, bevor es eine laufende Transaktion gibt

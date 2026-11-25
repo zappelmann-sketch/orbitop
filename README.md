@@ -10,7 +10,7 @@ orbitop shows CPU, GPU, memory, power, temperatures, fans, network and storage a
 
 orbitop is a GTK 4 window with a WebKitGTK 6.0 view, written in Python with the standard library and PyGObject only. It runs on any hardware: a sensor that is missing is listed as "not available" instead of causing an error. The interface is in English and German and follows the system language.
 
-**Status:** version 0.3.0. orbitop comes as a package for Ubuntu, Debian, Fedora, openSUSE and Arch Linux from its own signed package source. New versions arrive with the regular system update; orbitop itself never goes online.
+**Status:** version 0.4.0. orbitop comes as a package for Ubuntu, Debian, Fedora, openSUSE and Arch Linux from its own signed package source. New versions arrive with the regular system update; orbitop itself never goes online.
 
 ## Features
 
@@ -316,7 +316,7 @@ sudo rm /etc/udev/rules.d/70-orbitop-rapl.rules
 
 ### Moving from 0.2.0
 
-The README of 0.2.0 had you set the capability and the udev rule above by hand. The update to 0.3.0 changes neither: it releases nothing, and a capability set by hand stays. orbitop then shows the switch as off and the parts as "released by hand". To let the switch decide, remove both, then turn the switch on:
+The README of 0.2.0 had you set the capability and the udev rule above by hand. The update to 0.3.0 or later changes neither: it releases nothing, and a capability set by hand stays. orbitop then shows the switch as off and the parts as "released by hand". To let the switch decide, remove both, then turn the switch on:
 
 ```sh
 sudo rm -f /etc/udev/rules.d/70-orbitop-rapl.rules
@@ -343,7 +343,7 @@ sudo setcap -r /usr/bin/intel_gpu_top
 
 If `intel_gpu_top` has no capability, `setcap -r` exits with 1 and the message that there is none to remove (`has no capability to remove`, in older versions of libcap `has no capablity to remove`); that is harmless. On a minimal system `setcap` may be missing: it comes with the package `libcap2-bin` on Debian and Ubuntu, `libcap-progs` on openSUSE and `libcap` on Fedora and Arch Linux.
 
-Turn the switch off before a downgrade to 0.2.0. 0.2.0 does not know the marker: it stays after the downgrade, together with the capability on `intel_gpu_top`, and a later update to 0.3.0 releases the counters again without asking. The package source offers no older version.
+Turn the switch off before a downgrade to 0.2.0. 0.2.0 does not know the marker: it stays after the downgrade, together with the capability on `intel_gpu_top`, and a later update to 0.3.0 or later releases the counters again without asking. The package source offers no older version.
 
 ### Ubuntu and Debian
 
@@ -566,7 +566,7 @@ Measured with `scripts/measure-load.py` on the reference laptop (Intel Core i7-7
 
 orbitop's own limits are at most 3 % of one core with the window hidden, at most 9 % with the window visible, and PSS under 275 MB. With the default columns, orbitop stays within them. With all columns shown, the load after 5 minutes is 9.4 to 9.6 %, slightly above 9 %. All columns are only shown on request, so this is an accepted exceedance. About 1 % of one core in every case is `intel_gpu_top`.
 
-The values were measured with 0.3.0. orbitop 0.4.0 was measured against it in alternating runs on the same laptop (without `intel_gpu_top`, whose counters were not released): the same load and PSS in every situation.
+The values were measured with 0.3.0. orbitop 0.4.0 ran in alternating runs against the state before this round (0.3.0 with the fix of the sort arrow) on the same laptop, without `intel_gpu_top`, whose counters were not released: load and PSS equal to that state in every situation.
 
 ## License
 

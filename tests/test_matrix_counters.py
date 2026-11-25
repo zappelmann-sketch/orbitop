@@ -97,7 +97,7 @@ def test_package_scripts_report_a_failed_helper_in_the_words_of_the_matrix(tmp_p
     for line in ("orbitop: counter release not applied", "orbitop: counter release not revoked",
                  *(f"counterhelper: {text}" for text in counterhelper._MESSAGES.values()),
                  ">>> /var/tmp/rpm-tmp.Ab12: line 1: /usr/lib/orbitop/counterhelper: Permission denied",
-                 "Traceback (most recent call last):"):  # E1: der Helfer brach in Python ab
+                 "Traceback (most recent call last):"):  # 0.4.0 E1 (Triage #8): der Helfer brach in Python ab
         ok, out = call(tmp_path, f'grep -qE -- "$NOT_APPLIED" <<< "{line}"', "apt.sh", "counters.sh")
         assert ok, out
 

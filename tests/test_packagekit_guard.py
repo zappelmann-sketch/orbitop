@@ -94,7 +94,7 @@ def test_session_ends_after_a_terminal_result(irig, bus, want):  # Fix 1/2: kein
     irig.bus = bus
     assert irig.j.closed is False
     assert ask(irig) == [want]
-    assert irig.j.closed is True  # B2: init meldet das, die Seite zeigt nach Neuladen gleich den Befehl
+    assert irig.j.closed is True  # 0.4.0 (Triage #31): init meldet das, die Seite zeigt nach Neuladen gleich den Befehl
     with pytest.raises(AttributeError):  # nur lesbar: zu ist die Sitzung allein nach einem Lauf
         irig.j.closed = False
     calls = len(bus.calls)

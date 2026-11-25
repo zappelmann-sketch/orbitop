@@ -216,7 +216,7 @@ function checkHints() {
 }
 
 function checkAgain() {
-  // ---- 0.4.0: Schalter an, der Teil wirkt aber nicht (broken, etwa nach einem Update): aus- und wieder einschalten ----
+  // ---- 0.4.0: Schalter an, der Teil wirkt nicht (broken, etwa nach einem Update): aus- und wieder ein ----
   const foot = () => [...$$(".foot .hint")].map((p) => p.firstChild.textContent).join("|");
   const BROKEN = [P("perfmon", "broken"), P("rapl", "broken")];
   initWith({ counters: C("off", "yes", NONE), hidden_hints: [] });

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from orbitop import app, counterhelper, counters, packagekit
+from orbitop import __version__, app, counterhelper, counters, packagekit
 from tests.packaging_common import KEY_FILE
 from tests.site_stub import kill_agent
 
@@ -291,7 +291,11 @@ def test_cleanup_and_setcap_notes(name):
     # 0.4.0 D1 (#32): auch die Autostart-Befehle nehmen XDG_CONFIG_HOME nur absolut, wie die App (userfile.config_home)
     assert "${XDG_CONFIG_HOME:-" not in text and 'mkdir -p "$config/autostart"' in text
     unsafe = [p for p in section(text, COUNTERS[name]["switch"]).split("\n\n") if "energy_uj" in p and "0711" in p]
-    assert len(unsafe) == 1 and "drwx--x--x" in unsafe[0]  # 0.4.0, Review T4 I-1: auch ein lesbares /etc/orbitop ist unsicher
+    assert len(unsafe) == 1 and "drwx--x--x" in unsafe[0]  # 0.4.0, Review T4 I-1: auch lesbar ist unsicher
     for part in (section(text, COUNTERS[name]["move"]), section(text, COUNTERS[name]["remove"])):
         assert "has no capability to remove" in part
     assert all(f"`{p}`" in section(text, COUNTERS[name]["remove"]) for p in ("libcap2-bin", "libcap-progs", "libcap"))
+
+
+def test_status_names_the_version():  # 0.4.0, Schlussprüfung I-1: die Statuszeile zieht mit der Version mit
+    assert f"**Status:** version {__version__}." in EN and f"**Stand:** Version {__version__}." in DE
