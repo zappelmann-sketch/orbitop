@@ -149,6 +149,14 @@ def test_noperm_hints_name_the_switch():  # Q4: der Schalter statt der README; d
             assert "README" in d[key + "_readme"], (lang, key)
 
 
+def test_again_hints_say_switch_off_and_on():  # B1: Schalter an, wirkt aber nicht; die Seite wählt sie (footer.js)
+    for lang, about, again in (("en", "About", "off and on again"), ("de", "Über", "aus- und wieder einschalten")):
+        d = json_of(lang)
+        for key in ("hint.igt_noperm_again", "hint.rapl_noperm_again"):
+            assert d["settings.counters"] in d[key] and about in d[key] and again in d[key], (lang, key)
+            assert "README" not in d[key] and d[key].split(".")[0] == d[key.removesuffix("_again")].split(".")[0]
+
+
 def test_counters_switch_texts():  # C1, B2.5, B2.9, E5: Wortlaut der Spec und des Security-Dokuments
     de, en = json_of("de"), json_of("en")
     assert de["settings.counters"] == "Messzähler freigeben"

@@ -145,7 +145,7 @@ class Shell:
         intel = self._sampler.intel
         return encode({**self._init_fields, "layout": self._layouts.current, "autostart": autostart.state(os.environ),
                        "counters": counters_payload(intel), "hidden_hints": hints.load(os.environ),
-                       "install": install_payload(intel)})
+                       "install": {**install_payload(intel), "closed": self._jobs.closed}})
 
     def _send(self, text: str) -> None:
         """text stammt aus encode(), ist also ein sicheres JS-Literal."""

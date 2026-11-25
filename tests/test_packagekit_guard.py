@@ -92,7 +92,11 @@ def test_second_install_after_success_makes_no_call(irig):  # B2.6, B2.7: einmal
                          ids=["installed", "failed-install", "failed-simulation", "unavailable", "no-packagekit"])
 def test_session_ends_after_a_terminal_result(irig, bus, want):  # Fix 1/2: keine Schleife über das root-packagekitd
     irig.bus = bus
+    assert irig.j.closed is False
     assert ask(irig) == [want]
+    assert irig.j.closed is True  # B2: init meldet das, die Seite zeigt nach Neuladen gleich den Befehl
+    with pytest.raises(AttributeError):  # nur lesbar: zu ist die Sitzung allein nach einem Lauf
+        irig.j.closed = False
     calls = len(bus.calls)
     irig.now = 1e9  # keine Wartezeit mehr: nur das Ende der Sitzung hält auf
     assert [ask(irig)[0] for _ in range(5)] == ["closed"] * 5
@@ -137,6 +141,7 @@ def test_denied_escalates_like_counters(irig):  # M-10: 10 s, 60 s, dann gesperr
     irig.now = 1e9
     assert ask(irig) == ["locked"] and irig.j._gate.begin("counters") == "locked"
     assert len(interactive(irig)) == 3  # höchstens drei Dialoge
+    assert irig.j.closed is False  # abgelehnt schließt die Sitzung nicht, locked hat seinen eigenen Text
 
 
 def test_cancelled_counts_as_refusal(irig):

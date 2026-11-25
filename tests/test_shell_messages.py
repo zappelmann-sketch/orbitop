@@ -86,7 +86,17 @@ def test_init_carries_counters_and_hidden_hints(rig, monkeypatch):
     sent = json.loads(rig.js[-1].removeprefix("window.orbitop.receive(").removesuffix(")"))
     assert sent["counters"] == {"marker": "on", "usable": "nohelper"} and seen == [True]
     assert sent["hidden_hints"] == ["hint.igt_missing"]
-    assert sent["install"] == {"usable": False, "command": "sudo apt install intel-gpu-tools"}  # ohne Paket kein Knopf
+    assert sent["install"] == {"usable": False, "command": "sudo apt install intel-gpu-tools",  # ohne Paket kein Knopf
+                               "closed": False}
+
+
+def test_init_says_whether_the_install_session_is_closed(rig):  # B2 (#31): nach Neuladen kein Knopf mehr
+    def install():
+        rig.s._on_message(None, Value({"type": "ready"}))
+        return json.loads(rig.js[-1].removeprefix("window.orbitop.receive(").removesuffix(")"))["install"]
+    assert install()["closed"] is False  # vor jedem Lauf über PackageKit
+    rig.s._jobs._closed = True  # wie nach installed, failed oder unavailable (test_packagekit_guard)
+    assert install()["closed"] is True
 
 
 def test_counters_message_starts_the_job_with_the_sampler(rig):

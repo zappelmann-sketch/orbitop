@@ -66,6 +66,11 @@ class Jobs:
         # wie der Knopf der Seite; sonst ließe eine Seite das root-packagekitd ohne Ende auflösen und simulieren
         self._closed = False
 
+    @property
+    def closed(self) -> bool:
+        """Für init (B2): nach Neuladen zeigt die Seite dann gleich den Befehl statt des Knopfs."""
+        return self._closed
+
     def terminate(self, pid: int, start: int, force: bool) -> None:
         # Den eigenen Prozess beendet orbitop ohne pkexec und ohne Dialog: nur einer zugleich, nie die Sperre (B2.7).
         # Entschieden hier nach derselben Regel wie actions.terminate, nie von der Seite, die nur pid und start sendet

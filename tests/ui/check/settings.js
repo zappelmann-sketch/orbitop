@@ -28,6 +28,7 @@ export function checkSettings() {
   checkStateTable();
   checkLockedSwitch();
   checkHints();
+  checkAgain();
   checkLockedResult();
   eq(sent(from).filter((m) => !SHAPES.includes(m)).join(), "", "nur die Formen aus Q2 gesendet");
   eq(sent(from).length > 0, true, "die Prüfung hat überhaupt etwas gesendet");
@@ -208,7 +209,33 @@ function checkHints() {
   eq(document.activeElement === $(".foot"), true, "M-2: letzter Hinweis weg, Zeile bleibt: Fokus auf der Fußzeile");
   receive({ type: "hints_state", hidden_hints: [] });
   receive(tick([]));
+  eq($(".foot").hidden + "/" + (document.activeElement === $(".info")), "true/true",
+     "B3: Fokus auf der Fußzeile selbst, sie wird ausgeblendet: Fokus auf „Über“, nie body");
   eq(sent(from).length, 2, "Ausblenden und wieder zeigen senden je genau einmal");
+}
+
+function checkAgain() {
+  // ---- B1: Schalter an, der Teil wirkt aber nicht (broken, etwa nach einem Update): aus- und wieder einschalten ----
+  const foot = () => [...$$(".foot .hint")].map((p) => p.firstChild.textContent).join("|");
+  const BROKEN = [P("perfmon", "broken"), P("rapl", "broken")];
+  initWith({ counters: C("off", "yes", NONE), hidden_hints: [] });
+  receive(tick([], { hints: ["hint.igt_noperm", "hint.rapl_noperm"] }));
+  for (const [counters, want, what] of [
+    [C("on", "yes", BROKEN), "hint.igt_noperm_again|hint.rapl_noperm_again", "an, wirkt nicht: wieder einschalten"],
+    [C("on", "yes", [P("perfmon", "works"), P("rapl", "broken")]), "hint.igt_noperm|hint.rapl_noperm_again",
+     "je Hinweis sein Teil: perfmon für intel_gpu_top, rapl für die Leistung"],
+    // missing: kein intel_gpu_top am Pfad des Helfers oder keine Zonen; wieder einschalten hilft dann nicht
+    [C("on", "yes", [P("perfmon", "missing"), P("rapl", "missing")]), "hint.igt_noperm|hint.rapl_noperm", "an, Teil fehlt"],
+    [C("off", "yes", BROKEN), "hint.igt_noperm|hint.rapl_noperm", "aus: der Hinweis nennt den Schalter"],
+    [C("unclear", "yes", BROKEN), "hint.igt_noperm|hint.rapl_noperm", "unklar: wie aus"],
+    [C("on", "nohelper", BROKEN), "hint.igt_noperm_readme|hint.rapl_noperm_readme", "ohne nutzbaren Schalter: README"],
+    [C("on", "yes", "x"), "hint.igt_noperm|hint.rapl_noperm", "parts keine Liste"],
+    [C("on", "yes", [null, P("constructor", "broken")]), "hint.igt_noperm|hint.rapl_noperm", "unbekannte Teile"]]) {
+    state(counters, "ok");
+    eq(foot(), want, "B1 " + what);
+  }
+  eq($$(".foot .hide").length, 2, "B1: auch der neue Text mit Ausblenden");
+  state(C("off", "yes", NONE), "ok");
 }
 
 function checkLockedResult() {
