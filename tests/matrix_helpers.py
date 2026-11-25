@@ -17,7 +17,7 @@ PAGES = "https://zappelmann-sketch.github.io/orbitop/"
 RPM = """#!/bin/sh
 case $1 in
     --import) [ -n "$KNOWN" ] || echo "e652ba57-6afe03a5: orbitop archive signing key public key" >> "$STATE/keys" ;;
-    -K) shift; for f; do echo "$f: $RPMK"; done ;;
+    -K) shift; [ "$1" != -- ] || shift; for f; do echo "$f: $RPMK"; done ;;  # popt nimmt -- weg
 esac
 """
 RPMKEYS = """#!/bin/sh

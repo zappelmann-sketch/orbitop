@@ -96,7 +96,8 @@ def test_package_scripts_report_a_failed_helper_in_the_words_of_the_matrix(tmp_p
     melden, jede Meldung des Helfers und die der Shell, wenn er nicht starten kann."""
     for line in ("orbitop: counter release not applied", "orbitop: counter release not revoked",
                  *(f"counterhelper: {text}" for text in counterhelper._MESSAGES.values()),
-                 ">>> /var/tmp/rpm-tmp.Ab12: line 1: /usr/lib/orbitop/counterhelper: Permission denied"):
+                 ">>> /var/tmp/rpm-tmp.Ab12: line 1: /usr/lib/orbitop/counterhelper: Permission denied",
+                 "Traceback (most recent call last):"):  # E1: der Helfer brach in Python ab
         ok, out = call(tmp_path, f'grep -qE -- "$NOT_APPLIED" <<< "{line}"', "apt.sh", "counters.sh")
         assert ok, out
 
@@ -225,6 +226,23 @@ def test_remove_broken_helper_needs_the_report_of_prerm(tmp_path, prerm, passed)
     stubs = (f"helper() {{ :; }}; has_cap() {{ :; }}; marker_off() {{ :; }}; set_cap() {{ :; }}; chmod() {{ :; }};"
              f" remove_pkg() {{ echo '{prerm}'; }}; purge_pkg() {{ :; }}; MARKER={tmp_path}/gone/counters-released;")
     ok, out = call(tmp_path, f"{stubs} case_remove_broken_helper", "apt.sh", "counters.sh")
+    assert ok is passed, out
+
+
+TRACEBACK = ('Traceback (most recent call last):\n  File "/usr/lib/orbitop/counterhelper", line 9, in <module>\n'
+             "OSError: [Errno 5] Input/output error\n")
+
+
+@pytest.mark.parametrize("output,passed", [(TRACEBACK, False), ("Removing orbitop (0.2.0-1) ...\n", True)],
+                         ids=["traceback", "silent"])
+def test_a_traceback_of_the_helper_fails_the_case(tmp_path, output, passed):
+    """E1 (#8): bricht der Helfer in einem Paket-Skript mit einem Traceback ab, scheitert der Fall an der Ausgabe,
+    auch wenn die Paketverwaltung mit 0 endet und Fähigkeit und Merkdatei stimmen."""
+    (tmp_path / "purge.out").write_text(output)
+    stubs = ("helper() { :; }; has_cap() { :; }; no_cap() { :; }; marker_off() { :; }; orbitop_file() { :; };"
+             f" install_file() {{ :; }}; purge_pkg() {{ cat {tmp_path}/purge.out; }};"
+             f" MARKER={tmp_path}/gone/counters-released;")
+    ok, out = call(tmp_path, f"{stubs} case_purge", "apt.sh", "counters.sh")
     assert ok is passed, out
 
 

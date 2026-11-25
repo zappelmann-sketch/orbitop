@@ -20,8 +20,9 @@ MARKER=/etc/orbitop/counters-released  # counterhelper.MARKER
 TOOL=/usr/bin/intel_gpu_top
 CAP=0100000200000000000000004000000000000000  # cap_perfmon=ep, the 20 bytes setcap writes (B2.1)
 # What the package scripts print if the helper failed: the lines of postinst and prerm (deb), and the helper's own
-# message or the shell's if it cannot start, as RPM and Arch scripts print nothing of their own.
-NOT_APPLIED='orbitop: counter release not (applied|revoked)|counterhelper: '
+# message or the shell's if it cannot start, as RPM and Arch scripts print nothing of their own; and Python's
+# traceback if it crashed.
+NOT_APPLIED='orbitop: counter release not (applied|revoked)|counterhelper: |Traceback \(most recent call last\):'
 MANUAL_RULE=/etc/udev/rules.d/70-orbitop-rapl.rules  # the rule of the README of 0.2.0 (B2.9)
 MANUAL_LINE='ACTION=="add", SUBSYSTEM=="powercap", KERNEL=="intel-rapl:*", RUN+="/usr/bin/chmod 0444 /sys%p/energy_uj"'
 

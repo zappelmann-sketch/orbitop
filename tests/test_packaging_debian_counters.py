@@ -3,6 +3,7 @@
 """Die Paket-Skripte der Freigabe unter Debian (Security-Dokument 0.3.0, B2.4, B2.8, E1, E4): wörtlich die Zeilen des
 Dokuments, kein Paket-Skript ruft je "on", und keins scheitert wegen des Helfers. Die Skripte laufen hier mit sh auf
 Kopien, in denen der Helfer ein Stellvertreter und /etc/orbitop ein Ordner in tmp_path ist."""
+import os
 import re
 import shutil
 import subprocess
@@ -137,8 +138,12 @@ def test_purge_keeps_a_directory_that_is_not_empty_and_one_that_is_gone(tmp_path
     (etc / "other").touch()  # nicht von orbitop: rmdir lässt den Ordner stehen, und purge gelingt
     assert run(tmp_path, "postrm", "purge")[0].returncode == 0 and (etc / "other").exists()
     shutil.rmtree(etc)
-    r = subprocess.run(["sh", str(tmp_path / "postrm"), "purge"], capture_output=True, text=True, timeout=30)
+    (tmp_path / "syncs").unlink()
+    # E3 (#5): der sync-Stellvertreter von run vorn auf PATH, nie das echte sync -f /etc
+    r = subprocess.run(["sh", str(tmp_path / "postrm"), "purge"], capture_output=True, text=True, timeout=30,
+                       env={**os.environ, "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}"})
     assert r.returncode == 0 and not etc.exists(), r.stderr
+    assert recorded(tmp_path, "syncs") == ["-f /etc marker-left=no"]
 
 
 @pytest.mark.skipif(not shutil.which("shellcheck"), reason="shellcheck fehlt")

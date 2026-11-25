@@ -36,9 +36,9 @@ def test_revoke_failed_is_what_the_remove_script_prints_when_off_cannot_run(tmp_
 
 
 @pytest.mark.parametrize("manager,ways,commands", [
-    ("dnf.sh", ["rpm_pair", "dnf_pair"], ['rpm -U --nosignature "$1" "$2"', 'dnf upgrade -y "$1" "$2"']),
-    ("zypper.sh", ["rpm_pair", "zypper_pair"], ['rpm -U --nosignature "$1" "$2"',
-                                                'update --repo joint orbitop "$OWNER"']),
+    ("dnf.sh", ["rpm_pair", "dnf_pair"], ['rpm -U --nosignature -- "$1" "$2"', 'dnf upgrade -y -- "$1" "$2"']),
+    ("zypper.sh", ["rpm_pair", "zypper_pair"], ['rpm -U --nosignature -- "$1" "$2"',
+                                                'update --repo joint -- orbitop "$OWNER"']),
     ("pacman.sh", ["pacman_pair"], ['pacman -U --noconfirm -- "$1" "$2"'])])
 def test_joint_upgrade_ways(tmp_path, manager, ways, commands):
     """B2.4 Fall 6: rpm -U beider Pakete und dnf upgrade bzw. zypper up, unter Arch pacman -U beider Pakete."""
@@ -117,7 +117,7 @@ def test_orbitop_file_of_rpm_and_arch(tmp_path, manager, name, files, passed):
         assert out.splitlines()[-2] == str(tmp_path / files[0])
 
 
-@pytest.mark.parametrize("installed,want", [(0, "RPM -U --replacepkgs --oldpackage --nosignature /x.rpm"),
+@pytest.mark.parametrize("installed,want", [(0, "RPM -U --replacepkgs --oldpackage --nosignature -- /x.rpm"),
                                             (1, "NEW /x.rpm")], ids=["installed", "first"])
 @pytest.mark.parametrize("manager", ["dnf.sh", "zypper.sh"])
 def test_rpm_install_file_brings_dependencies_the_first_time(tmp_path, manager, installed, want):

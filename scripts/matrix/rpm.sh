@@ -6,9 +6,9 @@
 # shellcheck shell=bash disable=SC2034,SC2154  # counters.sh reads the values of the counter release; FAMILY, TAMPERED
 # and those of the counter release come from dnf.sh or zypper.sh, STATE from lib.sh, TOOL from counters.sh
 
-installed() { rpm -q --qf '%{VERSION}-%{RELEASE}' orbitop; }
-offered() { rpm -qp --qf '%{VERSION}-%{RELEASE}' "$1/rpm/$FAMILY"/orbitop-[0-9]*.noarch.rpm; }
-files_of() { rpm -ql orbitop orbitop-release; }
+installed() { rpm -q --qf '%{VERSION}-%{RELEASE}' -- orbitop; }
+offered() { rpm -qp --qf '%{VERSION}-%{RELEASE}' -- "$1/rpm/$FAMILY"/orbitop-[0-9]*.noarch.rpm; }
+files_of() { rpm -ql -- orbitop orbitop-release; }
 owned() { rpm -qf -- "$1" 2> /dev/null; }
 packages() { rpm -qa | sort; }
 
@@ -18,8 +18,8 @@ packages() { rpm -qa | sort; }
 # one.
 rpm_key() {
     local before after checked
-    before=$(rpmkeys --list) && rpm --import "$1/orbitop-archive-keyring.asc" && after=$(rpmkeys --list) || return 1
-    [ "$(grep -cvxF -- "$before" <<< "$after")" -eq 1 ] && checked=$(rpm -K "$1/rpm/$FAMILY"/*.rpm) || return 1
+    before=$(rpmkeys --list) && rpm --import -- "$1/orbitop-archive-keyring.asc" && after=$(rpmkeys --list) || return 1
+    [ "$(grep -cvxF -- "$before" <<< "$after")" -eq 1 ] && checked=$(rpm -K -- "$1/rpm/$FAMILY"/*.rpm) || return 1
     printf '%s\n' "$checked"
     ! grep -v -- ': digests signatures OK$' <<< "$checked"
 }
@@ -77,7 +77,7 @@ fake_owner() {
             "install -D -m 0755 $dir/intel_gpu_top %{buildroot}$TOOL" "%files" "$TOOL"
     } > "$dir/SPECS/owner.spec" &&
         rpmbuild -bb --target "$arch" --define "_topdir $dir" --define 'debug_package %{nil}' \
-            --define '__spec_install_post %{nil}' --define '_build_id_links none' "$dir/SPECS/owner.spec" >&2 &&
+            --define '__spec_install_post %{nil}' --define '_build_id_links none' -- "$dir/SPECS/owner.spec" >&2 &&
         only_file "$dir/RPMS/$arch/$OWNER-"*.rpm
 }
 
@@ -86,11 +86,15 @@ fake_owner() {
 # the unsigned packages of /rev2 and /v020 and those of SITE, whose key left the rpm database in the step purge; the
 # signatures are the matter of the steps keyring, install and tamper.
 install_file() {
-    if rpm -q orbitop > /dev/null; then rpm -U --replacepkgs --oldpackage --nosignature "$1"; else install_new "$1"; fi
+    if rpm -q -- orbitop > /dev/null; then
+        rpm -U --replacepkgs --oldpackage --nosignature -- "$1"
+    else
+        install_new "$1"
+    fi
 }
-rpm_pair() { rpm -U --nosignature "$1" "$2"; }  # one rpm transaction for both files
-purge_pkg() { ! rpm -q "$1" > /dev/null || remove_pkg "$1"; }  # rpm has no purge: a removal is final
-pkg_files() { rpm -ql orbitop; }
+rpm_pair() { rpm -U --nosignature -- "$1" "$2"; }  # one rpm transaction for both files
+purge_pkg() { ! rpm -q -- "$1" > /dev/null || remove_pkg "$1"; }  # rpm has no purge: a removal is final
+pkg_files() { rpm -ql -- orbitop; }
 
 # orbitop_file rev1|rev2|v020: orbitop of SITE, or the one check-distros.sh built of the same tree as revision 2
 # (REV2) or of the tag v0.2.0 (V020), for this family.
@@ -116,6 +120,6 @@ case_rpm_verify() {
 # B2.4, 8 and E5: /usr/bin/pkexec comes from polkit's package (PKEXEC_PROVIDER), not from run0-wrappers.
 case_pkexec_provider() {
     local names
-    names=$(rpm -q --whatprovides --qf '%{NAME}\n' /usr/bin/pkexec) && echo "PKEXEC $names" &&
+    names=$(rpm -q --whatprovides --qf '%{NAME}\n' -- /usr/bin/pkexec) && echo "PKEXEC $names" &&
         [ "$names" = "$PKEXEC_PROVIDER" ]
 }
