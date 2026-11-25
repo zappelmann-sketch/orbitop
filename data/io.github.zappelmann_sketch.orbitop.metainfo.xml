@@ -19,6 +19,15 @@
   <url type="homepage">https://github.com/zappelmann-sketch/orbitop</url>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.4.0" date="2026-11-25">
+      <description>
+        <p>The hint about missing counter rights now says when the switch "Release counters" is on but has no effect, for example after an update of intel_gpu_top, and that switching it off and on again helps.</p>
+        <p>After the window reloads, a finished installation of the Intel GPU tools no longer shows the button "Install" again; the hint shows the command of the distribution at once.</p>
+        <p>Keyboard focus no longer gets lost when the footer disappears, and the sort arrow in the process list has the same size on every system.</p>
+        <p>Quitting orbitop during an installation no longer contacts PackageKit after the cancel.</p>
+        <p>From this version on, release tags are signed; the README lists every reason why the counter release can be refused as unsafe.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-11-21">
       <description>
         <p>New switch "Release counters" in the settings of the About dialog: with the admin password, it lets every account read the GPU counters of intel_gpu_top and the RAPL energy counters, and it locks them again.</p>
