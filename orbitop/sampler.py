@@ -11,9 +11,9 @@ from orbitop import procs, sysfs, tiles
 from orbitop.gpu import FdinfoScanner, GpuReader, discover_gpus
 from orbitop.gpu_tools import GpuTools
 from orbitop.messages import encode
+from orbitop.netdisk import DiskReader, NetReader
 from orbitop.procs import ProcTable
 from orbitop.sensors import TEMP_MAX, RaplReader, Temp, read_battery, read_sensors
-from orbitop.netdisk import DiskReader, NetReader
 from orbitop.system import CpuReader, read_memory
 
 POINTS, THREAD_POINTS = 300, 60
