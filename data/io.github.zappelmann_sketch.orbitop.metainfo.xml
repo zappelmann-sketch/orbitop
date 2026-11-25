@@ -22,7 +22,7 @@
     <release version="0.4.0" date="2026-11-25">
       <description>
         <p>The hint about missing counter rights now says when the switch "Release counters" is on but has no effect, for example after an update of intel_gpu_top, and that switching it off and on again helps.</p>
-        <p>After the page reloads, the hint no longer offers the button "Install" again once an installation attempt in this session has ended; it shows the command of the distribution at once.</p>
+        <p>After the page reloads, the hint no longer offers the button "Install" again once an installation in this session has succeeded or failed; it shows the command of the distribution at once.</p>
         <p>Keyboard focus no longer gets lost when the footer disappears, and the sort arrow in the process list has the same size on every system.</p>
         <p>Quitting orbitop while an installation through PackageKit is still being prepared no longer wakes PackageKit or sends it further requests; a running installation is cancelled as before.</p>
         <p>From this version on, release tags are signed; the README lists every reason why the counter release can be refused as unsafe.</p>
